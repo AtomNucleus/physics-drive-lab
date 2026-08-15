@@ -25,7 +25,8 @@ jobs:
             .repo-upload/chunk_05 \
             .repo-upload/chunk_06 \
             .repo-upload/chunk_07 \
-            .repo-upload/fix08_00 \
+            .repo-upload/fix08a_00 \
+            .repo-upload/fix08a_01 \
             .repo-upload/fix08_01 \
             .repo-upload/fix08_02 \
             .repo-upload/fix08_03 \
