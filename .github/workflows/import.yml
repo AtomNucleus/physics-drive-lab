@@ -16,7 +16,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .repo-upload/chunk_* > /tmp/payload.b64
+          cat \
+            .repo-upload/chunk_00 \
+            .repo-upload/chunk_01 \
+            .repo-upload/chunk_02 \
+            .repo-upload/chunk_03 \
+            .repo-upload/chunk_04 \
+            .repo-upload/chunk_05 \
+            .repo-upload/chunk_06 \
+            .repo-upload/chunk_07 \
+            .repo-upload/fix08_00 \
+            .repo-upload/fix08_01 \
+            .repo-upload/fix08_02 \
+            .repo-upload/fix08_03 \
+            .repo-upload/fix09_00 \
+            .repo-upload/fix09_01 \
+            .repo-upload/fix09_02 \
+            .repo-upload/fix09_03 \
+            .repo-upload/chunk_10 \
+            .repo-upload/chunk_11 \
+            .repo-upload/chunk_12 \
+            > /tmp/payload.b64
           base64 -d /tmp/payload.b64 > /tmp/physics-drive-lab.tar.gz
           echo "312b1d97a154bd5f09da95cc68bf2cb9a3bdeafd7c8ce76e60b5cc2db72828b9  /tmp/physics-drive-lab.tar.gz" | sha256sum -c -
           tar -xzf /tmp/physics-drive-lab.tar.gz -C .
