@@ -33,6 +33,27 @@ interface ControlsOverlayProps {
   onTouchInput: (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => void;
 }
 
+type TouchAction = 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake';
+
+const detectMobileDrivingMode = () => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+
+  const override = new URLSearchParams(window.location.search).get('mobileControls');
+  if (override === '1' || override === 'true') return true;
+  if (override === '0' || override === 'false') return false;
+
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const uaMobile = nav.userAgentData?.mobile === true || /Android|iPhone|iPod|IEMobile|Opera Mini/i.test(userAgent);
+  const iPadLike = /iPad/i.test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const touchCapable = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+  const touchSizedViewport = window.innerWidth <= 1180;
+
+  return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
+};
+
 export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   cameraMode,
   onNextCamera,
@@ -50,6 +71,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
 }) => {
   const [toolbarExpanded, setToolbarExpanded] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
+  const [mobileMode, setMobileMode] = React.useState(false);
   const activePreset = VEHICLE_PRESETS[activePresetKey] || VEHICLE_PRESETS.sportGT;
 
   const isW = activeKeys['KeyW'] || activeKeys['ArrowUp'];
@@ -58,10 +80,41 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   const isD = activeKeys['KeyD'] || activeKeys['ArrowRight'];
   const isSpace = activeKeys['Space'];
 
+  React.useEffect(() => {
+    const pointerQuery = window.matchMedia('(pointer: coarse)');
+    const evaluate = () => setMobileMode(detectMobileDrivingMode());
+
+    evaluate();
+    pointerQuery.addEventListener?.('change', evaluate);
+    window.addEventListener('resize', evaluate);
+    window.addEventListener('orientationchange', evaluate);
+
+    return () => {
+      pointerQuery.removeEventListener?.('change', evaluate);
+      window.removeEventListener('resize', evaluate);
+      window.removeEventListener('orientationchange', evaluate);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (mobileMode) {
+      document.documentElement.dataset.drivingMobile = 'true';
+      return () => {
+        delete document.documentElement.dataset.drivingMobile;
+      };
+    }
+
+    delete document.documentElement.dataset.drivingMobile;
+    return undefined;
+  }, [mobileMode]);
+
   return (
     <>
       {/* Compact utility bar. Secondary controls are one click away instead of permanently occupying the view. */}
-      <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2">
+      <div
+        className="absolute left-1/2 top-3 z-20 -translate-x-1/2"
+        style={mobileMode ? { top: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
+      >
         <div className="flex items-center gap-1 rounded-2xl border border-slate-800/75 bg-slate-950/80 p-1 shadow-2xl backdrop-blur-xl">
           <button
             id="preset-selector-btn"
@@ -80,7 +133,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             title="Switch camera (C)"
           >
             <Camera size={14} />
-            <span className="hidden capitalize sm:inline">{cameraMode}</span>
+            <span className={mobileMode ? 'capitalize' : 'hidden capitalize sm:inline'}>{cameraMode}</span>
           </button>
 
           <button
@@ -102,7 +155,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
               title="Physics tuning (P)"
             >
               <Sliders size={14} />
-              <span className="hidden sm:inline">Physics</span>
+              <span className={mobileMode ? 'hidden' : 'hidden sm:inline'}>Physics</span>
             </button>
 
             {onOpenTestRunner && (
@@ -113,7 +166,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
                 title="Physics tests (Y)"
               >
                 <Cpu size={14} />
-                <span className="hidden sm:inline">Tests</span>
+                <span className={mobileMode ? 'hidden' : 'hidden sm:inline'}>Tests</span>
               </button>
             )}
 
@@ -178,19 +231,30 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             </span>
             <button onClick={() => setShowHelp(false)} className="text-slate-500 hover:text-white">✕</button>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 font-mono">
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-emerald-300">W / ↑</span><br />Throttle</div>
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-rose-300">S / ↓</span><br />Brake</div>
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">A / D</span><br />Steer</div>
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-amber-300">SPACE</span><br />Handbrake</div>
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">C / R</span><br />Camera / reset</div>
-            <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">H / T</span><br />HUD / telemetry</div>
-          </div>
+          {mobileMode ? (
+            <div className="grid grid-cols-2 gap-1.5 font-mono">
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">← / →</span><br />Steer</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-emerald-300">GAS</span><br />Throttle</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-rose-300">BRAKE</span><br />Brake</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-amber-300">HB</span><br />Handbrake</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">CAM</span><br />Camera</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">RESET</span><br />Respawn</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-1.5 font-mono">
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-emerald-300">W / ↑</span><br />Throttle</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-rose-300">S / ↓</span><br />Brake</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">A / D</span><br />Steer</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-amber-300">SPACE</span><br />Handbrake</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">C / R</span><br />Camera / reset</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">H / T</span><br />HUD / telemetry</div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Keyboard visualizer now follows the expanded utility state, so it is not permanent screen furniture. */}
-      {toolbarExpanded && (
+      {/* Keyboard visualizer follows the expanded utility state and never appears in mobile mode. */}
+      {toolbarExpanded && !mobileMode && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden items-end gap-1.5 sm:flex">
           <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-800/70 bg-slate-950/70 p-1.5 backdrop-blur-md">
             <div />
@@ -206,17 +270,13 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         </div>
       )}
 
-      {/* Mobile driving controls remain available regardless of HUD density. */}
-      <div className="pointer-events-auto absolute bottom-3 right-3 z-20 flex items-end gap-2 sm:hidden">
-        <div className="flex gap-1.5">
-          <TouchButton label="←" onDown={() => onTouchInput('steerLeft', true)} onUp={() => onTouchInput('steerLeft', false)} />
-          <TouchButton label="→" onDown={() => onTouchInput('steerRight', true)} onUp={() => onTouchInput('steerRight', false)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <TouchButton label="GAS" compact activeClass="active:bg-emerald-400" onDown={() => onTouchInput('throttle', true)} onUp={() => onTouchInput('throttle', false)} />
-          <TouchButton label="BRK" compact activeClass="active:bg-rose-400" onDown={() => onTouchInput('brake', true)} onUp={() => onTouchInput('brake', false)} />
-        </div>
-      </div>
+      {mobileMode && (
+        <MobileDrivingControls
+          onTouchInput={onTouchInput}
+          onNextCamera={onNextCamera}
+          onReset={onReset}
+        />
+      )}
     </>
   );
 };
@@ -227,20 +287,118 @@ const KeyCap: React.FC<{ active: boolean; label: string; activeClass: string }> 
   </div>
 );
 
-const TouchButton: React.FC<{
-  label: string;
-  onDown: () => void;
-  onUp: () => void;
-  compact?: boolean;
-  activeClass?: string;
-}> = ({ label, onDown, onUp, compact = false, activeClass = 'active:bg-sky-400' }) => (
-  <button
-    onPointerDown={onDown}
-    onPointerUp={onUp}
-    onPointerCancel={onUp}
-    onPointerLeave={onUp}
-    className={`${compact ? 'h-10 w-12 text-[9px]' : 'h-12 w-12 text-lg'} ${activeClass} flex touch-none items-center justify-center rounded-xl border border-slate-700 bg-slate-950/88 font-bold text-slate-200 shadow-lg backdrop-blur-md`}
-  >
-    {label}
-  </button>
+const MobileDrivingControls: React.FC<{
+  onTouchInput: (action: TouchAction, active: boolean) => void;
+  onNextCamera: () => void;
+  onReset: () => void;
+}> = ({ onTouchInput, onNextCamera, onReset }) => (
+  <>
+    <div id="mobile-landscape-hint" className="pointer-events-none absolute left-1/2 top-16 z-30 hidden -translate-x-1/2 rounded-full border border-slate-700/80 bg-slate-950/82 px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-300 shadow-xl backdrop-blur-lg">
+      Rotate for the best driving view
+    </div>
+
+    <div
+      id="mobile-driving-controls"
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex items-end justify-between gap-3"
+      style={{
+        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+        paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+      }}
+    >
+      <div className="pointer-events-auto flex flex-col items-start gap-1.5">
+        <span className="pl-1 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400/90">Steer</span>
+        <div className="flex gap-2">
+          <MobileTouchButton
+            label="←"
+            ariaLabel="Steer left"
+            className="h-[4.75rem] w-[4.75rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
+            onActiveChange={(active) => onTouchInput('steerLeft', active)}
+          />
+          <MobileTouchButton
+            label="→"
+            ariaLabel="Steer right"
+            className="h-[4.75rem] w-[4.75rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
+            onActiveChange={(active) => onTouchInput('steerRight', active)}
+          />
+        </div>
+      </div>
+
+      <div className="pointer-events-auto absolute bottom-0 left-1/2 flex -translate-x-1/2 gap-1.5" style={{ marginBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        <button
+          type="button"
+          onClick={onNextCamera}
+          className="flex h-9 items-center gap-1 rounded-full border border-slate-700 bg-slate-950/82 px-3 text-[9px] font-bold text-slate-200 shadow-lg backdrop-blur-lg active:bg-slate-800"
+          aria-label="Change camera"
+        >
+          <Camera size={13} /> CAM
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          className="flex h-9 items-center gap-1 rounded-full border border-slate-700 bg-slate-950/82 px-3 text-[9px] font-bold text-slate-200 shadow-lg backdrop-blur-lg active:bg-amber-300 active:text-slate-950"
+          aria-label="Reset car"
+        >
+          <RotateCcw size={13} /> RESET
+        </button>
+      </div>
+
+      <div className="pointer-events-auto flex items-end gap-2">
+        <MobileTouchButton
+          label="HB"
+          ariaLabel="Handbrake"
+          className="h-14 w-14 text-[11px] active:border-amber-300 active:bg-amber-300 active:text-slate-950"
+          onActiveChange={(active) => onTouchInput('handbrake', active)}
+        />
+        <MobileTouchButton
+          label="BRAKE"
+          ariaLabel="Brake"
+          className="h-[5.75rem] w-[4.5rem] text-[10px] active:border-rose-300 active:bg-rose-400 active:text-slate-950"
+          onActiveChange={(active) => onTouchInput('brake', active)}
+        />
+        <MobileTouchButton
+          label="GAS"
+          ariaLabel="Throttle"
+          className="h-[6.75rem] w-[4.75rem] text-xs active:border-emerald-300 active:bg-emerald-400 active:text-slate-950"
+          onActiveChange={(active) => onTouchInput('throttle', active)}
+        />
+      </div>
+    </div>
+  </>
 );
+
+const MobileTouchButton: React.FC<{
+  label: string;
+  ariaLabel: string;
+  className: string;
+  onActiveChange: (active: boolean) => void;
+}> = ({ label, ariaLabel, className, onActiveChange }) => {
+  const pointerIdRef = React.useRef<number | null>(null);
+
+  const deactivate = (event?: React.PointerEvent<HTMLButtonElement>) => {
+    if (event && pointerIdRef.current !== null && event.pointerId !== pointerIdRef.current) return;
+    pointerIdRef.current = null;
+    onActiveChange(false);
+  };
+
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        if (pointerIdRef.current !== null) return;
+        pointerIdRef.current = event.pointerId;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        onActiveChange(true);
+      }}
+      onPointerUp={deactivate}
+      onPointerCancel={deactivate}
+      onLostPointerCapture={deactivate}
+      onContextMenu={(event) => event.preventDefault()}
+      className={`${className} flex touch-none select-none items-center justify-center rounded-[1.35rem] border border-slate-500/70 bg-slate-950/68 font-black text-slate-100 shadow-2xl backdrop-blur-md transition-[transform,background-color,border-color] duration-75 active:scale-[0.97]`}
+    >
+      {label}
+    </button>
+  );
+};
