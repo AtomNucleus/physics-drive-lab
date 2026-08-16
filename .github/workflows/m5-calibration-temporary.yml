@@ -1,0 +1,325 @@
+name: Temporary 2025 M5 Calibration
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+permissions:
+  contents: write
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: agent/dynamic-tire-load-transfer
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add M5 production calibration plumbing
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          m5 = Path('src/physics/m5G90.ts')
+          if not m5.exists():
+              m5.write_text("""import type { VehicleConfig } from '../types';
+
+/**
+ * 2025 BMW M5 (G90) calibration.
+ * Geometry, mass, gearing, output and tire sizes are grounded in BMW/C&D data.
+ * Unpublished chassis parameters (CG height, spring/damper/ARB rates) are
+ * calibration variables chosen to reproduce measured transient and limit behavior.
+ */
+export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any> = {
+  mass: 2381.8135,              // 5251 lb C/D instrumented test car
+  weightDistributionFront: 0.545,
+  centerOfGravityHeight: 0.52,  // calibrated estimate; BMW does not publish CG height
+  wheelbase: 3.00482,           // 118.3 in
+  trackWidth: 1.67259,          // mean of 66.3 / 65.4 in front/rear tracks
+  wheelRadius: 0.369,           // mean loaded geometry of 285/40R20 + 295/35R21
+  wheelInertia: 2.10,
+  unsprungMassCorner: 55,
+
+  suspensionRestLength: 0.34,
+  suspensionStiffness: 62000,
+  suspensionDamping: 5000,
+  suspensionDampingLowSpeed: 5200,
+  suspensionDampingHighSpeed: 3000,
+  suspensionReboundDamping: 6500,
+  bumpStopStiffness: 70000,
+  bumpStopTravelThreshold: 0.80,
+  rollStiffnessFront: 46000,
+  rollStiffnessRear: 40000,
+  antiRollCrossCoupling: 0.30,
+  camberStaticFront: -1.5,
+  camberStaticRear: -1.2,
+  camberGain: 7.5,
+  antiDiveFront: 0.45,
+  antiSquatRear: 0.35,
+  bodyRollMultiplier: 1.15,
+  bodyPitchMultiplier: 1.05,
+
+  // BMW-star Hankook Ventus S1 Evo Z, 285 front / 295 rear.
+  tireGripFront: 1.21,
+  tireGripRear: 1.20,
+  tireStiffness: 15.0,
+  tireLoadSensitivity: 0.000030,
+  slideFrictionMultiplier: 0.83,
+  relaxationLength: 0.19,
+  tirePneumaticTrailMax: 0.030,
+  tireSidewallStiffness: 230000,
+  tireVerticalStiffness: 280000,
+  tireVerticalDamping: 1800,
+  tireBasePressure: 35.0,
+  optimalTireTemp: 75,
+  driftAssist: 0.0,
+
+  aeroDownforceFront: 120,
+  aeroDownforceRear: 180,
+  aeroDragCoeff: 0.35,
+  aeroCopPitchSensitivity: 0.04,
+  groundEffectUnderbody: false,
+  groundEffectMaxDownforce: 0,
+  drsEnabled: false,
+  airbrakeEnabled: false,
+
+  drivetrain: 'AWD',
+  differentialType: 'TORQUE_VECTOR',
+  centerFrontTorqueRatio: 0.32, // rear-biased 4WD Sport baseline; adapts with axle overspeed
+  diffPowerRamp: 0.88,
+  diffCoastRamp: 0.48,
+  diffPreloadTorque: 100,
+  diffLockRatio: 0.88,
+
+  // 717 hp / 738 lb-ft system. maxTorque is calibrated before the existing
+  // turbo multiplier so delivered combined torque lands near the real system output.
+  maxTorque: 700,
+  maxRpm: 7200,
+  idleRpm: 750,
+  revLimiterRpm: 7100,
+  flywheelInertia: 0.28,
+  engineBrakingTorque: 100,
+  clutchBiteRate: 20.0,
+  maxClutchTorque: 1500,
+  transmissionEfficiency: 0.94,
+  turboBoostMaxPsi: 18.0,
+  turboSpoolRate: 12.0,
+  wastegatePressurePsi: 17.5,
+
+  reverseRatio: -3.97,
+  forwardGearRatios: [5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
+  gearRatios: [-3.97, 5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
+  finalDriveRatio: 3.31,
+
+  brakeForce: 18200,
+  handbrakeForce: 10000,
+  brakeBiasFront: 0.62,
+
+  ackermannRatio: 0.90,
+  maxSteerAngle: 0.58,
+  steerSpeed: 4.8,
+  steerSpeedReduction: 0.60,
+  rearSteerMaxDeg: 1.5,
+  rearSteerTransitionSpeedMs: 20.0,
+
+  absMode: 'SPORT',
+  tcsMode: 'SPORT',
+  launchControlEnabled: true,
+};
+
+export const BMW_M5_2025_TARGETS = {
+  zeroTo60MphSec: 3.0,
+  zeroTo100MphSec: 6.7,
+  quarterMileSec: 10.9,
+  quarterMileTrapMph: 130,
+  braking70To0Ft: 157,
+  braking100To0Ft: 324,
+  skidpadG: 0.98,
+};
+""")
+
+          # Vehicle: use configured wheel geometry, pass full gearbox/clutch settings,
+          # add configurable adaptive AWD split, and model G90 rear steering.
+          p = Path('src/physics/Vehicle.ts')
+          s = p.read_text()
+          s = s.replace('    const tireRadius = 0.33;\n    const wheelInertia = 1.25;', '    const tireRadius = this.config.wheelRadius;\n    const wheelInertia = this.config.wheelInertia;')
+          s = s.replace('      gearRatios: this.config.gearRatios,\n      finalDriveRatio: this.config.finalDriveRatio,', '      reverseRatio: this.config.reverseRatio,\n      forwardGearRatios: this.config.forwardGearRatios,\n      gearRatios: this.config.gearRatios,\n      finalDriveRatio: this.config.finalDriveRatio,\n      maxClutchTorque: this.config.maxClutchTorque,\n      transmissionEfficiency: this.config.transmissionEfficiency,')
+          s = s.replace('      drivetrain: this.config.drivetrain,\n    });', '      drivetrain: this.config.drivetrain,\n      frontTorqueRatio: (this.config as any).centerFrontTorqueRatio,\n    });', 1)
+          s = s.replace('      gearRatios: newConfig.gearRatios,\n      finalDriveRatio: newConfig.finalDriveRatio,', '      reverseRatio: newConfig.reverseRatio,\n      forwardGearRatios: newConfig.forwardGearRatios,\n      gearRatios: newConfig.gearRatios,\n      finalDriveRatio: newConfig.finalDriveRatio,\n      maxClutchTorque: newConfig.maxClutchTorque,\n      transmissionEfficiency: newConfig.transmissionEfficiency,')
+          s = s.replace('      drivetrain: newConfig.drivetrain,\n    };', '      drivetrain: newConfig.drivetrain,\n      frontTorqueRatio: (newConfig as any).centerFrontTorqueRatio,\n    };', 1)
+          s = s.replace('      this.wheels[i].tireConfig = {', '      (this.wheels[i] as any).radius = newConfig.wheelRadius;\n      (this.wheels[i] as any).inertia = newConfig.wheelInertia;\n      this.wheels[i].tireConfig = {')
+          s = s.replace('    this.wheels[2].steerAngle = 0;\n    this.wheels[3].steerAngle = 0;', """    const meanFrontSteer = (steerOut.steerFL + steerOut.steerFR) * 0.5;
+    const rearMax = (((this.config as any).rearSteerMaxDeg ?? 0) * Math.PI) / 180;
+    const rearTransition = Math.max(1, (this.config as any).rearSteerTransitionSpeedMs ?? 20);
+    const speedAbs = Math.abs(forwardSpeed);
+    const phase = PhysicsMath.clamp((speedAbs - (rearTransition - 5)) / 10, 0, 1);
+    const lowSpeedRear = -Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.35, rearMax);
+    const highSpeedRear = Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.18, rearMax);
+    const rearSteer = lowSpeedRear + (highSpeedRear - lowSpeedRear) * phase;
+    this.wheels[2].steerAngle = rearSteer;
+    this.wheels[3].steerAngle = rearSteer;""")
+          s = s.replace('      0.33,\n      this.config.tireVerticalStiffness,', '      this.config.wheelRadius,\n      this.config.tireVerticalStiffness,')
+          p.write_text(s)
+
+          # Differential: rear-biased adaptive center coupling for M xDrive-like behavior.
+          p = Path('src/physics/Differential.ts')
+          s = p.read_text()
+          s = s.replace("  drivetrain: DrivetrainType; // 'RWD' | 'FWD' | 'AWD'\n}", "  drivetrain: DrivetrainType; // 'RWD' | 'FWD' | 'AWD'\n  frontTorqueRatio?: number; // AWD baseline; adaptive center coupling may vary this\n}")
+          s = s.replace("    // AWD: Center Differential with 40/60 Front/Rear torque split\n    const frontRatio = 0.40;\n    const rearRatio = 0.60;", """    // AWD: adaptive center coupling. Baseline can be rear-biased (M xDrive style),
+    // then front torque rises when the rear axle overspeeds and asks for traction.
+    const baseFrontRatio = PhysicsMath.clamp(this.config.frontTorqueRatio ?? 0.40, 0.20, 0.50);
+    const frontOmega = (Math.abs(omegaFL) + Math.abs(omegaFR)) * 0.5;
+    const rearOmega = (Math.abs(omegaRL) + Math.abs(omegaRR)) * 0.5;
+    const axleSpeedRef = Math.max(1.0, (frontOmega + rearOmega) * 0.5);
+    const rearOverspeed = (rearOmega - frontOmega) / axleSpeedRef;
+    const frontRatio = PhysicsMath.clamp(baseFrontRatio + rearOverspeed * 0.28, 0.20, 0.50);
+    const rearRatio = 1.0 - frontRatio;""")
+          p.write_text(s)
+
+          # Preset entry points to the small, independently tunable M5 override file.
+          p = Path('src/physics/vehiclePresets.ts')
+          s = p.read_text()
+          if "./m5G90" not in s:
+              s = s.replace("import { VehicleConfig, VehiclePreset } from '../types';", "import { VehicleConfig, VehiclePreset } from '../types';\nimport { BMW_M5_2025_OVERRIDES } from './m5G90';")
+          marker = "export const VEHICLE_PRESETS: Record<string, VehiclePreset> = {\n"
+          if 'm5G90:' not in s:
+              entry = """  m5G90: {
+    name: '2025 BMW M5 (G90)',
+    tagline: '5,251 lb measured G90 • 717 hp M Hybrid • rear-biased M xDrive',
+    description: 'Instrumented-test calibration of the 2025 G90 M5 using measured mass, 54.5% front distribution, BMW gearing and tire sizes, adaptive rear-biased AWD, active rear steering, and C/D performance targets.',
+    color: '#111827',
+    config: BMW_M5_2025_OVERRIDES,
+  },
+"""
+              s = s.replace(marker, marker + entry)
+          p.write_text(s)
+
+          # Boot directly into the M5 calibration while retaining every other preset.
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          if "./physics/m5G90" not in s:
+              s = s.replace("import { DEFAULT_VEHICLE_CONFIG, VEHICLE_PRESETS } from './physics/vehiclePresets';", "import { DEFAULT_VEHICLE_CONFIG, VEHICLE_PRESETS } from './physics/vehiclePresets';\nimport { BMW_M5_2025_OVERRIDES } from './physics/m5G90';")
+          if 'const INITIAL_PRESET_KEY' not in s:
+              s = s.replace('export default function App() {', "const INITIAL_PRESET_KEY = 'm5G90';\nconst INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;\n\nexport default function App() {")
+          s = s.replace('useState<VehicleConfig>(DEFAULT_VEHICLE_CONFIG)', 'useState<VehicleConfig>(INITIAL_CONFIG)')
+          s = s.replace("useState<string>('sportGT')", 'useState<string>(INITIAL_PRESET_KEY)')
+          s = s.replace("useState<string>('#2563eb')", "useState<string>('#111827')")
+          s = s.replace('new VehiclePhysicsEngine(DEFAULT_VEHICLE_CONFIG)', 'new VehiclePhysicsEngine(INITIAL_CONFIG)')
+          p.write_text(s)
+          PY
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/physics/m5G90.ts src/physics/Vehicle.ts src/physics/Differential.ts src/physics/vehiclePresets.ts src/App.tsx
+            git commit -m "Calibrate default drive to 2025 BMW M5 G90"
+            git push origin HEAD:agent/dynamic-tire-load-transfer
+          fi
+
+      - name: Production build
+        run: npm run build
+
+      - name: Run M5 dynamics benchmark
+        run: |
+          cat > /tmp/m5-bench.ts <<'TS'
+          import fs from 'node:fs';
+          import { Simulation } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/Simulation.ts';
+          import { DEFAULT_VEHICLE_CONFIG } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/vehiclePresets.ts';
+          import { BMW_M5_2025_OVERRIDES, BMW_M5_2025_TARGETS } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/m5G90.ts';
+          import type { ControlInputs } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/types.ts';
+
+          const DT=1/120, MPH=2.2369362921, G=9.81;
+          const cfg:any={...DEFAULT_VEHICLE_CONFIG,...BMW_M5_2025_OVERRIDES};
+          const zero:any={throttle:0,brake:0,steer:0,handbrake:false,shiftUp:false,shiftDown:false};
+
+          function prepAtSpeed(mph:number){
+            const sim=new Simulation(cfg);
+            sim.reset(0,0,0);
+            const v=mph/MPH;
+            sim.vehicle.rigidBody.velocity={x:0,y:0,z:v};
+            sim.vehicle.wheels.forEach((w:any)=>w.reset(v));
+            sim.vehicle.powertrain.gear=0;
+            for(let i=0;i<60;i++) sim.stepExplicit(zero,1);
+            return sim;
+          }
+
+          function accel(){
+            const sim=new Simulation(cfg); sim.reset(0,0,0);
+            sim.vehicle.powertrain.isAutomatic=true;
+            let t60:number|null=null,t100:number|null=null,qTime:number|null=null,qTrap:number|null=null;
+            const z0=sim.vehicle.getState().z;
+            for(let i=0;i<120*18;i++){
+              const st=sim.stepExplicit({...zero,throttle:1},1);
+              const t=(i+1)*DT, mph=st.speedMs*MPH, dist=Math.abs(st.z-z0);
+              if(t60===null && mph>=60) t60=t;
+              if(t100===null && mph>=100) t100=t;
+              if(qTime===null && dist>=402.336){qTime=t;qTrap=mph;}
+              if(st.rpm>6800 && sim.vehicle.powertrain.gear<8) sim.vehicle.powertrain.shiftUp();
+              if(qTime!==null && t100!==null) break;
+            }
+            return {zeroTo60:t60,zeroTo100:t100,quarterMile:qTime,quarterTrapMph:qTrap,finalGear:sim.vehicle.powertrain.gear};
+          }
+
+          function brake(startMph:number){
+            const sim=prepAtSpeed(startMph); sim.vehicle.driverAids.config.absMode='SPORT' as any;
+            const z0=sim.vehicle.getState().z; let peakG=0, samples:number[]=[];
+            for(let i=0;i<120*12;i++){
+              const st=sim.stepExplicit({...zero,brake:1},1);
+              const decel=Math.abs(sim.vehicle.rigidBody.acceleration.z/G); peakG=Math.max(peakG,decel);
+              if(st.speedMs>2) samples.push(decel);
+              if(st.speedMs<0.8) break;
+            }
+            const dist=Math.abs(sim.vehicle.getState().z-z0);
+            return {startMph,distanceM:dist,distanceFt:dist/0.3048,meanG:samples.reduce((a,b)=>a+b,0)/samples.length,peakG};
+          }
+
+          function skidpad(){
+            const sweeps:any[]=[];
+            for(const steer of [0.06,0.08,0.10,0.12,0.14,0.16,0.18,0.20,0.22]){
+              const sim=prepAtSpeed(48);
+              const rows:any[]=[];
+              for(let i=0;i<120*3;i++){
+                const st=sim.stepExplicit({...zero,steer},1);
+                if(i>120*2) rows.push({g:Math.abs(sim.vehicle.rigidBody.acceleration.x/G),yaw:Math.abs(st.yawRate),speed:st.speedMs*MPH,fs:(Math.abs(st.wheels[0].slipAngle)+Math.abs(st.wheels[1].slipAngle))/2,rs:(Math.abs(st.wheels[2].slipAngle)+Math.abs(st.wheels[3].slipAngle))/2});
+              }
+              const avg=(k:string)=>rows.reduce((a,r)=>a+r[k],0)/rows.length;
+              sweeps.push({steer,latG:avg('g'),speedMph:avg('speed'),yawRate:avg('yaw'),frontSlipDeg:avg('fs')*180/Math.PI,rearSlipDeg:avg('rs')*180/Math.PI});
+            }
+            return {sweeps,peakG:Math.max(...sweeps.map(x=>x.latG))};
+          }
+
+          function staticLoads(){
+            const sim=new Simulation(cfg); sim.reset(0,0,0);
+            for(let i=0;i<120*3;i++) sim.stepExplicit(zero,1);
+            const s=sim.vehicle.getState();
+            const loads=s.wheels.map((w:any)=>w.suspensionForce);
+            const front=loads[0]+loads[1], total=loads.reduce((a:number,b:number)=>a+b,0);
+            return {loads,frontFraction:front/total,bodyY:s.y};
+          }
+
+          const result={targets:BMW_M5_2025_TARGETS,config:{massKg:cfg.mass,frontWeight:cfg.weightDistributionFront,wheelbaseM:cfg.wheelbase,trackM:cfg.trackWidth,wheelRadiusM:cfg.wheelRadius,gears:cfg.forwardGearRatios,finalDrive:cfg.finalDriveRatio},staticLoads:staticLoads(),acceleration:accel(),braking70:brake(70),braking100:brake(100),skidpad:skidpad()};
+          fs.writeFileSync('m5-calibration.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result,null,2));
+          TS
+          npx tsx /tmp/m5-bench.ts | tee m5-calibration.log
+
+      - name: Upload M5 calibration artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-calibration
+          path: |
+            m5-calibration.json
+            m5-calibration.log
+          retention-days: 1
