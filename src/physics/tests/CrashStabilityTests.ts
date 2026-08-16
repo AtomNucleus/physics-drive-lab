@@ -69,9 +69,6 @@ let lateSkidFrames = 0;
 let latePeakVerticalSpeedMps = 0;
 
 for (let i = 0; i < 1080; i++) {
-  // After five seconds of genuine high-energy spin dynamics, remove remaining
-  // macroscopic momentum but DO NOT reset tire or suspension internal states.
-  // This isolates the reported "after the spin" self-excitation failure.
   if (i === 600) {
     spinSim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, 0);
     spinSim.vehicle.rigidBody.angularVelocity = PhysicsMath.vec3(0, 0, 0);
@@ -95,7 +92,6 @@ for (let i = 0; i < 1080; i++) {
     assert(wheel.verticalTravelM >= -0.120001, `spin exceeded droop travel: ${wheel.verticalTravelM}`);
   }
 
-  // Sample only after two seconds of post-spin recovery time.
   if (i >= 840) {
     const verticalSpeed = Math.abs(spinSim.vehicle.rigidBody.velocity.y);
     latePeakVerticalSpeedMps = Math.max(latePeakVerticalSpeedMps, verticalSpeed);
@@ -128,20 +124,28 @@ assert(
 assert(lateShakeEnergy / 240 < 0.08, `post-spin chassis retained shake energy: ${lateShakeEnergy / 240}`);
 
 // ---------------------------------------------------------------------------
-// Wipeout/roll impact: body shell must not pass through road and excite springs.
+// Wipeout/roll impact: start the already-rotated car clear of the road, then let it
+// strike the surface. This tests collision response rather than seeding the solver
+// with an artificial half-meter interpenetration at t=0.
 // ---------------------------------------------------------------------------
 const crashSim = new Simulation(config);
 crashSim.reset(0, 0, 0);
 for (let i = 0; i < 240; i++) crashSim.stepExplicit(neutral, 1);
 
-crashSim.vehicle.rigidBody.position.y = 1.15;
+crashSim.vehicle.rigidBody.position.y = 2.0;
 crashSim.vehicle.rigidBody.orientation = PhysicsMath.quatFromEuler(
   18 * Math.PI / 180,
   0,
   72 * Math.PI / 180
 );
+crashSim.vehicle.suspension.reset();
+assert(
+  probeChassisContact(crashSim.vehicle).contactCount === 0,
+  'wipeout test must begin with body shell clear of road'
+);
 crashSim.vehicle.rigidBody.velocity = PhysicsMath.vec3(14, -7.5, 18);
 crashSim.vehicle.rigidBody.angularVelocity = PhysicsMath.vec3(3.5, 2.2, 5.4);
+crashSim.vehicle.wheels.forEach((wheel) => wheel.reset(22));
 
 let maxPostStepPenetrationM = 0;
 let maxCrashAngularSpeed = 0;
