@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: PR #18 high-speed anti-roll bar validation
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - agent/anti-roll-bars
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
