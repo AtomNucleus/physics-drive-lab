@@ -25,6 +25,9 @@ jobs:
       - name: Mobile steering regression
         run: npm run test:mobile
 
+      - name: M5 xDrive 2WD regression
+        run: npm run test:m5-rwd
+
       - name: Stationary steering regression
         run: npm run test:stationary
 
