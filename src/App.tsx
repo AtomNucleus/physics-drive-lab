@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { VehicleConfig, VehicleState, CameraMode } from './types';
 import { DEFAULT_VEHICLE_CONFIG, VEHICLE_PRESETS } from './physics/vehiclePresets';
+import { BMW_M5_2025_OVERRIDES } from './physics/m5G90';
 import { VehiclePhysicsEngine } from './physics/vehiclePhysics';
 import { CarRenderer } from './graphics/carRenderer';
 import { EnvironmentManager } from './graphics/environment';
@@ -12,14 +13,17 @@ import { ControlsOverlay } from './components/ControlsOverlay';
 import { TuningModal } from './components/TuningModal';
 import { PhysicsTestRunnerModal } from './components/PhysicsTestRunnerModal';
 
+const INITIAL_PRESET_KEY = 'm5G90';
+const INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // React states for UI / HUD
-  const [config, setConfig] = useState<VehicleConfig>(DEFAULT_VEHICLE_CONFIG);
-  const [activePresetKey, setActivePresetKey] = useState<string>('sportGT');
-  const [currentColor, setCurrentColor] = useState<string>('#2563eb');
+  const [config, setConfig] = useState<VehicleConfig>(INITIAL_CONFIG);
+  const [activePresetKey, setActivePresetKey] = useState<string>(INITIAL_PRESET_KEY);
+  const [currentColor, setCurrentColor] = useState<string>('#111827');
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
   const [useMph, setUseMph] = useState<boolean>(false);
   const [showTelemetry, setShowTelemetry] = useState<boolean>(true);
@@ -30,7 +34,7 @@ export default function App() {
 
   // Live vehicle telemetry state
   const [vehicleTelemetry, setVehicleTelemetry] = useState<VehicleState>(() => {
-    const engine = new VehiclePhysicsEngine(DEFAULT_VEHICLE_CONFIG);
+    const engine = new VehiclePhysicsEngine(INITIAL_CONFIG);
     return engine.state;
   });
 

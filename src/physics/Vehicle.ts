@@ -38,16 +38,20 @@ export class Vehicle {
     this.config = { ...config };
     this.surfaceProvider = surfaceProvider || new ProvingGroundSurfaceProvider();
 
-    // 1. Calculate Moments of Inertia from mass, wheelbase, track width, and CG height
+    // 1. Calculate Moments of Inertia from mass, wheelbase, track width, and CG height.
+    // Body axes in this simulation are X=lateral (pitch axis), Y=vertical (yaw axis),
+    // Z=longitudinal (roll axis). Keep the principal inertias aligned to those axes.
     const m = this.config.mass;
     const L = this.config.wheelbase;
     const W = this.config.trackWidth;
     const H = this.config.centerOfGravityHeight;
 
-    // Approximate chassis as solid cuboid: Ixx = m/12*(W^2 + H^2), Iyy = m/12*(L^2 + W^2), Izz = m/12*(L^2 + H^2)
-    const Ixx = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
+    // Approximate sprung chassis as a cuboid with empirical multipliers for the fact
+    // that a real automobile is not a homogeneous box. Pitch inertia belongs on X;
+    // roll inertia belongs on Z. This was previously reversed.
+    const Ixx = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
     const Iyy = (m / 12) * (L * L + W * W) * 1.1; // Yaw inertia
-    const Izz = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
+    const Izz = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
 
     this.rigidBody = new RigidBody(
       {
@@ -62,8 +66,8 @@ export class Vehicle {
     this.suspension = new SuspensionSystem();
 
     // 2. Instantiate 4 Wheels [FL, FR, RL, RR]
-    const tireRadius = 0.33;
-    const wheelInertia = 1.25;
+    const tireRadius = this.config.wheelRadius;
+    const wheelInertia = this.config.wheelInertia;
 
     const tireConfigFront = {
       baseGrip: this.config.tireGripFront,
@@ -71,6 +75,8 @@ export class Vehicle {
       loadSensitivity: this.config.tireLoadSensitivity,
       slideFrictionMultiplier: this.config.slideFrictionMultiplier,
       relaxationLength: this.config.relaxationLength,
+      longitudinalRelaxationLength: (this.config as any).longitudinalRelaxationLength,
+      longitudinalForceRelaxationLength: (this.config as any).longitudinalForceRelaxationLength,
       pneumaticTrailMax: this.config.tirePneumaticTrailMax,
       camberStiffness: 85,
       optimalTemp: this.config.optimalTireTemp,
@@ -83,6 +89,8 @@ export class Vehicle {
       loadSensitivity: this.config.tireLoadSensitivity,
       slideFrictionMultiplier: this.config.slideFrictionMultiplier,
       relaxationLength: this.config.relaxationLength,
+      longitudinalRelaxationLength: (this.config as any).longitudinalRelaxationLength,
+      longitudinalForceRelaxationLength: (this.config as any).longitudinalForceRelaxationLength,
       pneumaticTrailMax: this.config.tirePneumaticTrailMax,
       camberStiffness: 85,
       optimalTemp: this.config.optimalTireTemp,
@@ -108,8 +116,19 @@ export class Vehicle {
       turboBoostMaxPsi: this.config.turboBoostMaxPsi,
       turboSpoolRate: this.config.turboSpoolRate,
       wastegatePressurePsi: this.config.wastegatePressurePsi,
+      reverseRatio: this.config.reverseRatio,
+      forwardGearRatios: this.config.forwardGearRatios,
       gearRatios: this.config.gearRatios,
       finalDriveRatio: this.config.finalDriveRatio,
+      maxClutchTorque: this.config.maxClutchTorque,
+      transmissionEfficiency: this.config.transmissionEfficiency,
+      launchControlEnabled: this.config.launchControlEnabled,
+      launchControlRpm: (this.config as any).launchControlRpm,
+      lowSpeedTorqueFillNm: (this.config as any).lowSpeedTorqueFillNm,
+      torqueFillFadeRpm: (this.config as any).torqueFillFadeRpm,
+      automaticTorqueConverter: (this.config as any).automaticTorqueConverter,
+      shiftDurationSec: (this.config as any).shiftDurationSec,
+      shiftTorqueMultiplier: (this.config as any).shiftTorqueMultiplier,
       autoBlipDownshift: this.config.autoBlipDownshift,
     });
 
@@ -120,6 +139,7 @@ export class Vehicle {
       coastRamp: this.config.diffCoastRamp,
       preloadTorque: this.config.diffPreloadTorque,
       drivetrain: this.config.drivetrain,
+      frontTorqueRatio: (this.config as any).centerFrontTorqueRatio,
     });
 
     // 5. Brakes
@@ -139,6 +159,12 @@ export class Vehicle {
       maxSteerAngle: this.config.maxSteerAngle,
       steerSpeed: this.config.steerSpeed,
       steerSpeedReduction: this.config.steerSpeedReduction,
+      tcsSportSlipThreshold: (this.config as any).tcsSportSlipThreshold,
+      tcsFullSlipThreshold: (this.config as any).tcsFullSlipThreshold,
+      tcsSportResponse: (this.config as any).tcsSportResponse,
+      tcsFullResponse: (this.config as any).tcsFullResponse,
+      tcsSportGain: (this.config as any).tcsSportGain,
+      tcsFullGain: (this.config as any).tcsFullGain,
     });
 
     // 7. Aerodynamics
@@ -172,16 +198,32 @@ export class Vehicle {
       turboBoostMaxPsi: newConfig.turboBoostMaxPsi,
       turboSpoolRate: newConfig.turboSpoolRate,
       wastegatePressurePsi: newConfig.wastegatePressurePsi,
+      reverseRatio: newConfig.reverseRatio,
+      forwardGearRatios: newConfig.forwardGearRatios,
       gearRatios: newConfig.gearRatios,
       finalDriveRatio: newConfig.finalDriveRatio,
+      maxClutchTorque: newConfig.maxClutchTorque,
+      transmissionEfficiency: newConfig.transmissionEfficiency,
+      launchControlEnabled: newConfig.launchControlEnabled,
+      launchControlRpm: (newConfig as any).launchControlRpm,
+      lowSpeedTorqueFillNm: (newConfig as any).lowSpeedTorqueFillNm,
+      torqueFillFadeRpm: (newConfig as any).torqueFillFadeRpm,
+      automaticTorqueConverter: (newConfig as any).automaticTorqueConverter,
+      shiftDurationSec: (newConfig as any).shiftDurationSec,
+      shiftTorqueMultiplier: (newConfig as any).shiftTorqueMultiplier,
       autoBlipDownshift: newConfig.autoBlipDownshift,
     };
+    this.powertrain.forwardGearRatios = [...newConfig.forwardGearRatios];
+    this.powertrain.reverseRatio = newConfig.reverseRatio;
+    this.powertrain.finalDriveRatio = newConfig.finalDriveRatio;
+
     this.differential.config = {
       type: newConfig.differentialType,
       powerRamp: newConfig.diffPowerRamp,
       coastRamp: newConfig.diffCoastRamp,
       preloadTorque: newConfig.diffPreloadTorque,
       drivetrain: newConfig.drivetrain,
+      frontTorqueRatio: (newConfig as any).centerFrontTorqueRatio,
     };
     this.brakes.config = {
       maxBrakeTorque: newConfig.brakeForce,
@@ -197,6 +239,12 @@ export class Vehicle {
       maxSteerAngle: newConfig.maxSteerAngle,
       steerSpeed: newConfig.steerSpeed,
       steerSpeedReduction: newConfig.steerSpeedReduction,
+      tcsSportSlipThreshold: (newConfig as any).tcsSportSlipThreshold,
+      tcsFullSlipThreshold: (newConfig as any).tcsFullSlipThreshold,
+      tcsSportResponse: (newConfig as any).tcsSportResponse,
+      tcsFullResponse: (newConfig as any).tcsFullResponse,
+      tcsSportGain: (newConfig as any).tcsSportGain,
+      tcsFullGain: (newConfig as any).tcsFullGain,
     };
     this.aero.config = {
       downforceFront100Kmh: newConfig.aeroDownforceFront,
@@ -215,12 +263,16 @@ export class Vehicle {
     // Update wheel tire configs
     for (let i = 0; i < 4; i++) {
       const isFront = i < 2;
+      (this.wheels[i] as any).radius = newConfig.wheelRadius;
+      (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       this.wheels[i].tireConfig = {
         baseGrip: isFront ? newConfig.tireGripFront : newConfig.tireGripRear,
         stiffnessB: newConfig.tireStiffness,
         loadSensitivity: newConfig.tireLoadSensitivity,
         slideFrictionMultiplier: newConfig.slideFrictionMultiplier,
         relaxationLength: newConfig.relaxationLength,
+        longitudinalRelaxationLength: (newConfig as any).longitudinalRelaxationLength,
+        longitudinalForceRelaxationLength: (newConfig as any).longitudinalForceRelaxationLength,
         pneumaticTrailMax: newConfig.tirePneumaticTrailMax,
         camberStiffness: 85,
         optimalTemp: newConfig.optimalTireTemp,
@@ -294,8 +346,16 @@ export class Vehicle {
     const steerOut = this.driverAids.updateSteering(inputs.steer, forwardSpeed, dt);
     this.wheels[0].steerAngle = steerOut.steerFL;
     this.wheels[1].steerAngle = steerOut.steerFR;
-    this.wheels[2].steerAngle = 0;
-    this.wheels[3].steerAngle = 0;
+    const meanFrontSteer = (steerOut.steerFL + steerOut.steerFR) * 0.5;
+    const rearMax = (((this.config as any).rearSteerMaxDeg ?? 0) * Math.PI) / 180;
+    const rearTransition = Math.max(1, (this.config as any).rearSteerTransitionSpeedMs ?? 20);
+    const speedAbs = Math.abs(forwardSpeed);
+    const phase = PhysicsMath.clamp((speedAbs - (rearTransition - 5)) / 10, 0, 1);
+    const lowSpeedRear = -Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.35, rearMax);
+    const highSpeedRear = Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.18, rearMax);
+    const rearSteer = lowSpeedRear + (highSpeedRear - lowSpeedRear) * phase;
+    this.wheels[2].steerAngle = rearSteer;
+    this.wheels[3].steerAngle = rearSteer;
 
     // 2. Suspension ground clearance & solve 4-corner displacements and normal loads
     const hardpointsBody = this.getHardpointsBody();
@@ -341,7 +401,7 @@ export class Vehicle {
       this.config.rollStiffnessFront,
       this.config.rollStiffnessRear,
       this.config.antiRollCrossCoupling,
-      0.33,
+      this.config.wheelRadius,
       this.config.tireVerticalStiffness,
       dt
     );
@@ -365,10 +425,10 @@ export class Vehicle {
     // 4. TCS Throttle Reduction
     const drivenSlips =
       this.config.drivetrain === 'FWD'
-        ? [this.wheels[0].relaxationSlipRatio, this.wheels[1].relaxationSlipRatio]
+        ? [this.wheels[0].rawSlipRatio, this.wheels[1].rawSlipRatio]
         : this.config.drivetrain === 'RWD'
-        ? [this.wheels[2].relaxationSlipRatio, this.wheels[3].relaxationSlipRatio]
-        : this.wheels.map((w) => w.relaxationSlipRatio);
+        ? [this.wheels[2].rawSlipRatio, this.wheels[3].rawSlipRatio]
+        : this.wheels.map((w) => w.rawSlipRatio);
 
     const tcsResult = this.driverAids.updateTCS(drivenSlips, dt);
     const effectiveThrottle = inputs.throttle * tcsResult.throttleMultiplier;
@@ -387,16 +447,21 @@ export class Vehicle {
         ? (wheelOmegas[0] + wheelOmegas[1]) * 0.5
         : (wheelOmegas[2] + wheelOmegas[3]) * 0.5;
 
+    // The G90 M5 can preload its automatic/hybrid powertrain against the brake.
+    // Keep this physical state in the powertrain rather than faking extra launch force.
+    this.powertrain.launchControlActive = Boolean(
+      this.config.launchControlEnabled && inputs.brake > 0.55 && inputs.throttle > 0.80 && speedMs < 2.0
+    );
     const powertrainOut = this.powertrain.update(effectiveThrottle, drivenOmega, dt);
 
     const diffOut = this.differential.distributeTorque(powertrainOut.driveshaftTorque, wheelOmegas);
 
     // 6. Brakes & ABS Controller
     const wheelSlips: [number, number, number, number] = [
-      this.wheels[0].relaxationSlipRatio,
-      this.wheels[1].relaxationSlipRatio,
-      this.wheels[2].relaxationSlipRatio,
-      this.wheels[3].relaxationSlipRatio,
+      this.wheels[0].rawSlipRatio,
+      this.wheels[1].rawSlipRatio,
+      this.wheels[2].rawSlipRatio,
+      this.wheels[3].rawSlipRatio,
     ];
 
     const absModulators = this.driverAids.updateABS(
@@ -409,6 +474,26 @@ export class Vehicle {
     this.brakes.pressureModulators = absModulators;
 
     const brakeTorques = this.brakes.calculateBrakeTorques(inputs.brake, inputs.handbrake);
+
+    const currentGear = this.powertrain.gear;
+    const currentGearRatio = currentGear > 0
+      ? Math.abs(this.config.forwardGearRatios[currentGear - 1] ?? this.config.gearRatios[currentGear] ?? 0)
+      : 0;
+    const totalRatio = currentGearRatio * Math.abs(this.config.finalDriveRatio);
+    const drivenWheelCount = this.config.drivetrain === 'AWD' ? 4 : 2;
+    const drivelineInputInertia = Math.max(
+      0,
+      (this.config as any).drivelineInputInertia ?? this.config.flywheelInertia
+    );
+    const drivelineCoupling = PhysicsMath.clamp(
+      (this.config as any).drivelineInertiaCoupling ?? 0.75,
+      0,
+      1.5
+    );
+    const reflectedDrivelineInertiaPerDrivenWheel =
+      drivenWheelCount > 0
+        ? (drivelineInputInertia * totalRatio * totalRatio * drivelineCoupling) / drivenWheelCount
+        : 0;
 
     // 7. Solve 4 Wheels & Apply Contact Forces to Rigid Body
     let totalAligningTorque = 0;
@@ -446,7 +531,14 @@ export class Vehicle {
         brakeTorques.handbrakeTorques[i],
         surface.friction * this.config.ambientSurfaceFrictionMultiplier,
         surface.rollingResistance,
-        dt
+        dt,
+        (() => {
+          const isDriven =
+            this.config.drivetrain === 'AWD' ||
+            (this.config.drivetrain === 'FWD' && i < 2) ||
+            (this.config.drivetrain === 'RWD' && i >= 2);
+          return isDriven ? reflectedDrivelineInertiaPerDrivenWheel : 0;
+        })()
       );
 
       totalAligningTorque += tireOut.aligningTorque;

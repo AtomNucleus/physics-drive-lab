@@ -6,25 +6,28 @@ export interface DriverAidsConfig {
   tcsMode: AssistMode;
   wheelbase: number;
   trackWidth: number;
-  ackermannRatio: number; // 0 = parallel, 1 = 100% Ackermann
-  maxSteerAngle: number; // radians
-  steerSpeed: number; // rad/s
+  ackermannRatio: number;
+  maxSteerAngle: number;
+  steerSpeed: number;
   steerSpeedReduction: number;
+  tcsSportSlipThreshold?: number;
+  tcsFullSlipThreshold?: number;
+  tcsSportResponse?: number;
+  tcsFullResponse?: number;
+  tcsSportGain?: number;
+  tcsFullGain?: number;
 }
 
 export class DriverAidsSystem {
   public config: DriverAidsConfig;
 
-  // ABS Internal States for 4 corners
   private absPressureStates: [number, number, number, number] = [1, 1, 1, 1];
   private absHoldTimers: [number, number, number, number] = [0, 0, 0, 0];
   public absActive: boolean = false;
 
-  // TCS Internal States
   public tcsActive: boolean = false;
   private tcsThrottleReduction: number = 0;
 
-  // Steering Dynamic State
   public currentCenterSteerAngle: number = 0;
 
   constructor(config: DriverAidsConfig) {
@@ -40,25 +43,15 @@ export class DriverAidsSystem {
     this.currentCenterSteerAngle = 0;
   }
 
-  /**
-   * Update steering rack with Ackermann geometry and speed-sensitive filtering
-   */
   public updateSteering(
-    steerInput: number, // -1 (left) to +1 (right)
+    steerInput: number,
     forwardSpeedMs: number,
     dt: number
-  ): {
-    steerFL: number;
-    steerFR: number;
-    centerAngle: number;
-  } {
-    // Speed-sensitive steering reduction
-    const speedRatio = Math.min(1.0, forwardSpeedMs / 38.0); // max reduction at ~136 km/h
+  ): { steerFL: number; steerFR: number; centerAngle: number } {
+    const speedRatio = Math.min(1.0, Math.abs(forwardSpeedMs) / 38.0);
     const maxAllowedAngle = this.config.maxSteerAngle * (1.0 - speedRatio * this.config.steerSpeedReduction);
-
     const targetCenterAngle = -steerInput * maxAllowedAngle;
 
-    // Rate-limited steering rack movement
     const steerStep = this.config.steerSpeed * dt;
     if (Math.abs(targetCenterAngle - this.currentCenterSteerAngle) <= steerStep) {
       this.currentCenterSteerAngle = targetCenterAngle;
@@ -67,12 +60,8 @@ export class DriverAidsSystem {
     }
 
     const delta = this.currentCenterSteerAngle;
-    if (Math.abs(delta) < 1e-4) {
-      return { steerFL: 0, steerFR: 0, centerAngle: 0 };
-    }
+    if (Math.abs(delta) < 1e-4) return { steerFL: 0, steerFR: 0, centerAngle: 0 };
 
-    // Ackermann Steering Kinematics:
-    // When turning, inner wheel turns more sharply than outer wheel
     const L = this.config.wheelbase;
     const W = this.config.trackWidth;
     const tanDelta = Math.tan(Math.abs(delta));
@@ -80,38 +69,20 @@ export class DriverAidsSystem {
     let deltaInner = Math.atan((L * tanDelta) / Math.max(0.1, L - 0.5 * W * tanDelta));
     let deltaOuter = Math.atan((L * tanDelta) / Math.max(0.1, L + 0.5 * W * tanDelta));
 
-    // Blend between parallel steering and full Ackermann
-    const ackermann = this.config.ackermannRatio;
-    deltaInner = PhysicsMath.lerp(Math.abs(delta), deltaInner, ackermann);
-    deltaOuter = PhysicsMath.lerp(Math.abs(delta), deltaOuter, ackermann);
+    deltaInner = PhysicsMath.lerp(Math.abs(delta), deltaInner, this.config.ackermannRatio);
+    deltaOuter = PhysicsMath.lerp(Math.abs(delta), deltaOuter, this.config.ackermannRatio);
 
-    let steerFL = 0;
-    let steerFR = 0;
-
-    if (delta > 0) {
-      // Steer Right (FL is outer, FR is inner)
-      steerFL = deltaOuter;
-      steerFR = deltaInner;
-    } else {
-      // Steer Left (FL is inner, FR is outer)
-      steerFL = -deltaInner;
-      steerFR = -deltaOuter;
-    }
-
-    return {
-      steerFL,
-      steerFR,
-      centerAngle: this.currentCenterSteerAngle,
-    };
+    const steerFL = delta > 0 ? deltaOuter : -deltaInner;
+    const steerFR = delta > 0 ? deltaInner : -deltaOuter;
+    return { steerFL, steerFR, centerAngle: this.currentCenterSteerAngle };
   }
 
   /**
-   * Update ABS hydraulic pressure modulators
+   * Four-channel slip-regulating ABS.
    *
-   * @param wheelSlipRatios Longitudinal slip kappa for [FL, FR, RL, RR]
-   * @param wheelAngularVelocities Angular velocities (rad/s)
-   * @param speedMs Vehicle forward speed (m/s)
-   * @param dt Timestep (s)
+   * This controller regulates pressure continuously around the peak of the tire's
+   * longitudinal slip curve instead of using a deep-lock bang/bang threshold.
+   * That prevents the unrealistic case where more pedal produces LESS braking.
    */
   public updateABS(
     wheelSlipRatios: [number, number, number, number],
@@ -120,71 +91,88 @@ export class DriverAidsSystem {
     isBraking: boolean,
     dt: number
   ): [number, number, number, number] {
-    if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.4) {
+    if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.8) {
       this.absActive = false;
       this.absPressureStates = [1, 1, 1, 1];
+      this.absHoldTimers = [0, 0, 0, 0];
       return this.absPressureStates;
     }
 
+    const isSport = this.config.absMode === 'SPORT';
+    const targetSlip = isSport ? 0.145 : 0.125;
+    const deadband = isSport ? 0.018 : 0.015;
+    const minPressure = isSport ? 0.34 : 0.30;
     let anyIntervention = false;
-    // Slip lockup threshold: -15% in FULL, -26% in SPORT
-    const lockupThreshold = this.config.absMode === 'SPORT' ? -0.26 : -0.15;
 
     for (let i = 0; i < 4; i++) {
-      const slip = wheelSlipRatios[i];
-      const omega = wheelAngularVelocities[i];
+      const slipMag = Math.max(0, -wheelSlipRatios[i]);
+      const nearLock = speedMs > 3.0 && Math.abs(wheelAngularVelocities[i]) < 0.35;
+      const effectiveSlip = nearLock ? Math.max(slipMag, 0.9) : slipMag;
+      let p = this.absPressureStates[i];
 
-      if (slip < lockupThreshold || (speedMs > 3.0 && omega < 0.2)) {
-        // Deep lockup detected: DUMP pressure
-        this.absPressureStates[i] = Math.max(0.12, this.absPressureStates[i] - 18.0 * dt);
-        this.absHoldTimers[i] = 0.04; // Hold timer 40ms
+      if (effectiveSlip > 0.34) {
+        const deepLockRate = isSport ? 7.2 : 8.0;
+        p = Math.max(minPressure, p - deepLockRate * dt);
         anyIntervention = true;
-      } else if (this.absHoldTimers[i] > 0) {
-        // HOLD phase
-        this.absHoldTimers[i] -= dt;
+      } else if (effectiveSlip > targetSlip + deadband) {
+        const over = effectiveSlip - (targetSlip + deadband);
+        const releaseRate = (isSport ? 1.55 : 1.85) + Math.min(1.8, over * 5.0);
+        p = Math.max(minPressure, p - releaseRate * dt);
+        anyIntervention = true;
+      } else if (effectiveSlip < targetSlip - deadband) {
+        const under = (targetSlip - deadband) - effectiveSlip;
+        const reapplyRate = (isSport ? 6.5 : 7.2) + Math.min(3.0, under * 18.0);
+        p = Math.min(1.0, p + reapplyRate * dt);
+        anyIntervention = anyIntervention || p < 0.995;
       } else {
-        // RE-APPLY pressure
-        this.absPressureStates[i] = Math.min(1.0, this.absPressureStates[i] + 12.0 * dt);
+        anyIntervention = anyIntervention || p < 0.995;
       }
+
+      this.absPressureStates[i] = p;
+      this.absHoldTimers[i] = 0;
     }
 
     this.absActive = anyIntervention;
     return this.absPressureStates;
   }
 
-  /**
-   * Update Traction Control System
-   *
-   * @param drivenWheelSlipRatios Slip ratios of driven wheels
-   * @param dt Timestep (s)
-   */
   public updateTCS(
     drivenWheelSlipRatios: number[],
     dt: number
-  ): {
-    throttleMultiplier: number;
-    tcsActive: boolean;
-  } {
+  ): { throttleMultiplier: number; tcsActive: boolean } {
     if (this.config.tcsMode === 'OFF') {
       this.tcsActive = false;
       this.tcsThrottleReduction = 0;
       return { throttleMultiplier: 1.0, tcsActive: false };
     }
 
-    const tcsThreshold = this.config.tcsMode === 'SPORT' ? 0.28 : 0.14;
+    const isSport = this.config.tcsMode === 'SPORT';
+    const tcsThreshold = isSport
+      ? (this.config.tcsSportSlipThreshold ?? 0.19)
+      : (this.config.tcsFullSlipThreshold ?? 0.12);
     const maxSlip = Math.max(0, ...drivenWheelSlipRatios);
 
     if (maxSlip > tcsThreshold) {
       const excess = maxSlip - tcsThreshold;
-      const targetReduction = Math.min(0.85, excess * 2.8);
-      this.tcsThrottleReduction += (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, 16.0 * dt);
+      const gain = isSport
+        ? (this.config.tcsSportGain ?? 2.0)
+        : (this.config.tcsFullGain ?? 3.0);
+      const maxReduction = isSport ? 0.72 : 0.88;
+      const targetReduction = Math.min(maxReduction, excess * gain);
+      const response = isSport
+        ? (this.config.tcsSportResponse ?? 10.0)
+        : (this.config.tcsFullResponse ?? 16.0);
+      this.tcsThrottleReduction +=
+        (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, response * dt);
       this.tcsActive = true;
     } else {
-      this.tcsThrottleReduction = Math.max(0, this.tcsThrottleReduction - 6.0 * dt);
-      this.tcsActive = this.tcsThrottleReduction > 0.05;
+      const recovery = isSport ? 6.5 : 5.0;
+      this.tcsThrottleReduction = Math.max(0, this.tcsThrottleReduction - recovery * dt);
+      this.tcsActive = this.tcsThrottleReduction > 0.04;
     }
 
-    const throttleMultiplier = Math.max(0.15, 1.0 - this.tcsThrottleReduction);
+    const minimumThrottle = isSport ? 0.26 : 0.12;
+    const throttleMultiplier = Math.max(minimumThrottle, 1.0 - this.tcsThrottleReduction);
     return { throttleMultiplier, tcsActive: this.tcsActive };
   }
 }

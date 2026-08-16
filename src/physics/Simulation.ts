@@ -5,13 +5,12 @@ import { PhysicsMath } from './math/PhysicsMath';
 
 export class Simulation {
   public vehicle: Vehicle;
-  public fixedDt: number = 1.0 / 120.0; // 120 Hz deterministic physics rate
+  public fixedDt: number = 1.0 / 120.0;
   public maxSubSteps: number = 8;
   public accumulatedTime: number = 0;
   public totalSimTime: number = 0;
   public stepCount: number = 0;
 
-  // State interpolation buffers for frame-rate invariant smooth rendering
   private previousState: VehicleState;
   private currentState: VehicleState;
 
@@ -31,48 +30,74 @@ export class Simulation {
   }
 
   public setConfig(newConfig: VehicleConfig) {
+    const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
     this.vehicle.setConfig(newConfig);
+
+    // Rebuild rigid-body properties from the selected vehicle's actual mass and
+    // geometry. Presets are merged onto DEFAULT_VEHICLE_CONFIG in the UI, so using
+    // inherited explicit inertia numbers would make a 2050 kg luxury sedan retain
+    // the 1540 kg GT's rotational inertia. Geometry-derived values keep every preset
+    // dynamically consistent with its own physical dimensions and mass.
+    const m = Math.max(1, newConfig.mass);
+    const L = newConfig.wheelbase;
+    const W = newConfig.trackWidth;
+    const H = newConfig.centerOfGravityHeight;
+
+    const pitchInertia = (m / 12) * (L * L + H * H) * 1.5;
+    const yawInertia = (m / 12) * (L * L + W * W) * 1.1;
+    const rollInertia = (m / 12) * (W * W + H * H) * 1.6;
+
+    this.vehicle.rigidBody.config = {
+      mass: m,
+      inertia: PhysicsMath.vec3(pitchInertia, yawInertia, rollInertia),
+      centerOfGravityHeight: H,
+    };
+
+    // Preserve the current ground-relative ride height when CG height is changed
+    // from the tuning UI or a preset swap.
+    if (Number.isFinite(oldCgHeight) && Number.isFinite(H)) {
+      this.vehicle.rigidBody.position.y += H - oldCgHeight;
+    }
+
+    this.currentState = this.vehicle.getState();
+    this.previousState = this.currentState;
   }
 
   /**
-   * Advance simulation by variable render frame deltaTime (e.g. 16.6ms at 60fps, 8.3ms at 120fps, 33ms at 30fps)
+   * Advance simulation by variable render frame deltaTime.
    * Uses fixed 120 Hz accumulator with state interpolation.
    */
   public advance(deltaTime: number, inputs: ControlInputs): VehicleState {
-    // Clamp incoming deltaTime to prevent spiral of death on tab unfocus
     const clampedDelta = Math.min(deltaTime, 0.1);
     this.accumulatedTime += clampedDelta;
 
     let subStepsTaken = 0;
+    // Render frame deltas such as 1/30 and 1/60 are not exactly representable in
+    // binary floating point. Without a tiny tolerance, one cadence can occasionally
+    // sit microscopically below fixedDt and skip a 120 Hz step that another cadence
+    // executes. That creates false frame-rate-dependent handling.
+    const timeEpsilon = 1e-10;
 
-    while (this.accumulatedTime >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
-      // Store previous state before step
+    while (this.accumulatedTime + timeEpsilon >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
       this.previousState = this.currentState;
-
-      // Step vehicle with fixed dt
       this.vehicle.step(inputs, this.fixedDt);
       this.currentState = this.vehicle.getState();
 
       this.accumulatedTime -= this.fixedDt;
+      if (Math.abs(this.accumulatedTime) < timeEpsilon) this.accumulatedTime = 0;
       this.totalSimTime += this.fixedDt;
       this.stepCount++;
       subStepsTaken++;
     }
 
-    // Discard excessive accumulated time if frame dropped
     if (this.accumulatedTime > this.fixedDt * 2) {
       this.accumulatedTime = 0;
     }
 
-    // Alpha blend factor for visual interpolation: alpha in [0, 1)
     const alpha = Math.min(1.0, Math.max(0, this.accumulatedTime / this.fixedDt));
-
     return this.interpolateState(this.previousState, this.currentState, alpha);
   }
 
-  /**
-   * Deterministic step for headless test runner (exact single step or multiple steps)
-   */
   public stepExplicit(inputs: ControlInputs, steps: number = 1): VehicleState {
     for (let i = 0; i < steps; i++) {
       this.vehicle.step(inputs, this.fixedDt);
@@ -84,9 +109,6 @@ export class Simulation {
     return this.currentState;
   }
 
-  /**
-   * Smoothly interpolate between two vehicle states for high refresh rate rendering
-   */
   private interpolateState(prev: VehicleState, curr: VehicleState, alpha: number): VehicleState {
     if (alpha <= 0.001) return prev;
     if (alpha >= 0.999) return curr;
