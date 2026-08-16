@@ -129,8 +129,8 @@ export class WheelDynamics {
     // Contact-patch deflection and transient force are stored in wheel-local axes.
     // When the steering rack rotates a stationary loaded tire, those state vectors
     // must be re-expressed in the new wheel frame. Without this transformation the
-    // exact same stored rubber shear is incorrectly rotated in body space, which
-    // injects lateral force/yaw energy every steering update.
+    // same stored rubber shear is incorrectly rotated in body space, injecting
+    // lateral force/yaw energy every steering update.
     const steerDelta = this.steerAngle - this.previousSteerAngle;
     if (Math.abs(steerDelta) > 1e-10) {
       const c = Math.cos(steerDelta);
@@ -152,9 +152,9 @@ export class WheelDynamics {
     const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
     const roadOmega = longitudinalVelocity / this.radius;
 
-    // A free-rolling wheel is kinematically constrained very strongly by the road.
-    // At 120 Hz the explicit tire-torque integration could otherwise overshoot the
-    // rolling speed every frame and invent large alternating longitudinal forces.
+    // A free-rolling wheel is kinematically constrained strongly by the road.
+    // Pre-coupling only wheels with essentially zero axle/brake torque preserves
+    // driven-wheel slip while making unpowered rolling behavior stable.
     if (Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20) {
       const trackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
       const trackingAlpha = 1 - Math.exp(-trackingRate * dt);
@@ -169,8 +169,7 @@ export class WheelDynamics {
     const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
 
     // A regularization floor prevents near-zero velocity from turning a tiny
-    // wheel-speed mismatch into an enormous slip ratio. At low speed the brush
-    // model below supplies the physically meaningful static contact force.
+    // wheel-speed mismatch into an enormous slip ratio.
     const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
     this.rawSlipRatio = PhysicsMath.clamp(
       (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
@@ -241,9 +240,8 @@ export class WheelDynamics {
     }
 
     // Approximate a performance-road tire's contact patch as ~15 mm of elastic
-    // shear at full static load. Damping is derived from the loaded corner mass
-    // instead of an arbitrary small cap; ~0.72 critical damping keeps the 120 Hz
-    // chassis/contact system stable without making parking motion viscous or dead.
+    // shear at full static load. Damping is derived from loaded corner mass;
+    // ~0.72 critical damping keeps the 120 Hz chassis/contact system stable.
     const bristleStiffness = Math.max(140000, fz / 0.015);
     const effectiveCornerMass = Math.max(80, fz / 9.81);
     const criticalBristleDamping = 2 * Math.sqrt(bristleStiffness * effectiveCornerMass);
@@ -295,10 +293,8 @@ export class WheelDynamics {
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
 
     // Rolling resistance must not disappear below an arbitrary speed threshold.
-    // A tanh regularization preserves the normal near-constant rolling force once
-    // moving while smoothly tending to zero at exactly zero speed. This lets tiny
-    // suspension-settle impulses decay instead of leaving the car creeping forever,
-    // and avoids the sign-flip chatter of a hard sign(v) force at 120 Hz.
+    // A tanh regularization preserves normal rolling resistance while tending to
+    // zero smoothly at exact rest, avoiding sign-flip chatter around zero speed.
     const rrMagnitude = Math.max(0, rollingResistance) * fz;
     const rrForce = -Math.tanh(longitudinalVelocity / 0.08) * rrMagnitude;
 
@@ -315,11 +311,15 @@ export class WheelDynamics {
       this.transientFy *= scale;
     }
 
-    // Tire longitudinal force reacts back on the wheel rotational DOF.
+    // Only contact-patch slip force reacts through the wheel's rotational DOF.
+    // Rolling resistance is already represented as an equivalent dissipative
+    // chassis force. Feeding it back as tire reaction torque would double-couple
+    // it, spin a free wheel up, and numerically return the lost energy to the car.
+    const contactFxForWheelTorque = fx - rrForce;
     const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
     const brakeSign = Math.sign(spinReference);
     const brakeTorque = brakeRequest * brakeSign;
-    const tireReactionTorque = fx * this.radius;
+    const tireReactionTorque = contactFxForWheelTorque * this.radius;
     const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
     const angularAccel = PhysicsMath.clamp(
       (driveTorque - brakeTorque - tireReactionTorque) / effectiveRotationalInertia,
