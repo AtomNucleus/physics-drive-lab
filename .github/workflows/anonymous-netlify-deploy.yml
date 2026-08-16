@@ -1,11 +1,10 @@
 name: Anonymous Netlify Deploy
-# preview: physical hub attachment + rollover handoff fix
+# deploy exact main 10a77a2d after PR14 merge
 
 on:
   push:
     branches:
-      - main
-      - agent/full-tire-combined-slip
+      - deploy/auto-transmission-netlify
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
