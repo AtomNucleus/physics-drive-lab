@@ -75,14 +75,17 @@ function testCreepBrushForceIsBoundedAndDissipative() {
   wheel.reset(0);
 
   let maxForce = 0;
+  let maxFrictionLimit = 0;
   let sawSkid = false;
   for (let i = 0; i < 240; i++) {
     // A 3 cm/s sideways disturbance is representative of numerical/body-settle
-    // motion at parking speed. It should be resisted smoothly, not classified as
-    // a high-energy slide.
+    // motion at parking speed. Sustained motion may reach static-friction breakaway,
+    // but the force must remain on the physical friction circle and must not be
+    // classified as a high-energy smoke-producing slide.
     const vy = i < 120 ? 0.03 : -0.03;
     const out = wheel.update(0, vy, 6200, -1.5, 0, 0, 0, 1, 0.015, DT);
     maxForce = Math.max(maxForce, Math.hypot(out.fx, out.fy));
+    maxFrictionLimit = Math.max(maxFrictionLimit, out.frictionLimit);
     sawSkid ||= out.isSkidding;
     assertFinite(out.fx, 'creep fx');
     assertFinite(out.fy, 'creep fy');
@@ -91,7 +94,8 @@ function testCreepBrushForceIsBoundedAndDissipative() {
   }
 
   assert(!sawSkid, '3 cm/s parking-speed patch motion must not trigger tire smoke/skid state');
-  assert(maxForce < 7000, `creep brush force became unbounded: ${maxForce.toFixed(1)} N`);
+  assert(maxForce > 500, `creep brush failed to develop a meaningful restoring force: ${maxForce.toFixed(1)} N`);
+  assert(maxForce <= maxFrictionLimit * 1.001, `creep brush exceeded physical static-friction cap: ${maxForce.toFixed(1)} N > ${maxFrictionLimit.toFixed(1)} N`);
 }
 
 function testRealWheelspinStillProducesSkid() {
@@ -161,6 +165,11 @@ function runStationaryVehicleScenario(steer: number, label: string) {
   assert(maxYawRate < 0.12, `${label}: chassis yaw oscillation reached ${maxYawRate.toFixed(3)} rad/s while parked`);
   assert(horizontalDisplacement < 0.08, `${label}: parked car migrated ${horizontalDisplacement.toFixed(3)} m under steering alone`);
   assert(maxTempRise < 0.10, `${label}: stationary steering heated a tire by ${maxTempRise.toFixed(3)} C`);
+
+  console.log(
+    `  ${label}: vmax=${maxPlanarSpeed.toFixed(4)} m/s, yaw=${maxYawRate.toFixed(4)} rad/s, ` +
+      `migration=${horizontalDisplacement.toFixed(4)} m, dT=${maxTempRise.toFixed(4)} C`
+  );
 
   return { maxPlanarSpeed, maxYawRate, horizontalDisplacement, maxTempRise };
 }
