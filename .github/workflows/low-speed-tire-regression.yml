@@ -41,6 +41,9 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Deploy anonymous Netlify preview
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
+
       # src/types.ts is empty on main today, so the repository-wide typecheck has
       # pre-existing missing-export failures. Keep it visible without blocking this
       # physics regression workflow until that baseline issue is repaired separately.
