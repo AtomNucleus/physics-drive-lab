@@ -116,6 +116,17 @@ Assetto Corsa's `IS_VALID_TRACK=0` flag is preserved as metadata. It does **not*
 
 Dedicated physics KN5s sometimes contain retaining-wall faces or mesh sidewalls under ROAD-like names. Wheel-support extraction therefore removes obvious wall/barrier/guardrail meshes and rejects implausibly steep faces using surface-specific slope limits. Those obstacle faces should later feed the chassis-collision system rather than the tire height sampler.
 
+## Validation checklist for a real imported layout
+
+A parser completing without an exception is not sufficient. Before calling a mountain layout usable, verify:
+
+1. the dedicated collision KN5 and every selected visual KN5 parse to EOF;
+2. `AC_START_0` exists and its X/Z point intersects a driveable surface;
+3. the sampled road elevation at spawn is sensible relative to the marker height;
+4. the physical geometry has a plausible elevation range and road slope distribution;
+5. obvious wall/guardrail triangles are excluded from wheel-support collision;
+6. the production build and suspension/corner-load/importer regressions still pass.
+
 ## Current scope
 
 This slice covers tire/suspension road contact and visual scenery loading. Chassis collision against guardrails, concrete walls, rock faces and other barriers is intentionally a separate next step so road-contact correctness can be validated independently.
