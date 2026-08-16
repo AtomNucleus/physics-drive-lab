@@ -13,11 +13,13 @@ function launch(longSigma:number,inertia:number,frontRatio:number,threshold:numb
     longitudinalForceRelaxationLength:longSigma*0.55,
     drivelineInputInertia:inertia,
     centerFrontTorqueRatio:frontRatio,
-    tcsSportSlipThreshold:threshold,
-    tcsSportResponse:response,
-    tcsSportGain:gain,
   };
   const sim=new Simulation(cfg); sim.reset(0,0,0); sim.vehicle.powertrain.isAutomatic=true;
+  Object.assign(sim.vehicle.driverAids.config as any, {
+    tcsSportSlipThreshold: threshold,
+    tcsSportResponse: response,
+    tcsSportGain: gain,
+  });
   for(let i=0;i<180;i++)sim.stepExplicit({...zero,throttle:1,brake:1},1);
   let t30:number|null=null,t60:number|null=null,t100:number|null=null,maxSlip=0,sumG=0,nG=0,tcsTicks=0;
   for(let i=0;i<1440;i++){
@@ -32,27 +34,10 @@ function launch(longSigma:number,inertia:number,frontRatio:number,threshold:numb
     if(t100!==null)break;
   }
   const a=t30??20,b=t60??20,c=t100??20;
-  // C/D published launch numbers omit 0.2 s of rollout. These are the equivalent
-  // true-standing-start targets for this stopwatch.
+  // C/D's published launch numbers omit 0.2 s of 1-foot rollout. The targets
+  // below are the equivalent true-standing-start targets for this stopwatch.
   const score=Math.abs(a-1.3)*2.4+Math.abs(b-3.2)*2.0+Math.abs(c-6.9)+Math.max(0,maxSlip-.30)*.12;
   return {longSigma,inertia,frontRatio,threshold,response,gain,t30,t60,t100,meanFirstSecG:sumG/Math.max(1,nG),maxSlip,tcsActivePct:tcsTicks/Math.max(1,(c*120))*100,score};
-}
-
-function skidpad(longSigma:number){
-  let peak=0;
-  for(const steer of [0.12,0.14,0.16,0.18,0.20,0.22]){
-    const cfg:any={...base,longitudinalRelaxationLength:longSigma,longitudinalForceRelaxationLength:longSigma*0.55};
-    const sim=new Simulation(cfg);sim.reset(0,0,0);
-    const v=48/MPH;sim.vehicle.rigidBody.velocity={x:0,y:0,z:v};sim.vehicle.wheels.forEach((w:any)=>w.reset(v));sim.vehicle.powertrain.gear=0;
-    for(let i=0;i<60;i++)sim.stepExplicit(zero,1);
-    let sum=0,n=0;
-    for(let i=0;i<360;i++){
-      sim.stepExplicit({...zero,steer},1);
-      if(i>240){sum+=Math.abs(sim.vehicle.rigidBody.acceleration.x/G);n++;}
-    }
-    peak=Math.max(peak,sum/Math.max(1,n));
-  }
-  return {longSigma,peakG:peak};
 }
 
 const rows:any[]=[];
@@ -63,4 +48,4 @@ for(const threshold of [0.10,0.12,0.14,0.16])
 for(const response of [18,30])
   rows.push(launch(longSigma,inertia,frontRatio,threshold,response,2.6));
 rows.sort((a,b)=>a.score-b.score);
-console.log(JSON.stringify({standingStartTargets:{t30:1.3,t60:3.2,t100:6.9},skidpadByLongSigma:[0.12,0.16,0.19].map(skidpad),topLaunch:rows.slice(0,20)},null,2));
+console.log(JSON.stringify({standingStartTargets:{t30:1.3,t60:3.2,t100:6.9},topLaunch:rows.slice(0,24)},null,2));
