@@ -31,6 +31,13 @@ const makeZeroTireOutput = (): TireForceOutput => ({
  * contact-patch slip relaxes over tire travel, then force itself relaxes over a
  * shorter carcass length. This turns an instantaneous steering command into a
  * short physical sequence: slip builds -> tire force builds -> chassis loads up.
+ *
+ * Below walking pace, the normal slip-angle/slip-ratio formulation is blended
+ * into a small brush-model contact patch. That matters because geometric slip
+ * becomes poorly conditioned as road speed approaches zero. A real stationary
+ * tire stores a few millimetres of rubber shear before it slides; it does not
+ * instantly produce a full dynamic tire force or smoke just because the steering
+ * is at full lock.
  */
 export class WheelDynamics {
   public readonly id: string;
@@ -59,6 +66,8 @@ export class WheelDynamics {
   private transientFx = 0;
   private transientFy = 0;
   private transientMz = 0;
+  private lowSpeedLongDeflection = 0;
+  private lowSpeedLatDeflection = 0;
 
   constructor(config: WheelDynamicsConfig) {
     this.id = config.id;
@@ -90,6 +99,8 @@ export class WheelDynamics {
     this.transientFx = 0;
     this.transientFy = 0;
     this.transientMz = 0;
+    this.lowSpeedLongDeflection = 0;
+    this.lowSpeedLatDeflection = 0;
     this.temperature = 25;
     this.pressurePsi = this.tireConfig.basePressurePsi;
     this.wearPercent = 0;
@@ -129,11 +140,18 @@ export class WheelDynamics {
     }
 
     const wheelSurfaceSpeed = this.angularVelocity * this.radius;
-    // A 2 m/s regularization floor prevents near-zero velocity from turning a
-    // millimetric wheel-speed error into a huge slip ratio. This does not suppress
-    // launch traction because driven-wheel surface speed can still exceed the floor.
-    const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
 
+    // Smoothly leave the static/brush regime between roughly 0.8 and 4 mph.
+    // Using a smoothstep prevents a force discontinuity as a parking manoeuvre
+    // turns into normal rolling motion.
+    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (1.80 - 0.35), 0, 1);
+    const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
+
+    // A regularization floor prevents near-zero velocity from turning a tiny
+    // wheel-speed mismatch into an enormous slip ratio. At low speed the brush
+    // model below supplies the physically meaningful static contact force.
+    const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
     this.rawSlipRatio = PhysicsMath.clamp(
       (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
       -3,
@@ -155,13 +173,19 @@ export class WheelDynamics {
       this.transientFx *= airborneDecay;
       this.transientFy *= airborneDecay;
       this.transientMz *= airborneDecay;
+      this.lowSpeedLongDeflection *= airborneDecay;
+      this.lowSpeedLatDeflection *= airborneDecay;
     } else {
       const lateralSigma = Math.max(0.035, this.tireConfig.relaxationLength);
       const longitudinalSigma = Math.max(
         0.025,
         this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength
       );
-      const relaxationTravel = Math.max(2.0, Math.abs(longitudinalVelocity)) * dt;
+
+      // Do not pretend the carcass is travelling at 2 m/s while the car is parked.
+      // Dynamic relaxation freezes naturally at zero road travel and the static
+      // contact-patch state handles force build-up instead.
+      const relaxationTravel = Math.max(0.02, rollingSpeed) * dt;
       const lateralSlipAlpha = 1 - Math.exp(-relaxationTravel / lateralSigma);
       const longitudinalSlipAlpha = 1 - Math.exp(-relaxationTravel / longitudinalSigma);
       this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * lateralSlipAlpha;
@@ -186,18 +210,67 @@ export class WheelDynamics {
       isLeft: this.isLeft,
     });
 
+    // Low-speed brush/static-friction regime. Rubber shear is stored as a tiny
+    // contact-patch deflection. The force opposes relative patch motion and is
+    // capped by static friction; once the patch is genuinely sliding the cap
+    // falls smoothly toward the tire's sliding coefficient.
+    const longPatchSlipSpeed = wheelSurfaceSpeed - longitudinalVelocity;
+    const latPatchSlipSpeed = -lateralVelocity;
+    const staticWeight = 1 - dynamicBlend;
+
+    if (fz >= 20) {
+      const dynamicStateDecay = Math.exp(-18 * dynamicBlend * dt);
+      this.lowSpeedLongDeflection *= dynamicStateDecay;
+      this.lowSpeedLatDeflection *= dynamicStateDecay;
+      this.lowSpeedLongDeflection += longPatchSlipSpeed * dt * staticWeight;
+      this.lowSpeedLatDeflection += latPatchSlipSpeed * dt * staticWeight;
+    }
+
+    const bristleStiffness = Math.max(180000, fz / 0.008);
+    const bristleDamping = PhysicsMath.clamp(fz * 1.15, 2500, 9000);
+    let staticFx = this.lowSpeedLongDeflection * bristleStiffness + longPatchSlipSpeed * bristleDamping;
+    let staticFy = this.lowSpeedLatDeflection * bristleStiffness + latPatchSlipSpeed * bristleDamping;
+
+    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);
+    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);
+    const lowSpeedMuMultiplier = PhysicsMath.lerp(
+      1.08,
+      PhysicsMath.clamp(this.tireConfig.slideFrictionMultiplier, 0.45, 1.0),
+      lowSpeedSlideBlend
+    );
+    const lowSpeedFrictionLimit = Math.max(0, target.effectiveMu * fz * lowSpeedMuMultiplier);
+    const staticResultant = Math.hypot(staticFx, staticFy);
+    if (lowSpeedFrictionLimit > 0 && staticResultant > lowSpeedFrictionLimit) {
+      const scale = lowSpeedFrictionLimit / staticResultant;
+      staticFx *= scale;
+      staticFy *= scale;
+      // Keep the stored elastic state on the edge of the friction circle instead
+      // of allowing wind-up that would explode when the tire re-grips.
+      this.lowSpeedLongDeflection *= scale;
+      this.lowSpeedLatDeflection *= scale;
+    }
+
+    const blendedTargetFx = PhysicsMath.lerp(staticFx, target.fx, dynamicBlend);
+    const blendedTargetFy = PhysicsMath.lerp(staticFy, target.fy, dynamicBlend);
+    const blendedTargetMz = target.aligningTorque * dynamicBlend;
+    const blendedFrictionLimit = PhysicsMath.lerp(lowSpeedFrictionLimit, target.frictionLimit, dynamicBlend);
+
     const lateralForceSigma = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
     const longitudinalForceSigma = Math.max(
       0.018,
       this.tireConfig.longitudinalForceRelaxationLength ??
         ((this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength) * 0.55)
     );
-    const forceTravel = Math.max(2.5, Math.abs(longitudinalVelocity)) * dt;
-    const lateralForceAlpha = 1 - Math.exp(-forceTravel / lateralForceSigma);
-    const longitudinalForceAlpha = 1 - Math.exp(-forceTravel / longitudinalForceSigma);
-    this.transientFx += (target.fx - this.transientFx) * longitudinalForceAlpha;
-    this.transientFy += (target.fy - this.transientFy) * lateralForceAlpha;
-    this.transientMz += (target.aligningTorque - this.transientMz) * lateralForceAlpha;
+    const forceTravel = Math.max(0.02, rollingSpeed) * dt;
+    const dynamicLateralForceAlpha = 1 - Math.exp(-forceTravel / lateralForceSigma);
+    const dynamicLongitudinalForceAlpha = 1 - Math.exp(-forceTravel / longitudinalForceSigma);
+    const lowSpeedForceAlpha = 1 - Math.exp(-38 * dt);
+    const lateralForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLateralForceAlpha, dynamicBlend);
+    const longitudinalForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLongitudinalForceAlpha, dynamicBlend);
+
+    this.transientFx += (blendedTargetFx - this.transientFx) * longitudinalForceAlpha;
+    this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
+    this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
 
     let rrForce = 0;
     if (Math.abs(longitudinalVelocity) > 0.15) {
@@ -206,7 +279,7 @@ export class WheelDynamics {
     let fx = this.transientFx + rrForce;
     let fy = this.transientFy;
 
-    const limit = Math.max(0, target.frictionLimit);
+    const limit = Math.max(0, blendedFrictionLimit);
     const resultant = Math.hypot(fx, fy);
     if (limit > 0 && resultant > limit) {
       const scale = limit / resultant;
@@ -251,7 +324,11 @@ export class WheelDynamics {
     this.rotationAngle += this.angularVelocity * dt;
     if (Math.abs(this.rotationAngle) > Math.PI * 1000) this.rotationAngle %= Math.PI * 2;
 
-    const slipEnergy = Math.abs(fx * (wheelSurfaceSpeed - longitudinalVelocity)) + Math.abs(fy * lateralVelocity);
+    // Smoke/heat/wear are driven by actual slip power, not by a mathematically
+    // large normalized slip value at ~0 mph. This prevents stationary full-lock
+    // steering from being mistaken for a burnout while preserving real wheelspin,
+    // locked-brake skids and high-energy lateral slides.
+    const slipEnergy = Math.abs(fx * longPatchSlipSpeed) + Math.abs(fy * lateralVelocity);
     const heatIn = slipEnergy * 0.00005;
     const cooling = (this.temperature - 25) * (0.020 + Math.abs(longitudinalVelocity) * 0.0025);
     this.temperature += (heatIn - cooling) * dt;
@@ -265,14 +342,30 @@ export class WheelDynamics {
 
     const transientResultant = Math.hypot(fx, fy);
     const gripUtilization = limit > 0 ? PhysicsMath.clamp(transientResultant / limit, 0, 1.5) : 0;
+    const skidSpeedGate = PhysicsMath.clamp((patchSlipSpeed - 0.45) / 1.75, 0, 1);
+    const skidPowerGate = PhysicsMath.clamp((slipEnergy - 600) / 6000, 0, 1);
+    const dissipativeSkidGate = Math.min(skidSpeedGate, skidPowerGate);
+    const isDissipativeSkid =
+      dissipativeSkidGate > 0 &&
+      (target.isSkidding || gripUtilization > 0.99 || patchSlipSpeed > 1.2);
+    const skidIntensity = isDissipativeSkid
+      ? PhysicsMath.clamp(
+          Math.max(target.skidIntensity * dynamicBlend, gripUtilization - 0.82, dissipativeSkidGate) *
+            dissipativeSkidGate,
+          0,
+          1
+        )
+      : 0;
+
     this.lastTireOutput = {
       ...target,
       fx,
       fy,
       aligningTorque: this.transientMz,
+      frictionLimit: limit,
       gripUtilization,
-      isSkidding: target.isSkidding || gripUtilization > 0.99,
-      skidIntensity: PhysicsMath.clamp(Math.max(target.skidIntensity, gripUtilization - 0.78), 0, 1),
+      isSkidding: isDissipativeSkid,
+      skidIntensity,
     };
 
     return this.lastTireOutput;
