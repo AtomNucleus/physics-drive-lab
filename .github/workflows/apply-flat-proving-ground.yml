@@ -1,4 +1,4 @@
-name: Validate flat proving ground
+name: Finalize flat proving ground
 
 on:
   push:
@@ -6,16 +6,33 @@ on:
       - fix/flat-proving-ground
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  finalize:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Make visual ground a literal flat plane
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('src/graphics/environment.ts')
+          s = p.read_text()
+          s = s.replace('    this.build3DKerbs();\n', '    // Flat test map: no raised decorative kerbs.\n', 1)
+          pattern = r"    // 2500m x 2500m Proving Ground\n    // Use enough longitudinal tessellation to visibly match the physics crest/dip\.\n    const groundGeo = new THREE\.PlaneGeometry\(2600, 2600, 160, 260\);\n    groundGeo\.rotateX\(-Math\.PI / 2\);\n\n    // Graphics and physics must sample the same road-height function\. Otherwise the\n    // rigid body climbs an invisible hill while the rendered road remains flat\.\n    const positions = groundGeo\.attributes\.position as THREE\.BufferAttribute;\n    for \(let i = 0; i < positions\.count; i\+\+\) \{\n      const x = positions\.getX\(i\);\n      const z = positions\.getZ\(i\);\n      positions\.setY\(i, this\.surfaceProvider\.sampleSurface\(x, z\)\.elevation\);\n    \}\n    positions\.needsUpdate = true;\n    groundGeo\.computeVertexNormals\(\);"
+          replacement = "    // 2500m x 2500m literal flat plane. No hidden terrain geometry.\n    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 1, 1);\n    groundGeo.rotateX(-Math.PI / 2);"
+          s, count = re.subn(pattern, replacement, s, count=1)
+          if count != 1:
+              raise RuntimeError('Visual terrain block not found')
+          p.write_text(s)
+          PY
       - name: Install dependencies
         run: npm install
       - name: Verify physics surface is flat
@@ -25,3 +42,11 @@ jobs:
         run: npm run test:suspension
       - name: Production build
         run: npm run build
+      - name: Commit tested visual flattening
+        run: |
+          rm .github/workflows/apply-flat-proving-ground.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/graphics/environment.ts .github/workflows/apply-flat-proving-ground.yml
+          git commit -m "Make proving ground visually flat"
+          git push origin HEAD:fix/flat-proving-ground
