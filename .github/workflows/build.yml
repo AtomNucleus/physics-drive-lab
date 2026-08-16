@@ -22,6 +22,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Mobile steering regression
+        run: npm run test:mobile
+
       - name: Stationary steering regression
         run: npm run test:stationary
 
