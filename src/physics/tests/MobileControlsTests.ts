@@ -3,14 +3,14 @@ import { mapMobileSteeringDirection } from '../../components/mobileControls';
 
 assert.equal(
   mapMobileSteeringDirection('left'),
-  'steerRight',
-  'The left touch arrow must map to the simulator steering action that turns the car left.'
+  'steerLeft',
+  'The left touch arrow must map to the left steering action.'
 );
 
 assert.equal(
   mapMobileSteeringDirection('right'),
-  'steerLeft',
-  'The right touch arrow must map to the simulator steering action that turns the car right.'
+  'steerRight',
+  'The right touch arrow must map to the right steering action.'
 );
 
 assert.notEqual(
