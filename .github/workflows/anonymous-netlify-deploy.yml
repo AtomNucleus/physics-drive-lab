@@ -1,12 +1,11 @@
 name: Anonymous Netlify Deploy
-# preview: low-speed Ackermann fix (PR #20)
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
-      - agent/fix-low-speed-ackermann
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
