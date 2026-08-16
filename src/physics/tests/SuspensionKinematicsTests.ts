@@ -35,6 +35,26 @@ const fr = makeFront(false);
 assertNear(fl.derivedCamberGainDegPerMeter, -7.5, 0.05, 'front camber-gain fit missed target');
 assertNear(fr.derivedCamberGainDegPerMeter, -7.5, 0.05, 'mirrored front camber-gain fit missed target');
 
+// Regression for the tuning UI's mild-camber-gain end. The virtual hardpoint
+// fitter must be able to represent 2 deg/m rather than bottoming out around 3 deg/m.
+const mildGain = createVirtualSuspensionCornerGeometry({
+  mountBody: PhysicsMath.vec3(0.76, 0, 1.25),
+  isFront: true,
+  isLeft: true,
+  restLength: 0.30,
+  maxDroopM: 0.10,
+  maxBumpM: 0.12,
+  wheelRadiusM: 0.33,
+  staticCamberDeg: -1.0,
+  targetCamberGainDegPerMeter: 2.0,
+  casterDeg: 6.5,
+  kingpinInclinationDeg: 6.0,
+});
+assertNear(mildGain.derivedCamberGainDegPerMeter, -2.0, 0.05, 'mild camber-gain fit missed target');
+const mildStatic = solveSuspensionKinematics(mildGain, 0, 0);
+const mildBump = solveSuspensionKinematics(mildGain, 0.05, 0);
+assertNear(mildBump.camberDeg - mildStatic.camberDeg, -0.10, 0.03, 'mild camber gain over +50 mm is incorrect');
+
 const flStatic = solveSuspensionKinematics(fl, 0, 0);
 const frStatic = solveSuspensionKinematics(fr, 0, 0);
 assertNear(flStatic.camberDeg, -1.5, 0.02, 'FL static camber changed');
@@ -108,6 +128,10 @@ console.log(JSON.stringify({
     casterDeg: flStatic.casterDeg,
     kingpinInclinationDeg: flStatic.kingpinInclinationDeg,
     scrubRadiusMm: flStatic.scrubRadiusM * 1000,
+  },
+  mildGain: {
+    derivedCamberGainDegPerMeter: mildGain.derivedCamberGainDegPerMeter,
+    bump50mmCamberDeltaDeg: mildBump.camberDeg - mildStatic.camberDeg,
   },
   bump50mm: {
     camberDeg: flBump.camberDeg,
