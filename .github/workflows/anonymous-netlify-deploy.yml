@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
