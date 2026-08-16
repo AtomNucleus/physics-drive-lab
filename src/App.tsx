@@ -14,6 +14,7 @@ import { TuningModal } from './components/TuningModal';
 import { PhysicsTestRunnerModal } from './components/PhysicsTestRunnerModal';
 import { AssettoCorsaImportPanel } from './components/AssettoCorsaImportPanel';
 import type { Kn5VisualResult } from './graphics/kn5Loader';
+import { loadBundledM5Visual } from './graphics/bundledM5Visual';
 
 const INITIAL_PRESET_KEY = 'm5G90';
 const INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
@@ -65,7 +66,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // React states for UI / HUD
   const [config, setConfig] = useState<VehicleConfig>(INITIAL_CONFIG);
   const [activePresetKey, setActivePresetKey] = useState<string>(INITIAL_PRESET_KEY);
   const [currentColor, setCurrentColor] = useState<string>('#111827');
@@ -77,17 +77,16 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [activeKeys, setActiveKeys] = useState<{ [key: string]: boolean }>({});
 
-  // Live vehicle telemetry state
   const [vehicleTelemetry, setVehicleTelemetry] = useState<VehicleState>(() => {
     const engine = new VehiclePhysicsEngine(INITIAL_CONFIG);
     if (shouldDefaultToAutomaticOnMobile()) engine.state.isAutomatic = true;
     return engine.state;
   });
 
-  // Physics engine & rendering engine refs
   const physicsEngineRef = useRef<VehiclePhysicsEngine | null>(null);
   const carRendererRef = useRef<CarRenderer | null>(null);
   const importedVisualRef = useRef<THREE.Group | null>(null);
+  const defaultVisualLoadTokenRef = useRef(0);
   const envManagerRef = useRef<EnvironmentManager | null>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   const keysDownRef = useRef<{ [code: string]: boolean }>({});
@@ -105,13 +104,11 @@ export default function App() {
     handbrake: false,
   });
 
-  // Initialize Three.js Scene and Main Simulation Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    // 1. Three.js Core Setup
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x94a3b8);
 
@@ -133,7 +130,6 @@ export default function App() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
 
-    // 2. Instantiate Systems
     const physicsEngine = new VehiclePhysicsEngine(config);
     if (shouldDefaultToAutomaticOnMobile()) physicsEngine.state.isAutomatic = true;
     physicsEngineRef.current = physicsEngine;
@@ -142,13 +138,14 @@ export default function App() {
     carRendererRef.current = carRenderer;
     scene.add(carRenderer.rootGroup);
 
+    loadDefaultM5Visual(INITIAL_CONFIG);
+
     const envManager = new EnvironmentManager(scene);
     envManagerRef.current = envManager;
 
     const cameraController = new CameraController(camera);
     cameraControllerRef.current = cameraController;
 
-    // 3. Handle Canvas Resize
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width: w, height: h } = entry.contentRect;
@@ -161,7 +158,6 @@ export default function App() {
     });
     resizeObserver.observe(container);
 
-    // 4. Keyboard Event Listeners
     const handleKeyDown = (e: KeyboardEvent) => {
       keysDownRef.current[e.code] = true;
       setActiveKeys({ ...keysDownRef.current });
@@ -285,6 +281,7 @@ export default function App() {
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      defaultVisualLoadTokenRef.current += 1;
       if (importedVisualRef.current) {
         disposeImportedVisual(importedVisualRef.current);
         importedVisualRef.current = null;
@@ -300,22 +297,12 @@ export default function App() {
     }
   };
 
-  const restoreProceduralBody = () => {
+  const replaceVisual = (visual: Kn5VisualResult) => {
     const renderer = carRendererRef.current;
-    const imported = importedVisualRef.current;
-    if (!renderer || !imported) return;
-
-    renderer.chassisGroup.remove(imported);
-    disposeImportedVisual(imported);
-    importedVisualRef.current = null;
-    renderer.chassisGroup.children.forEach((child) => {
-      child.visible = true;
-    });
-  };
-
-  const handleApplyImportedVisual = (visual: Kn5VisualResult) => {
-    const renderer = carRendererRef.current;
-    if (!renderer) return;
+    if (!renderer) {
+      disposeImportedVisual(visual.group);
+      return;
+    }
 
     const previous = importedVisualRef.current;
     if (previous) {
@@ -332,6 +319,43 @@ export default function App() {
     importedVisualRef.current = visual.group;
   };
 
+  const loadDefaultM5Visual = (vehicleConfig: VehicleConfig) => {
+    const token = ++defaultVisualLoadTokenRef.current;
+    void loadBundledM5Visual(vehicleConfig)
+      .then((visual) => {
+        if (defaultVisualLoadTokenRef.current !== token) {
+          disposeImportedVisual(visual.group);
+          return;
+        }
+        replaceVisual(visual);
+      })
+      .catch((error) => {
+        console.warn('[default BMW M5 G90 visual]', error);
+      });
+  };
+
+  const restoreProceduralBody = () => {
+    defaultVisualLoadTokenRef.current += 1;
+    const renderer = carRendererRef.current;
+    if (!renderer) return;
+
+    const imported = importedVisualRef.current;
+    if (imported) {
+      renderer.chassisGroup.remove(imported);
+      disposeImportedVisual(imported);
+      importedVisualRef.current = null;
+    }
+
+    renderer.chassisGroup.children.forEach((child) => {
+      child.visible = true;
+    });
+  };
+
+  const handleApplyImportedVisual = (visual: Kn5VisualResult) => {
+    defaultVisualLoadTokenRef.current += 1;
+    replaceVisual(visual);
+  };
+
   const handleSelectPreset = (presetKey: string) => {
     const preset = VEHICLE_PRESETS[presetKey];
     if (!preset) return;
@@ -346,6 +370,10 @@ export default function App() {
 
     if (carRendererRef.current) {
       carRendererRef.current.setBodyColor(preset.color);
+    }
+
+    if (presetKey === INITIAL_PRESET_KEY) {
+      loadDefaultM5Visual(mergedConfig);
     }
   };
 
