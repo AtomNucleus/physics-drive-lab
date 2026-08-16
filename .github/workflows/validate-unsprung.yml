@@ -19,5 +19,13 @@ jobs:
       - run: npm install
       - name: Suspension and unsprung behavior tests
         run: npm run test:suspension
+      - name: Verify rendered roll sign matches physics
+        run: |
+          grep -F "this.chassisGroup.rotation.z = state.roll;" src/graphics/carRenderer.ts
+          ! grep -F "this.chassisGroup.rotation.z = -state.roll;" src/graphics/carRenderer.ts
+      - name: Full headless vehicle behavior suite
+        continue-on-error: true
+        run: |
+          ./node_modules/.bin/tsx -e "import { DEFAULT_VEHICLE_CONFIG } from './src/physics/vehiclePresets.ts'; import { BMW_M5_2025_OVERRIDES } from './src/physics/m5G90.ts'; import { HeadlessTestRunner } from './src/physics/tests/HeadlessTestRunner.ts'; const config={...DEFAULT_VEHICLE_CONFIG,...BMW_M5_2025_OVERRIDES}; const results=HeadlessTestRunner.runAllTests(config as any); console.log(JSON.stringify(results.map(r=>({name:r.name,passed:r.passed,summary:r.summary,metrics:r.metrics})),null,2)); const failures=results.filter(r=>!r.passed); if(failures.length){ console.error('HEADLESS_FAILURES='+failures.map(r=>r.name).join('|')); process.exit(1); }"
       - name: Production build
         run: npm run build
