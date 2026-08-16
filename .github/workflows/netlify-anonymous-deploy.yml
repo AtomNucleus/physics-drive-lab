@@ -22,3 +22,5 @@ jobs:
         run: npm run build
       - name: Deploy anonymously to Netlify
         run: npx --yes netlify-cli@latest deploy --dir=dist --allow-anonymous
+
+# trigger
