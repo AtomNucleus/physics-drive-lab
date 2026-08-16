@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/physics/**'
+      - 'src/graphics/carRenderer.ts'
       - 'package.json'
       - '.github/workflows/low-speed-tire-regression.yml'
   workflow_dispatch:
@@ -26,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Mobile steering regression
+        run: npm run test:mobile
+
       - name: Stationary steering and low-speed tire regression
         run: npm run test:stationary
 
@@ -35,12 +39,23 @@ jobs:
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
 
+      - name: Full tire and combined-slip regression
+        run: npm run test:tire
+
+      - name: Tire smoke regression
+        run: npm run test:smoke
+
+      - name: Spinout and wipeout stability regression
+        run: npm run test:crash
+
+      - name: Crash recovery and CG-pivot regression
+        run: npm run test:crash-recovery
+
       - name: Production build
         run: npm run build
 
-      # src/types.ts is empty on main today, so the repository-wide typecheck has
-      # pre-existing missing-export failures. Keep it visible without blocking this
-      # physics regression workflow until that baseline issue is repaired separately.
+      # Keep repository-wide typechecking visible while preserving the established
+      # physics workflow behavior for any unrelated baseline typing issues.
       - name: TypeScript baseline check
         continue-on-error: true
         run: npm run lint
