@@ -1,0 +1,41 @@
+name: Anonymous Netlify Deploy
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Deploy anonymously to Netlify
+        run: |
+          npx --yes netlify-cli@27.0.1 deploy --allow-anonymous --dir=dist --no-build --json | tee netlify-deploy.json
+          echo '---DEPLOY-METADATA---'
+          cat netlify-deploy.json
+
+      - name: Upload deploy metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlify-deploy-metadata
+          path: netlify-deploy.json
+          if-no-files-found: ignore
+          retention-days: 1
