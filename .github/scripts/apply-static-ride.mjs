@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+// Temporary branch helper; removed before PR.
 const path = 'src/physics/Vehicle.ts';
 let text = fs.readFileSync(path, 'utf8');
 
