@@ -39,11 +39,12 @@ jobs:
           python3 scripts/m5_launch_control_patch.py
           python3 scripts/m5_driveline_inertia_patch.py
           python3 scripts/m5_longitudinal_relaxation_patch.py
+          python3 scripts/m5_tcs_patch.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add src/physics/Vehicle.ts src/physics/Powertrain.ts src/physics/DriverAids.ts src/physics/WheelDynamics.ts src/physics/TireModel.ts src/physics/m5G90.ts
-            git commit -m "Separate M5 longitudinal and lateral tire relaxation"
+            git commit -m "Add configurable near-actuator M5 TCS"
             git pull --rebase origin agent/dynamic-tire-load-transfer
             git push origin HEAD:agent/dynamic-tire-load-transfer
           fi
@@ -57,6 +58,9 @@ jobs:
       - name: Run launch diagnostic
         run: npx tsx scripts/m5_launch_diag.ts | tee m5-launch-diag.log
 
+      - name: Run M5 parameter sweep
+        run: npx tsx scripts/m5_parameter_sweep.ts | tee m5-parameter-sweep.log
+
       - name: Run brake and aero diagnostic
         run: npx tsx scripts/m5_brake_diag.ts | tee m5-brake-diag.log
 
@@ -68,5 +72,6 @@ jobs:
             m5-calibration.json
             m5-calibration.log
             m5-launch-diag.log
+            m5-parameter-sweep.log
             m5-brake-diag.log
           retention-days: 1
