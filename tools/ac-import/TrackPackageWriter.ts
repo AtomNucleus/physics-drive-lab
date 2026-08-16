@@ -29,7 +29,7 @@ interface WriterOptions {
 
 const align4 = (value: number) => (value + 3) & ~3;
 const sanitizeFilename = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_');
-const MIN_DRIVEABLE_NORMAL_Y = 0.25;
+const OBSTACLE_MESH_NAME = /(WALL|BARRIER|FENCE|GUARD|GUARDRAIL|RAIL)/i;
 
 function classifySurface(key: string): { type: SurfaceKind; rollingResistance: number; wetness: number; isKerbRumble: boolean } {
   const upper = key.toUpperCase();
@@ -43,6 +43,29 @@ function classifySurface(key: string): { type: SurfaceKind; rollingResistance: n
   if (/RACING|LINE/.test(upper)) return { type: 'racing_line', rollingResistance: 0.015, wetness: 0, isKerbRumble: false };
   if (/ROAD|ASPHALT|TARMAC|PIT/.test(upper)) return { type: 'asphalt', rollingResistance: 0.015, wetness: 0, isKerbRumble: false };
   return { type: 'unknown', rollingResistance: 0.04, wetness: 0, isKerbRumble: false };
+}
+
+function maxDriveableSlopeDeg(type: SurfaceKind): number {
+  switch (type) {
+    case 'asphalt':
+    case 'racing_line':
+    case 'concrete':
+    case 'wet':
+      return 35;
+    case 'kerb':
+      return 50;
+    case 'grass':
+      return 65;
+    case 'gravel':
+    case 'dirt':
+      return 60;
+    case 'sand':
+      return 55;
+    case 'marbles':
+    case 'unknown':
+    default:
+      return 45;
+  }
 }
 
 function surfaceForMesh(meshName: string, surfaces: AcSurfaceDefinition[]): AcSurfaceDefinition | null {
@@ -138,6 +161,7 @@ export async function writeTrackPackage(
   const collisionRecords: Buffer[] = [];
   let collisionTriangleCount = 0;
   let rejectedSteepTriangleCount = 0;
+  let rejectedObstacleTriangleCount = 0;
 
   const getPackageSurface = (source: AcSurfaceDefinition): PackageSurface => {
     const existingId = surfaceIds.get(source.key);
@@ -160,11 +184,16 @@ export async function writeTrackPackage(
   for (const mesh of collisionModel.meshes) {
     const acSurface = surfaceForMesh(mesh.name, surfacesIni) ?? fallbackSurfaceForMesh(mesh.name);
     if (!acSurface) continue;
+    if (OBSTACLE_MESH_NAME.test(mesh.name)) {
+      rejectedObstacleTriangleCount += Math.floor(mesh.indices.length / 3);
+      continue;
+    }
     const surface = getPackageSurface(acSurface);
+    const minNormalY = Math.cos((maxDriveableSlopeDeg(surface.type) * Math.PI) / 180);
     for (let i = 0; i + 2 < mesh.indices.length; i += 3) {
       const ia = mesh.indices[i] * 3, ib = mesh.indices[i + 1] * 3, ic = mesh.indices[i + 2] * 3;
       if (ic + 2 >= mesh.positions.length) continue;
-      if (triangleAbsNormalY(mesh.positions, ia, ib, ic) < MIN_DRIVEABLE_NORMAL_Y) {
+      if (triangleAbsNormalY(mesh.positions, ia, ib, ic) < minNormalY) {
         rejectedSteepTriangleCount++;
         continue;
       }
@@ -191,6 +220,7 @@ export async function writeTrackPackage(
     },
     visualBinary: 'visual.bin', collisionBinary: 'collision.bin', collisionTriangleCount,
     rejectedSteepTriangleCount,
+    rejectedObstacleTriangleCount,
     meshes: meshManifest, materials: visualModel.materials.map(packageMaterial), surfaces: packageSurfaces,
     spawnPoints: [{ name: 'default', x: options.spawn?.x ?? 0, z: options.spawn?.z ?? 0, yaw: options.spawn?.yaw ?? 0 }],
     bounds: { min: boundsMin.every(Number.isFinite) ? boundsMin : fallbackBounds, max: boundsMax.every(Number.isFinite) ? boundsMax : fallbackBounds },
