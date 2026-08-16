@@ -73,11 +73,9 @@ export class DifferentialSystem {
    * Solve torque split across a single axle differential.
    *
    * Clutch-ramp numbers are treated as engagement strength, not as a literal
-   * fraction of driveshaft torque. The previous implementation could generate
-   * more locking torque than one wheel's 50% share and reverse that wheel's
-   * torque under power, creating a left/right oscillation. Real plate LSDs bias
-   * torque strongly, but a normal 1.5-way does not chatter between +drive and
-   * -drive on a straight launch.
+   * fraction of driveshaft torque. Power/coast selection is based on mechanical
+   * power flow (torque * carrier speed), so reverse acceleration uses the power
+   * ramp just like forward acceleration instead of being mistaken for coast.
    */
   private solveAxleDifferential(
     inputTorque: number,
@@ -108,7 +106,14 @@ export class DifferentialSystem {
       };
     }
 
-    const isPowerOn = inputTorque >= 0;
+    // Positive mechanical power means the drivetrain is propelling the axle.
+    // Negative mechanical power means the axle is back-driving the drivetrain
+    // under lift/coast. At essentially zero carrier speed there is no meaningful
+    // coast direction yet, so an applied torque request is treated as power-on.
+    const mechanicalPower = inputTorque * carrierSpeed;
+    const isPowerOn = Math.abs(carrierSpeed) < 0.20
+      ? Math.abs(inputTorque) > 1
+      : mechanicalPower >= 0;
     const rampCoeff = PhysicsMath.clamp(isPowerOn ? this.config.powerRamp : this.config.coastRamp, 0, 1);
 
     // Plate ramp strength is scaled to a realistic axle torque-biasing range.
