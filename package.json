@@ -14,7 +14,9 @@
     "test:tire": "tsx src/physics/tests/TireModelTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
     "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
-    "test:smoke": "tsx src/physics/tests/TireSmokeRegressionTests.ts"
+    "test:smoke": "tsx src/physics/tests/TireSmokeRegressionTests.ts",
+    "test:crash": "tsx src/physics/tests/CrashStabilityTests.ts",
+    "test:wheel-visual": "tsx src/physics/tests/WheelVisualPoseTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
