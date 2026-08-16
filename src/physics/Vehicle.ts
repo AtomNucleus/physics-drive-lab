@@ -18,6 +18,13 @@ export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec
   return PhysicsMath.vec3Sub(forceWorld, PhysicsMath.vec3Scale(normal, normalForce));
 }
 
+export function wheelContactAuthorityForUprightness(uprightness: number): number {
+  const fullAuthority = Math.cos(25 * Math.PI / 180);
+  const zeroAuthority = Math.cos(60 * Math.PI / 180);
+  const t = PhysicsMath.clamp((uprightness - zeroAuthority) / (fullAuthority - zeroAuthority), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export class Vehicle {
   public config: VehicleConfig;
   public rigidBody: RigidBody;
@@ -556,11 +563,7 @@ export class Vehicle {
         PhysicsMath.vec3(0, 1, 0)
       );
       const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);
-      const wheelContactAuthority = PhysicsMath.clamp(
-        (contactUprightness - 0.20) / 0.45,
-        0,
-        1
-      );
+      const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);
 
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
@@ -676,6 +679,11 @@ export class Vehicle {
         groundContactPos: {
           x: susp.contactPointWorld.x,
           y: susp.contactPointWorld.y,
+          z: susp.contactPointWorld.z,
+        },
+        hubWorldPos: {
+          x: susp.contactPointWorld.x,
+          y: susp.hubPositionWorldY,
           z: susp.contactPointWorld.z,
         },
         temperature: w.temperature,

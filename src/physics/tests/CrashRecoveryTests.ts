@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CarRenderer } from '../../graphics/carRenderer';
 import { WheelDynamics } from '../WheelDynamics';
-import { projectTireShearOntoSurface } from '../Vehicle';
+import { projectTireShearOntoSurface, wheelContactAuthorityForUprightness } from '../Vehicle';
 import { PhysicsMath } from '../math/PhysicsMath';
 import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
@@ -129,10 +129,42 @@ function testChassisVisualPivotsAtPhysicalCg() {
   );
 }
 
+function testWheelAuthorityHandsOffBeforeSidewaysJacking() {
+  const a20 = wheelContactAuthorityForUprightness(Math.cos(20 * Math.PI / 180));
+  const a45 = wheelContactAuthorityForUprightness(Math.cos(45 * Math.PI / 180));
+  const a60 = wheelContactAuthorityForUprightness(Math.cos(60 * Math.PI / 180));
+  assert(a20 > 0.999, `20deg authority changed: ${a20}`);
+  assert(a45 > 0.35 && a45 < 0.70, `45deg authority did not fade correctly: ${a45}`);
+  assert(a60 < 1e-6, `60deg retained jacking authority: ${a60}`);
+}
+
+function testRenderedWheelTracksPhysicalHubDuringWipeout() {
+  const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;
+  const renderer = new CarRenderer('#2563eb');
+  const state: any = {
+    x: 12, z: -7, elevationHeight: 1.4, heave: 0.18, yaw: 0.73,
+    pitch: 38 * Math.PI / 180, roll: 57 * Math.PI / 180, airbrakeActive: false, drsActive: false,
+    exhaustFlameIntensity: 0, showForceVectors3D: false,
+    wheels: [{ id: 'FL', isFront: true, isLeft: true, localPos: { x: -0.84, y: 0, z: 1.36 },
+      hubWorldPos: { x: 11.28, y: 1.92, z: -5.74 }, steerAngle: 0.18, camberAngleDeg: -2,
+      rotationAngle: 1.2, verticalTravelM: 0.10, tireSquishM: 0.025, sidewallDeflection: 0.01,
+      brakeRotorTemp: 80, forceVectorLong: 0, forceVectorLat: 0, forceVectorNorm: 0, gripUtilization: 0,
+      isSkidding: false, bumpStopEngaged: false }],
+  };
+  renderer.update(state, config);
+  renderer.rootGroup.updateMatrixWorld(true);
+  const actual = new THREE.Vector3();
+  renderer.wheelMeshes[0].getWorldPosition(actual);
+  const expected = new THREE.Vector3(11.28, 1.92, -5.74);
+  assert(actual.distanceTo(expected) < 1e-6, `wheel separated ${actual.distanceTo(expected)} m from physical hub`);
+}
+
 const tests: Array<[string, () => void]> = [
   ['tire shear remains tangent to road', testTireShearStaysInRoadPlane],
   ['post-spin contact patch settles', testPostSpinContactPatchSettles],
   ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],
+  ['wheel authority hands off before sideways jacking', testWheelAuthorityHandsOffBeforeSidewaysJacking],
+  ['rendered wheel tracks physical hub during wipeout', testRenderedWheelTracksPhysicalHubDuringWipeout],
 ];
 
 for (const [name, test] of tests) {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { VehicleConfig, VehicleState } from '../types';
+import { computeWheelVisualPose } from './wheelVisualPose';
 
 export class CarRenderer {
   public rootGroup: THREE.Group;
@@ -491,16 +492,24 @@ export class CarRenderer {
       const wheelGroup = this.wheelMeshes[idx];
       if (!wheelGroup) return;
 
-      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;
-      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);
-      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);
-
-      // Steer rotation (Y axis)
-      wheelGroup.rotation.y = wheel.steerAngle;
-
-      // Camber rotation (Z axis) dynamically driven by suspension kinematics
       const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;
-      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;
+      const crashPose = computeWheelVisualPose({
+        chassisHeaveM: state.heave, chassisPitchRad: state.pitch, chassisRollRad: state.roll,
+        mountX: wheel.localPos.x, mountZ: wheel.localPos.z, suspensionTravelM: wheel.verticalTravelM,
+        tireSquishM: wheel.tireSquishM, sidewallDeflectionM: wheel.sidewallDeflection,
+        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: 0.33,
+      });
+      const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;
+      if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {
+        const dx = hub.x - state.x;
+        const dz = hub.z - state.z;
+        const c = Math.cos(state.yaw);
+        const s = Math.sin(state.yaw);
+        wheelGroup.position.set(c * dx - s * dz, hub.y - state.elevationHeight, s * dx + c * dz);
+      } else {
+        wheelGroup.position.set(crashPose.x, crashPose.y, crashPose.z);
+      }
+      wheelGroup.rotation.set(crashPose.rotationX, wheel.steerAngle, crashPose.rotationZ, 'YXZ');
 
       // Spinning wheel hub (child index 4 in wheelGroup)
       const hubGroup = wheelGroup.children[4] as THREE.Group;
