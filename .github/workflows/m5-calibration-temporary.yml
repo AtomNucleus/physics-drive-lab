@@ -44,6 +44,9 @@ jobs:
       - name: Run M5 dynamics benchmark
         run: npx tsx scripts/m5_bench.ts | tee m5-calibration.log
 
+      - name: Run launch diagnostic
+        run: npx tsx scripts/m5_launch_diag.ts | tee m5-launch-diag.log
+
       - name: Upload calibration results
         uses: actions/upload-artifact@v4
         with:
@@ -51,4 +54,5 @@ jobs:
           path: |
             m5-calibration.json
             m5-calibration.log
+            m5-launch-diag.log
           retention-days: 1
