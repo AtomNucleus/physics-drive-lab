@@ -39,16 +39,17 @@ function makeM5(overrides: Partial<VehicleConfig> = {}) {
 }
 
 function laneChangeSteer(time: number) {
-  // A smooth ISO-style left/right transient rather than an impossible steering step.
-  // Peak handwheel demand is deliberately modest because 200 km/h multiplies even
-  // a small road-wheel angle into a large lateral acceleration.
+  // At 200 km/h, the M5 steering limiter leaves roughly 13.3 deg of available
+  // road-wheel lock. A 4% command therefore peaks near 0.53 deg, which is in the
+  // neighborhood of a 1 g kinematic demand for a 3.0 m wheelbase instead of the
+  // impossible multi-g demand created by the old 18% diagnostic pulse.
   const pulseDuration = 0.72;
   if (time < pulseDuration) {
-    return 0.18 * Math.sin(Math.PI * time / pulseDuration);
+    return 0.04 * Math.sin(Math.PI * time / pulseDuration);
   }
   if (time < pulseDuration * 2) {
     const local = time - pulseDuration;
-    return -0.18 * Math.sin(Math.PI * local / pulseDuration);
+    return -0.04 * Math.sin(Math.PI * local / pulseDuration);
   }
   return 0;
 }
@@ -61,6 +62,7 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
   let peakRollRateDegPerSec = 0;
   let peakLatG = 0;
   let peakVerticalG = 0;
+  let peakActualSteerDeg = 0;
   let peakBodyRiseM = 0;
   let peakBodyDropM = 0;
   let peakTotalNormalLoadN = 0;
@@ -87,6 +89,7 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
     );
     peakLatG = Math.max(peakLatG, Math.abs(state.lateralG));
     peakVerticalG = Math.max(peakVerticalG, Math.abs(state.verticalG));
+    peakActualSteerDeg = Math.max(peakActualSteerDeg, Math.abs(state.actualSteerAngle) * 180 / Math.PI);
     peakBodyRiseM = Math.max(peakBodyRiseM, sim.vehicle.rigidBody.position.y - startY);
     peakBodyDropM = Math.max(peakBodyDropM, startY - sim.vehicle.rigidBody.position.y);
     peakTotalNormalLoadN = Math.max(peakTotalNormalLoadN, totalNormalLoad);
@@ -122,6 +125,7 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
     peakRollRateDegPerSec,
     peakLatG,
     peakVerticalG,
+    peakActualSteerDeg,
     peakBodyRiseM,
     peakBodyDropM,
     peakTotalNormalLoadN,
@@ -143,7 +147,7 @@ const noBars = runHighSpeedLaneChange({
 });
 
 console.log(JSON.stringify({
-  scenario: '200 km/h smooth double lane change on flat dry surface',
+  scenario: '200 km/h smooth ~1 g double lane change on flat dry surface',
   currentBars,
   noBars,
   rollReductionFraction: noBars.peakRollDeg > 1e-6
@@ -151,9 +155,10 @@ console.log(JSON.stringify({
     : 0,
 }, null, 2));
 
-// Initial diagnostic gates are intentionally broad. The point of this test is to
-// expose high-speed anti-roll behavior numerically before tightening realism limits.
-assert(currentBars.peakRollDeg < 12, `anti-roll model allowed extreme body roll: ${currentBars.peakRollDeg.toFixed(2)} deg`);
-assert(currentBars.peakBodyRiseM < 0.20, `anti-roll model jacked the body upward by ${currentBars.peakBodyRiseM.toFixed(3)} m`);
-assert(currentBars.peakBodyDropM < 0.20, `anti-roll model dropped the body by ${currentBars.peakBodyDropM.toFixed(3)} m`);
-assert(currentBars.finalSpeedKmh > 100, `lane-change test lost implausible speed: ${currentBars.finalSpeedKmh.toFixed(1)} km/h`);
+// Broad safety gates for the diagnostic pass. These become tighter once the
+// force-conservation issue is corrected and the realistic response is measured.
+assert(currentBars.peakLatG > 0.45, `high-speed maneuver was too mild to exercise roll: ${currentBars.peakLatG.toFixed(2)} g`);
+assert(currentBars.peakRollDeg < 8, `anti-roll model allowed excessive body roll: ${currentBars.peakRollDeg.toFixed(2)} deg`);
+assert(currentBars.peakBodyRiseM < 0.10, `anti-roll model jacked the body upward by ${currentBars.peakBodyRiseM.toFixed(3)} m`);
+assert(currentBars.peakBodyDropM < 0.10, `anti-roll model dropped the body by ${currentBars.peakBodyDropM.toFixed(3)} m`);
+assert(currentBars.finalSpeedKmh > 130, `lane-change test lost implausible speed: ${currentBars.finalSpeedKmh.toFixed(1)} km/h`);
