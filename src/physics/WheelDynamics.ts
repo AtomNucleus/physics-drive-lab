@@ -113,8 +113,25 @@ export class WheelDynamics {
     if (dt <= 0) return this.lastTireOutput;
 
     const fz = Math.max(0, verticalLoad);
+    const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
+    const roadOmega = longitudinalVelocity / this.radius;
+
+    // A free-rolling wheel is kinematically constrained very strongly by the road.
+    // At 120 Hz the explicit tire-torque integration could otherwise overshoot the
+    // rolling speed every frame and invent large alternating longitudinal forces.
+    // Pre-coupling only wheels with essentially zero axle/brake torque preserves
+    // driven-wheel slip while making unpowered rolling behavior physically stable.
+    if (Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20) {
+      const trackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
+      const trackingAlpha = 1 - Math.exp(-trackingRate * dt);
+      this.angularVelocity += (roadOmega - this.angularVelocity) * trackingAlpha;
+    }
+
     const wheelSurfaceSpeed = this.angularVelocity * this.radius;
-    const speedForSlip = Math.max(1.2, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
+    // A 2 m/s regularization floor prevents near-zero velocity from turning a
+    // millimetric wheel-speed error into a huge slip ratio. This does not suppress
+    // launch traction because driven-wheel surface speed can still exceed the floor.
+    const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
 
     this.rawSlipRatio = PhysicsMath.clamp(
       (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
@@ -124,14 +141,13 @@ export class WheelDynamics {
 
     // Positive lateral velocity means the contact patch is moving to the right;
     // tire force must develop to the left, hence the negative slip-angle sign.
-    const angleSpeedFloor = 0.7;
+    const angleSpeedFloor = 0.9;
     this.rawSlipAngle = -Math.atan2(
       lateralVelocity,
       Math.max(angleSpeedFloor, Math.abs(longitudinalVelocity))
     );
 
     if (fz < 20) {
-      // Airborne tire cannot retain a large contact patch force memory.
       const airborneDecay = Math.exp(-dt / 0.025);
       this.relaxationSlipAngle *= airborneDecay;
       this.relaxationSlipRatio *= airborneDecay;
@@ -140,8 +156,6 @@ export class WheelDynamics {
       this.transientMz *= airborneDecay;
     } else {
       const sigma = Math.max(0.035, this.tireConfig.relaxationLength);
-      // Relaxation is distance-based, but retain a small speed floor so parking
-      // maneuvers still settle instead of freezing stale slip state indefinitely.
       const relaxationTravel = Math.max(2.0, Math.abs(longitudinalVelocity)) * dt;
       const slipAlpha = 1 - Math.exp(-relaxationTravel / sigma);
       this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * slipAlpha;
@@ -150,7 +164,10 @@ export class WheelDynamics {
 
     const optimalTemp = this.tireConfig.optimalTemp;
     const tempError = Math.abs(this.temperature - optimalTemp);
-    const thermalGrip = PhysicsMath.clamp(1.03 - tempError * 0.0042, 0.72, 1.03);
+    // Street/performance tires still have substantial grip at ambient temperature.
+    // The old curve left a 25 C tire at ~78% grip, making a normal road car feel
+    // artificially icy until warmed like a racing slick.
+    const thermalGrip = PhysicsMath.clamp(1.02 - tempError * 0.0018, 0.88, 1.02);
     const wearGrip = PhysicsMath.clamp(1 - this.wearPercent * 0.0022, 0.70, 1.0);
 
     const target = this.tireModel.calculate({
@@ -163,8 +180,6 @@ export class WheelDynamics {
       isLeft: this.isLeft,
     });
 
-    // A second, shorter carcass-force relaxation prevents even a filtered slip
-    // state from snapping force onto the chassis in one 120 Hz tick.
     const sigmaForce = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
     const forceTravel = Math.max(2.5, Math.abs(longitudinalVelocity)) * dt;
     const forceAlpha = 1 - Math.exp(-forceTravel / sigmaForce);
@@ -172,8 +187,6 @@ export class WheelDynamics {
     this.transientFy += (target.fy - this.transientFy) * forceAlpha;
     this.transientMz += (target.aligningTorque - this.transientMz) * forceAlpha;
 
-    // Rolling resistance is a road force, so it follows vehicle travel direction
-    // and is kept small relative to the tire friction circle.
     let rrForce = 0;
     if (Math.abs(longitudinalVelocity) > 0.15) {
       rrForce = -Math.sign(longitudinalVelocity) * Math.max(0, rollingResistance) * fz;
@@ -181,8 +194,6 @@ export class WheelDynamics {
     let fx = this.transientFx + rrForce;
     let fy = this.transientFy;
 
-    // The transient vector is still capped by the instantaneous load-sensitive
-    // friction budget so a sudden unload cannot leave impossible "stored" force.
     const limit = Math.max(0, target.frictionLimit);
     const resultant = Math.hypot(fx, fy);
     if (limit > 0 && resultant > limit) {
@@ -194,35 +205,39 @@ export class WheelDynamics {
     }
 
     // Tire longitudinal force reacts back on the wheel rotational DOF.
-    const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
-    const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : longitudinalVelocity / this.radius;
+    const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
     const brakeSign = Math.sign(spinReference);
     const brakeTorque = brakeRequest * brakeSign;
     const tireReactionTorque = fx * this.radius;
     const angularAccel = PhysicsMath.clamp(
       (driveTorque - brakeTorque - tireReactionTorque) / this.inertia,
-      -6000,
-      6000
+      -4500,
+      4500
     );
+    const omegaBefore = this.angularVelocity;
     this.angularVelocity += angularAccel * dt;
 
-    // Do not let brakes numerically drive a nearly stopped wheel backwards.
+    // When tire reaction alone would numerically shoot a lightly torqued wheel
+    // through the exact rolling speed in one frame, land on rolling speed rather
+    // than oscillating to the opposite side of the slip curve.
+    const beforeError = omegaBefore - roadOmega;
+    const afterError = this.angularVelocity - roadOmega;
+    if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+      this.angularVelocity = roadOmega;
+    }
+
     if (brakeRequest > 0 && Math.abs(longitudinalVelocity) < 1.0 && Math.sign(this.angularVelocity) !== Math.sign(spinReference)) {
       this.angularVelocity = 0;
     }
 
-    // At walking speed with little torque, gently synchronize wheel speed to
-    // road speed to avoid slip-ratio chatter around zero.
     if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
-      const sync = 1 - Math.exp(-10 * dt);
-      this.angularVelocity += (longitudinalVelocity / this.radius - this.angularVelocity) * sync;
+      const sync = 1 - Math.exp(-14 * dt);
+      this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
     }
 
     this.rotationAngle += this.angularVelocity * dt;
     if (Math.abs(this.rotationAngle) > Math.PI * 1000) this.rotationAngle %= Math.PI * 2;
 
-    // Lightweight tire/brake thermal state. It matters because repeated sliding
-    // should not preserve identical grip forever, but the rates are intentionally slow.
     const slipEnergy = Math.abs(fx * (wheelSurfaceSpeed - longitudinalVelocity)) + Math.abs(fy * lateralVelocity);
     const heatIn = slipEnergy * 0.00005;
     const cooling = (this.temperature - 25) * (0.020 + Math.abs(longitudinalVelocity) * 0.0025);
