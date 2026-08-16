@@ -36,7 +36,7 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
 
   // Full Pacejka '96 Magic Formula Tires, Thermals, Wear & Sidewall Flex
   tireGripFront: 1.22,
-  tireGripRear: 1.18,
+  tireGripRear: 1.22,
   tireStiffness: 15.5,
   tireLoadSensitivity: 0.000035, // mu reduction per N load
   slideFrictionMultiplier: 0.84,
@@ -120,7 +120,7 @@ export const VEHICLE_PRESETS: Record<string, VehiclePreset> = {
       suspensionDampingHighSpeed: 2100,
       bumpStopStiffness: 48000,
       tireGripFront: 1.22,
-      tireGripRear: 1.18,
+      tireGripRear: 1.22,
       tirePneumaticTrailMax: 0.032,
       tireSidewallStiffness: 180000,
       groundEffectUnderbody: false,
