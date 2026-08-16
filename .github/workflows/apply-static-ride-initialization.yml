@@ -1,4 +1,4 @@
-name: Apply static ride initialization
+name: Revert static ride experiment
 
 on:
   push:
@@ -13,11 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node .github/scripts/apply-static-ride.mjs
-      - run: |
+      - name: Restore pre-experiment Vehicle implementation
+        run: |
+          git fetch origin 4f9bb90eb73399630c46b1f7a191e858b044e984 --depth=1
+          git show 4f9bb90eb73399630c46b1f7a191e858b044e984:src/physics/Vehicle.ts > src/physics/Vehicle.ts
+      - name: Commit revert
+        run: |
           if git diff --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/physics/Vehicle.ts
-          git commit -m "Initialize chassis at static suspension equilibrium"
+          git commit -m "Revert static ride initialization experiment"
           git push
