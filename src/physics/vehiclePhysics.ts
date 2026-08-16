@@ -29,7 +29,31 @@ export class VehiclePhysicsEngine {
   }
 
   public get state(): VehicleState {
-    return this.simulation.vehicle.getState();
+    const snapshot = this.simulation.vehicle.getState();
+
+    // App/UI code historically toggles automatic mode through `engine.state`.
+    // VehicleState is otherwise a telemetry snapshot, so define this one field as
+    // a live accessor to the actual powertrain instead of silently mutating a copy.
+    Object.defineProperty(snapshot, 'isAutomatic', {
+      enumerable: true,
+      configurable: true,
+      get: () => this.simulation.vehicle.powertrain.isAutomatic,
+      set: (enabled: boolean) => {
+        this.simulation.vehicle.powertrain.isAutomatic = Boolean(enabled);
+      },
+    });
+
+    return snapshot;
+  }
+
+  public setAutomaticTransmission(enabled: boolean) {
+    this.simulation.vehicle.powertrain.isAutomatic = Boolean(enabled);
+  }
+
+  public toggleAutomaticTransmission(): boolean {
+    const next = !this.simulation.vehicle.powertrain.isAutomatic;
+    this.simulation.vehicle.powertrain.isAutomatic = next;
+    return next;
   }
 
   public setConfig(newConfig: VehicleConfig) {
