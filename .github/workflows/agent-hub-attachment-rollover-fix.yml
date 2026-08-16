@@ -1,12 +1,10 @@
 name: Apply hub attachment and rollover fix
-# rerun: restored wheelVisualPose helper and regression
+# final rerun after wheel visual test script was restored
 
 on:
   push:
-    branches:
-      - agent/full-tire-combined-slip
-    paths:
-      - .github/workflows/agent-hub-attachment-rollover-fix.yml
+    branches: [agent/full-tire-combined-slip]
+    paths: [.github/workflows/agent-hub-attachment-rollover-fix.yml]
 
 permissions:
   contents: write
@@ -20,12 +18,11 @@ jobs:
         with:
           ref: agent/full-tire-combined-slip
           fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Apply physical hub rendering and rollover handoff
+      - name: Apply screenshot-specific fix
         shell: bash
         run: |
           python3 - <<'PY'
@@ -33,77 +30,64 @@ jobs:
 
           vehicle = Path('src/physics/Vehicle.ts')
           text = vehicle.read_text()
-          shear_helper = """export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {\n  const normal = PhysicsMath.vec3Normalize(surfaceNormal);\n  if (PhysicsMath.vec3Length(normal) < 1e-7) return forceWorld;\n  const normalForce = PhysicsMath.vec3Dot(forceWorld, normal);\n  return PhysicsMath.vec3Sub(forceWorld, PhysicsMath.vec3Scale(normal, normalForce));\n}\n\n"""
-          authority_helper = shear_helper + """export function wheelContactAuthorityForUprightness(uprightness: number): number {\n  const fullAuthority = Math.cos(25 * Math.PI / 180);\n  const zeroAuthority = Math.cos(60 * Math.PI / 180);\n  const t = PhysicsMath.clamp(\n    (uprightness - zeroAuthority) / (fullAuthority - zeroAuthority),\n    0,\n    1\n  );\n  return t * t * (3 - 2 * t);\n}\n\n"""
+          shear = """export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {\n  const normal = PhysicsMath.vec3Normalize(surfaceNormal);\n  if (PhysicsMath.vec3Length(normal) < 1e-7) return forceWorld;\n  const normalForce = PhysicsMath.vec3Dot(forceWorld, normal);\n  return PhysicsMath.vec3Sub(forceWorld, PhysicsMath.vec3Scale(normal, normalForce));\n}\n\n"""
           if 'wheelContactAuthorityForUprightness' not in text:
-              if shear_helper not in text:
-                  raise SystemExit('Vehicle shear helper not found')
-              text = text.replace(shear_helper, authority_helper, 1)
-
-          old_authority = """      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);\n      const wheelContactAuthority = PhysicsMath.clamp(\n        (contactUprightness - 0.20) / 0.45,\n        0,\n        1\n      );\n"""
-          new_authority = """      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);\n      const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);\n"""
-          if old_authority not in text:
-              raise SystemExit('Vehicle wheel authority block not found')
-          text = text.replace(old_authority, new_authority, 1)
-
-          old_ground = """        groundContactPos: {\n          x: susp.contactPointWorld.x,\n          y: susp.contactPointWorld.y,\n          z: susp.contactPointWorld.z,\n        },\n"""
-          new_ground = old_ground + """        hubWorldPos: {\n          x: susp.contactPointWorld.x,\n          y: susp.hubPositionWorldY,\n          z: susp.contactPointWorld.z,\n        },\n"""
-          if old_ground not in text:
-              raise SystemExit('Vehicle ground contact export block not found')
-          text = text.replace(old_ground, new_ground, 1)
+              helper = shear + """export function wheelContactAuthorityForUprightness(uprightness: number): number {\n  const fullAuthority = Math.cos(25 * Math.PI / 180);\n  const zeroAuthority = Math.cos(60 * Math.PI / 180);\n  const t = PhysicsMath.clamp((uprightness - zeroAuthority) / (fullAuthority - zeroAuthority), 0, 1);\n  return t * t * (3 - 2 * t);\n}\n\n"""
+              if shear not in text: raise SystemExit('missing shear helper')
+              text = text.replace(shear, helper, 1)
+          old = """      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);\n      const wheelContactAuthority = PhysicsMath.clamp(\n        (contactUprightness - 0.20) / 0.45,\n        0,\n        1\n      );\n"""
+          new = """      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);\n      const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);\n"""
+          if old not in text: raise SystemExit('missing authority block')
+          text = text.replace(old, new, 1)
+          ground = """        groundContactPos: {\n          x: susp.contactPointWorld.x,\n          y: susp.contactPointWorld.y,\n          z: susp.contactPointWorld.z,\n        },\n"""
+          if 'hubWorldPos:' not in text:
+              hub = ground + """        hubWorldPos: {\n          x: susp.contactPointWorld.x,\n          y: susp.hubPositionWorldY,\n          z: susp.contactPointWorld.z,\n        },\n"""
+              if ground not in text: raise SystemExit('missing ground export')
+              text = text.replace(ground, hub, 1)
           vehicle.write_text(text)
 
           renderer = Path('src/graphics/carRenderer.ts')
           text = renderer.read_text()
-          import_marker = "import { VehicleConfig, VehicleState } from '../types';\n"
+          marker = "import { VehicleConfig, VehicleState } from '../types';\n"
           if "from './wheelVisualPose'" not in text:
-              if import_marker not in text:
-                  raise SystemExit('carRenderer import marker not found')
-              text = text.replace(import_marker, import_marker + "import { computeWheelVisualPose } from './wheelVisualPose';\n", 1)
+              text = text.replace(marker, marker + "import { computeWheelVisualPose } from './wheelVisualPose';\n", 1)
+          old = """      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;\n      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);\n      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);\n\n      // Steer rotation (Y axis)\n      wheelGroup.rotation.y = wheel.steerAngle;\n\n      // Camber rotation (Z axis) dynamically driven by suspension kinematics\n      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;\n"""
+          new = """      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      const crashPose = computeWheelVisualPose({\n        chassisHeaveM: state.heave, chassisPitchRad: state.pitch, chassisRollRad: state.roll,\n        mountX: wheel.localPos.x, mountZ: wheel.localPos.z, suspensionTravelM: wheel.verticalTravelM,\n        tireSquishM: wheel.tireSquishM, sidewallDeflectionM: wheel.sidewallDeflection,\n        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: 0.33,\n      });\n      const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;\n      if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {\n        const dx = hub.x - state.x;\n        const dz = hub.z - state.z;\n        const c = Math.cos(state.yaw);\n        const s = Math.sin(state.yaw);\n        wheelGroup.position.set(c * dx - s * dz, hub.y - state.elevationHeight, s * dx + c * dz);\n      } else {\n        wheelGroup.position.set(crashPose.x, crashPose.y, crashPose.z);\n      }\n      wheelGroup.rotation.set(crashPose.rotationX, wheel.steerAngle, crashPose.rotationZ, 'YXZ');\n"""
+          if old not in text: raise SystemExit('missing legacy wheel renderer block')
+          renderer.write_text(text.replace(old, new, 1))
 
-          old_wheel = """      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;\n      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);\n      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);\n\n      // Steer rotation (Y axis)\n      wheelGroup.rotation.y = wheel.steerAngle;\n\n      // Camber rotation (Z axis) dynamically driven by suspension kinematics\n      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;\n"""
-          new_wheel = """      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      const crashPose = computeWheelVisualPose({\n        chassisHeaveM: state.heave,\n        chassisPitchRad: state.pitch,\n        chassisRollRad: state.roll,\n        mountX: wheel.localPos.x,\n        mountZ: wheel.localPos.z,\n        suspensionTravelM: wheel.verticalTravelM,\n        tireSquishM: wheel.tireSquishM,\n        sidewallDeflectionM: wheel.sidewallDeflection,\n        isLeft: wheel.isLeft,\n        camberRad,\n        visualWheelRadiusM: 0.33,\n      });\n\n      const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;\n      if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {\n        const dx = hub.x - state.x;\n        const dz = hub.z - state.z;\n        const cosYaw = Math.cos(state.yaw);\n        const sinYaw = Math.sin(state.yaw);\n        const hubLocalX = cosYaw * dx - sinYaw * dz;\n        const hubLocalZ = sinYaw * dx + cosYaw * dz;\n        const hubLocalY = hub.y - state.elevationHeight;\n        wheelGroup.position.set(hubLocalX, hubLocalY, hubLocalZ);\n      } else {\n        wheelGroup.position.set(crashPose.x, crashPose.y, crashPose.z);\n      }\n\n      wheelGroup.rotation.set(\n        crashPose.rotationX,\n        wheel.steerAngle,\n        crashPose.rotationZ,\n        'YXZ'\n      );\n"""
-          if old_wheel not in text:
-              raise SystemExit('carRenderer legacy wheel pose block not found')
-          renderer.write_text(text.replace(old_wheel, new_wheel, 1))
-
-          crash_test = Path('src/physics/tests/CrashRecoveryTests.ts')
-          text = crash_test.read_text()
+          test = Path('src/physics/tests/CrashRecoveryTests.ts')
+          text = test.read_text()
           text = text.replace(
-              "import { projectTireShearOntoSurface } from '../Vehicle';",
-              "import { projectTireShearOntoSurface, wheelContactAuthorityForUprightness } from '../Vehicle';",
-              1
-          )
-          insert_before = """const tests: Array<[string, () => void]> = [\n"""
-          new_tests = """function testWheelAuthorityHandsOffBeforeSidewaysJacking() {\n  const authority20 = wheelContactAuthorityForUprightness(Math.cos(20 * Math.PI / 180));\n  const authority45 = wheelContactAuthorityForUprightness(Math.cos(45 * Math.PI / 180));\n  const authority60 = wheelContactAuthorityForUprightness(Math.cos(60 * Math.PI / 180));\n  assert(authority20 > 0.999, `20deg handling attitude lost authority: ${authority20}`);\n  assert(authority45 > 0.35 && authority45 < 0.70, `45deg wipeout did not hand off progressively: ${authority45}`);\n  assert(authority60 < 1e-6, `60deg sideways chassis retained tire jacking authority: ${authority60}`);\n}\n\nfunction testRenderedWheelTracksPhysicalHubDuringWipeout() {\n  const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;\n  const renderer = new CarRenderer('#2563eb');\n  const state: any = {\n    x: 12, z: -7, elevationHeight: 1.4, heave: 0.18, yaw: 0.73,\n    pitch: 38 * Math.PI / 180, roll: 57 * Math.PI / 180,\n    airbrakeActive: false, drsActive: false, exhaustFlameIntensity: 0, showForceVectors3D: false,\n    wheels: [{\n      id: 'FL', isFront: true, isLeft: true, localPos: { x: -0.84, y: 0, z: 1.36 },\n      hubWorldPos: { x: 11.28, y: 1.92, z: -5.74 }, steerAngle: 0.18, camberAngleDeg: -2.0,\n      rotationAngle: 1.2, verticalTravelM: 0.10, tireSquishM: 0.025, sidewallDeflection: 0.01,\n      brakeRotorTemp: 80, forceVectorLong: 0, forceVectorLat: 0, forceVectorNorm: 0,\n      gripUtilization: 0, isSkidding: false, bumpStopEngaged: false,\n    }],\n  };\n  renderer.update(state, config);\n  renderer.rootGroup.updateMatrixWorld(true);\n  const rendered = new THREE.Vector3();\n  renderer.wheelMeshes[0].getWorldPosition(rendered);\n  const expected = new THREE.Vector3(11.28, 1.92, -5.74);\n  assert(rendered.distanceTo(expected) < 1e-6, `rendered hub separated ${rendered.distanceTo(expected)} m from physical hub in wipeout pose`);\n}\n\n""" + insert_before
-          if insert_before not in text:
-              raise SystemExit('CrashRecovery test array marker not found')
-          text = text.replace(insert_before, new_tests, 1)
-          old_array = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n];\n"""
-          new_array = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n  ['wheel authority hands off before sideways jacking', testWheelAuthorityHandsOffBeforeSidewaysJacking],\n  ['rendered wheel tracks physical hub during wipeout', testRenderedWheelTracksPhysicalHubDuringWipeout],\n];\n"""
-          if old_array not in text:
-              raise SystemExit('CrashRecovery test array tail not found')
-          crash_test.write_text(text.replace(old_array, new_array, 1))
+            "import { projectTireShearOntoSurface } from '../Vehicle';",
+            "import { projectTireShearOntoSurface, wheelContactAuthorityForUprightness } from '../Vehicle';", 1)
+          if 'testRenderedWheelTracksPhysicalHubDuringWipeout' not in text:
+              marker = "const tests: Array<[string, () => void]> = [\n"
+              extra = """function testWheelAuthorityHandsOffBeforeSidewaysJacking() {\n  const a20 = wheelContactAuthorityForUprightness(Math.cos(20 * Math.PI / 180));\n  const a45 = wheelContactAuthorityForUprightness(Math.cos(45 * Math.PI / 180));\n  const a60 = wheelContactAuthorityForUprightness(Math.cos(60 * Math.PI / 180));\n  assert(a20 > 0.999, `20deg authority changed: ${a20}`);\n  assert(a45 > 0.35 && a45 < 0.70, `45deg authority did not fade correctly: ${a45}`);\n  assert(a60 < 1e-6, `60deg retained jacking authority: ${a60}`);\n}\n\nfunction testRenderedWheelTracksPhysicalHubDuringWipeout() {\n  const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;\n  const renderer = new CarRenderer('#2563eb');\n  const state: any = {\n    x: 12, z: -7, elevationHeight: 1.4, heave: 0.18, yaw: 0.73,\n    pitch: 38 * Math.PI / 180, roll: 57 * Math.PI / 180, airbrakeActive: false, drsActive: false,\n    exhaustFlameIntensity: 0, showForceVectors3D: false,\n    wheels: [{ id: 'FL', isFront: true, isLeft: true, localPos: { x: -0.84, y: 0, z: 1.36 },\n      hubWorldPos: { x: 11.28, y: 1.92, z: -5.74 }, steerAngle: 0.18, camberAngleDeg: -2,\n      rotationAngle: 1.2, verticalTravelM: 0.10, tireSquishM: 0.025, sidewallDeflection: 0.01,\n      brakeRotorTemp: 80, forceVectorLong: 0, forceVectorLat: 0, forceVectorNorm: 0, gripUtilization: 0,\n      isSkidding: false, bumpStopEngaged: false }],\n  };\n  renderer.update(state, config);\n  renderer.rootGroup.updateMatrixWorld(true);\n  const actual = new THREE.Vector3();\n  renderer.wheelMeshes[0].getWorldPosition(actual);\n  const expected = new THREE.Vector3(11.28, 1.92, -5.74);\n  assert(actual.distanceTo(expected) < 1e-6, `wheel separated ${actual.distanceTo(expected)} m from physical hub`);\n}\n\n"""
+              text = text.replace(marker, extra + marker, 1)
+              tail = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n];\n"""
+              replacement = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n  ['wheel authority hands off before sideways jacking', testWheelAuthorityHandsOffBeforeSidewaysJacking],\n  ['rendered wheel tracks physical hub during wipeout', testRenderedWheelTracksPhysicalHubDuringWipeout],\n];\n"""
+              if tail not in text: raise SystemExit('missing crash test tail')
+              text = text.replace(tail, replacement, 1)
+          test.write_text(text)
 
           ci = Path('.github/workflows/low-speed-tire-regression.yml')
           text = ci.read_text()
-          marker = """      - name: Crash recovery and CG-pivot regression\n        run: npm run test:crash-recovery\n\n      - name: Production build\n"""
-          replacement = """      - name: Crash recovery, CG-pivot, and hub attachment regression\n        run: npm run test:crash-recovery\n\n      - name: Wheel visual pose regression\n        run: npm run test:wheel-visual\n\n      - name: Production build\n"""
-          if marker not in text:
-              raise SystemExit('CI crash regression marker not found')
-          ci.write_text(text.replace(marker, replacement, 1))
+          if 'Wheel visual pose regression' not in text:
+              marker = """      - name: Crash recovery and CG-pivot regression\n        run: npm run test:crash-recovery\n\n      - name: Production build\n"""
+              repl = """      - name: Crash recovery, CG-pivot, and hub attachment regression\n        run: npm run test:crash-recovery\n\n      - name: Wheel visual pose regression\n        run: npm run test:wheel-visual\n\n      - name: Production build\n"""
+              if marker not in text: raise SystemExit('missing CI crash marker')
+              text = text.replace(marker, repl, 1)
+          ci.write_text(text)
           PY
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Screenshot-specific hub and rollover regressions
+      - run: npm install --no-audit --no-fund
+      - name: Screenshot-specific regressions
         run: |
           npm run test:crash-recovery
           npm run test:wheel-visual
           npm run test:crash
-
-      - name: Existing vehicle regressions
+      - name: Existing physics regressions
         run: |
           npm run test:tire
           npm run test:stationary
@@ -111,11 +95,9 @@ jobs:
           npm run test:corner-load
           npm run test:smoke
           npm run test:mobile
+      - run: npm run build
 
-      - name: Production build
-        run: npm run build
-
-      - name: Commit tested fix and remove temporary workflow
+      - name: Commit tested fix
         shell: bash
         run: |
           rm .github/workflows/agent-hub-attachment-rollover-fix.yml
