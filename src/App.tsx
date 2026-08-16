@@ -18,6 +18,25 @@ import type { Kn5VisualResult } from './graphics/kn5Loader';
 const INITIAL_PRESET_KEY = 'm5G90';
 const INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
 
+function shouldDefaultToAutomaticOnMobile() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+
+  const override = new URLSearchParams(window.location.search).get('mobileControls');
+  if (override === '0' || override === 'false') return false;
+  if (override === '1' || override === 'true') return true;
+
+  const nav = navigator as Navigator & { userAgentData?: { mobile?: boolean } };
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const uaMobile = nav.userAgentData?.mobile === true || /Android|iPhone|iPod|IEMobile|Opera Mini/i.test(userAgent);
+  const iPadLike = /iPad/i.test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const touchCapable = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+  const touchSizedViewport = window.innerWidth <= 1180;
+
+  return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
+}
+
 function disposeImportedVisual(root: THREE.Object3D) {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
@@ -61,6 +80,7 @@ export default function App() {
   // Live vehicle telemetry state
   const [vehicleTelemetry, setVehicleTelemetry] = useState<VehicleState>(() => {
     const engine = new VehiclePhysicsEngine(INITIAL_CONFIG);
+    if (shouldDefaultToAutomaticOnMobile()) engine.state.isAutomatic = true;
     return engine.state;
   });
 
@@ -115,6 +135,7 @@ export default function App() {
 
     // 2. Instantiate Systems
     const physicsEngine = new VehiclePhysicsEngine(config);
+    if (shouldDefaultToAutomaticOnMobile()) physicsEngine.state.isAutomatic = true;
     physicsEngineRef.current = physicsEngine;
 
     const carRenderer = new CarRenderer(VEHICLE_PRESETS[activePresetKey]?.color || currentColor);
@@ -145,10 +166,8 @@ export default function App() {
       keysDownRef.current[e.code] = true;
       setActiveKeys({ ...keysDownRef.current });
 
-      // First user key interaction initializes audio context
       globalAudio.init();
 
-      // Quick hotkeys
       if (e.code === 'KeyC') {
         const next = cameraController.nextMode();
         setCameraMode(next);
@@ -160,13 +179,10 @@ export default function App() {
       } else if (e.code === 'KeyP') {
         setIsTuningOpen((prev) => !prev);
       } else if (e.code === 'KeyV') {
-        // Toggle 3D Force Vectors
         physicsEngine.state.showForceVectors3D = !physicsEngine.state.showForceVectors3D;
       } else if (e.code === 'KeyF' || e.code === 'KeyX') {
-        // Toggle DRS
         physicsEngine.toggleDrs();
       } else if (e.code === 'KeyJ' || e.code === 'KeyK') {
-        // Trigger Clutch Kick
         physicsEngine.triggerClutchKick();
       } else if (e.code === 'KeyU') {
         const muted = globalAudio.toggleMute();
@@ -174,14 +190,12 @@ export default function App() {
       } else if (e.code === 'KeyM') {
         physicsEngine.state.isAutomatic = !physicsEngine.state.isAutomatic;
       } else if (e.code === 'KeyB') {
-        // Toggle ABS Mode
         const modes: ('OFF' | 'SPORT' | 'FULL')[] = ['OFF', 'SPORT', 'FULL'];
         const currentIdx = modes.indexOf(physicsEngine.config.absMode);
         const nextMode = modes[(currentIdx + 1) % modes.length];
         physicsEngine.config.absMode = nextMode;
         setConfig({ ...physicsEngine.config });
       } else if (e.code === 'KeyN') {
-        // Toggle TCS Mode
         const modes: ('OFF' | 'SPORT' | 'FULL')[] = ['OFF', 'SPORT', 'FULL'];
         const currentIdx = modes.indexOf(physicsEngine.config.tcsMode);
         const nextMode = modes[(currentIdx + 1) % modes.length];
@@ -200,7 +214,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    // 5. Main Animation & Physics Loop
     let animationFrameId: number;
     let lastTime = performance.now();
     let hudUpdateTimer = 0;
@@ -211,7 +224,6 @@ export default function App() {
       const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.05);
       lastTime = currentTime;
 
-      // Extract control inputs from keyboard or touch
       const keys = keysDownRef.current;
       const touches = touchInputsRef.current;
 
@@ -228,7 +240,6 @@ export default function App() {
       const shiftUp = keys['ShiftLeft'] || keys['ShiftRight'];
       const shiftDown = keys['ControlLeft'] || keys['ControlRight'];
 
-      // Step Multi-Substepped Physics Engine
       const state = physicsEngine.update(deltaTime, {
         throttle: throttleInput,
         brake: brakeInput,
@@ -238,16 +249,10 @@ export default function App() {
         shiftDown,
       });
 
-      // Update 3D Visuals & Dynamic Camber / Glowing Brakes / Backfires / 3D Force Vectors
       carRenderer.update(state, physicsEngine.config);
-
-      // Update Proving Grounds Environment (Skid marks, smoke particles, cone collisions)
       envManager.update(deltaTime, state.x, state.z, state.yaw, state.speedMs, state.wheels);
-
-      // Update Camera Tracking & FOV
       cameraController.update(deltaTime, state);
 
-      // Update Audio Synthesizer (Engine harmonics, Turbo Whine, BOV Flutter, ABS Chatter, Tire Screech, Rev Limits)
       const maxSkid = Math.max(...state.wheels.map((w) => (w.isSkidding ? w.skidIntensity : 0)));
       const kerbRumble = Math.max(...state.wheels.map((w) => (w.surfaceType === 'kerb' ? 1.0 : 0)));
       globalAudio.update(
@@ -264,10 +269,8 @@ export default function App() {
         kerbRumble
       );
 
-      // Render Three.js Scene
       renderer.render(scene, camera);
 
-      // Throttle React State updates to ~30 FPS for optimal performance
       hudUpdateTimer += deltaTime;
       if (hudUpdateTimer >= 0.033) {
         hudUpdateTimer = 0;
@@ -290,7 +293,6 @@ export default function App() {
     };
   }, []);
 
-  // Update physics config when changed in tuning modal or preset
   const handleConfigChange = (newConfig: VehicleConfig) => {
     setConfig(newConfig);
     if (physicsEngineRef.current) {
@@ -322,9 +324,6 @@ export default function App() {
       importedVisualRef.current = null;
     }
 
-    // Keep the procedural body intact but hidden so selecting a built-in preset
-    // can instantly restore it. Wheels are not children of chassisGroup; they stay
-    // visible and continue to articulate from the simulator's suspension state.
     renderer.chassisGroup.children.forEach((child) => {
       child.visible = false;
     });
@@ -333,7 +332,6 @@ export default function App() {
     importedVisualRef.current = visual.group;
   };
 
-  // Preset Selection
   const handleSelectPreset = (presetKey: string) => {
     const preset = VEHICLE_PRESETS[presetKey];
     if (!preset) return;
@@ -351,7 +349,6 @@ export default function App() {
     }
   };
 
-  // Color change
   const handleChangeColor = (hexColor: string) => {
     setCurrentColor(hexColor);
     if (carRendererRef.current) {
@@ -359,7 +356,6 @@ export default function App() {
     }
   };
 
-  // Camera Switcher
   const handleNextCamera = () => {
     if (cameraControllerRef.current) {
       const next = cameraControllerRef.current.nextMode();
@@ -367,7 +363,6 @@ export default function App() {
     }
   };
 
-  // Reset Car Position
   const handleResetCar = () => {
     if (physicsEngineRef.current) {
       physicsEngineRef.current.reset(0, 0, 0);
@@ -377,34 +372,29 @@ export default function App() {
     }
   };
 
-  // Clear Skid Marks
   const handleClearSkidMarks = () => {
     if (envManagerRef.current) {
       envManagerRef.current.clearSkidMarks();
     }
   };
 
-  // Toggle Mute Audio
   const handleToggleMute = () => {
     globalAudio.init();
     const muted = globalAudio.toggleMute();
     setIsMuted(muted);
   };
 
-  // Touch controls callback
   const handleTouchInput = (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => {
     globalAudio.init();
     touchInputsRef.current[action] = active;
   };
 
-  // 3D Force Vectors Toggle
   const handleToggleForceVectors = () => {
     if (physicsEngineRef.current) {
       physicsEngineRef.current.state.showForceVectors3D = !physicsEngineRef.current.state.showForceVectors3D;
     }
   };
 
-  // Trigger Clutch Kick
   const handleTriggerClutchKick = () => {
     globalAudio.init();
     if (physicsEngineRef.current) {
@@ -412,7 +402,6 @@ export default function App() {
     }
   };
 
-  // Toggle DRS
   const handleToggleDrs = () => {
     if (physicsEngineRef.current) {
       physicsEngineRef.current.toggleDrs();
@@ -425,10 +414,8 @@ export default function App() {
       id="driving-simulator-app"
       className="relative w-screen h-screen overflow-hidden bg-slate-950 select-none font-sans"
     >
-      {/* 3D WebGL Canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block cursor-grab active:cursor-grabbing" />
 
-      {/* Primary HUD & Telemetry */}
       <DashboardUI
         state={vehicleTelemetry}
         config={config}
@@ -457,7 +444,6 @@ export default function App() {
         onToggleDrs={handleToggleDrs}
       />
 
-      {/* Quick Toolbar & Keyboard Visualizer */}
       <ControlsOverlay
         cameraMode={cameraMode}
         onNextCamera={handleNextCamera}
@@ -473,16 +459,21 @@ export default function App() {
         onSelectPreset={handleSelectPreset}
         activeKeys={activeKeys}
         onTouchInput={handleTouchInput}
+        isAutomatic={vehicleTelemetry.isAutomatic}
+        onSetAutomatic={(automatic) => {
+          if (physicsEngineRef.current) {
+            physicsEngineRef.current.state.isAutomatic = automatic;
+            setVehicleTelemetry({ ...physicsEngineRef.current.state });
+          }
+        }}
       />
 
-      {/* Assetto Corsa local car-data + KN5 importer */}
       <AssettoCorsaImportPanel
         config={config as unknown as Record<string, any>}
         onApply={(importedConfig) => handleConfigChange(importedConfig as VehicleConfig)}
         onApplyVisual={handleApplyImportedVisual}
       />
 
-      {/* Physics & Chassis Tuning Workshop Modal */}
       <TuningModal
         isOpen={isTuningOpen}
         onClose={() => setIsTuningOpen(false)}
@@ -493,7 +484,6 @@ export default function App() {
         onChangeColor={handleChangeColor}
       />
 
-      {/* Physics 2.0 Headless Acceptance Test Runner Modal */}
       <PhysicsTestRunnerModal
         isOpen={isTestRunnerOpen}
         onClose={() => setIsTestRunnerOpen(false)}
