@@ -10,6 +10,12 @@ export interface DriverAidsConfig {
   maxSteerAngle: number;
   steerSpeed: number;
   steerSpeedReduction: number;
+  tcsSportSlipThreshold?: number;
+  tcsFullSlipThreshold?: number;
+  tcsSportResponse?: number;
+  tcsFullResponse?: number;
+  tcsSportGain?: number;
+  tcsFullGain?: number;
 }
 
 export class DriverAidsSystem {
@@ -105,21 +111,15 @@ export class DriverAidsSystem {
       let p = this.absPressureStates[i];
 
       if (effectiveSlip > 0.34) {
-        // A genuinely locking wheel must be released decisively, but only until
-        // it recovers; this state should be brief, not the controller's steady state.
         const deepLockRate = isSport ? 7.2 : 8.0;
         p = Math.max(minPressure, p - deepLockRate * dt);
         anyIntervention = true;
       } else if (effectiveSlip > targetSlip + deadband) {
-        // Around peak grip, trim pressure gently. The old controller released up
-        // to 9 pressure-units/s and averaged ~40% pressure at full pedal.
         const over = effectiveSlip - (targetSlip + deadband);
         const releaseRate = (isSport ? 1.55 : 1.85) + Math.min(1.8, over * 5.0);
         p = Math.max(minPressure, p - releaseRate * dt);
         anyIntervention = true;
       } else if (effectiveSlip < targetSlip - deadband) {
-        // Reapply much faster than the modulation release so the caliper spends
-        // most of the stop near useful pressure, like a modern four-channel ABS.
         const under = (targetSlip - deadband) - effectiveSlip;
         const reapplyRate = (isSport ? 6.5 : 7.2) + Math.min(3.0, under * 18.0);
         p = Math.min(1.0, p + reapplyRate * dt);
@@ -147,16 +147,23 @@ export class DriverAidsSystem {
     }
 
     const isSport = this.config.tcsMode === 'SPORT';
-    const tcsThreshold = isSport ? 0.19 : 0.12;
+    const tcsThreshold = isSport
+      ? (this.config.tcsSportSlipThreshold ?? 0.19)
+      : (this.config.tcsFullSlipThreshold ?? 0.12);
     const maxSlip = Math.max(0, ...drivenWheelSlipRatios);
 
     if (maxSlip > tcsThreshold) {
       const excess = maxSlip - tcsThreshold;
-      const gain = isSport ? 2.0 : 3.0;
+      const gain = isSport
+        ? (this.config.tcsSportGain ?? 2.0)
+        : (this.config.tcsFullGain ?? 3.0);
       const maxReduction = isSport ? 0.72 : 0.88;
       const targetReduction = Math.min(maxReduction, excess * gain);
-      const response = isSport ? 10.0 : 16.0;
-      this.tcsThrottleReduction += (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, response * dt);
+      const response = isSport
+        ? (this.config.tcsSportResponse ?? 10.0)
+        : (this.config.tcsFullResponse ?? 16.0);
+      this.tcsThrottleReduction +=
+        (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, response * dt);
       this.tcsActive = true;
     } else {
       const recovery = isSport ? 6.5 : 5.0;
