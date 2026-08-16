@@ -66,8 +66,8 @@ export class Vehicle {
     this.suspension = new SuspensionSystem();
 
     // 2. Instantiate 4 Wheels [FL, FR, RL, RR]
-    const tireRadius = 0.33;
-    const wheelInertia = 1.25;
+    const tireRadius = this.config.wheelRadius;
+    const wheelInertia = this.config.wheelInertia;
 
     const tireConfigFront = {
       baseGrip: this.config.tireGripFront,
@@ -112,8 +112,12 @@ export class Vehicle {
       turboBoostMaxPsi: this.config.turboBoostMaxPsi,
       turboSpoolRate: this.config.turboSpoolRate,
       wastegatePressurePsi: this.config.wastegatePressurePsi,
+      reverseRatio: this.config.reverseRatio,
+      forwardGearRatios: this.config.forwardGearRatios,
       gearRatios: this.config.gearRatios,
       finalDriveRatio: this.config.finalDriveRatio,
+      maxClutchTorque: this.config.maxClutchTorque,
+      transmissionEfficiency: this.config.transmissionEfficiency,
       autoBlipDownshift: this.config.autoBlipDownshift,
     });
 
@@ -124,6 +128,7 @@ export class Vehicle {
       coastRamp: this.config.diffCoastRamp,
       preloadTorque: this.config.diffPreloadTorque,
       drivetrain: this.config.drivetrain,
+      frontTorqueRatio: (this.config as any).centerFrontTorqueRatio,
     });
 
     // 5. Brakes
@@ -176,8 +181,12 @@ export class Vehicle {
       turboBoostMaxPsi: newConfig.turboBoostMaxPsi,
       turboSpoolRate: newConfig.turboSpoolRate,
       wastegatePressurePsi: newConfig.wastegatePressurePsi,
+      reverseRatio: newConfig.reverseRatio,
+      forwardGearRatios: newConfig.forwardGearRatios,
       gearRatios: newConfig.gearRatios,
       finalDriveRatio: newConfig.finalDriveRatio,
+      maxClutchTorque: newConfig.maxClutchTorque,
+      transmissionEfficiency: newConfig.transmissionEfficiency,
       autoBlipDownshift: newConfig.autoBlipDownshift,
     };
     this.differential.config = {
@@ -186,6 +195,7 @@ export class Vehicle {
       coastRamp: newConfig.diffCoastRamp,
       preloadTorque: newConfig.diffPreloadTorque,
       drivetrain: newConfig.drivetrain,
+      frontTorqueRatio: (newConfig as any).centerFrontTorqueRatio,
     };
     this.brakes.config = {
       maxBrakeTorque: newConfig.brakeForce,
@@ -219,6 +229,8 @@ export class Vehicle {
     // Update wheel tire configs
     for (let i = 0; i < 4; i++) {
       const isFront = i < 2;
+      (this.wheels[i] as any).radius = newConfig.wheelRadius;
+      (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       this.wheels[i].tireConfig = {
         baseGrip: isFront ? newConfig.tireGripFront : newConfig.tireGripRear,
         stiffnessB: newConfig.tireStiffness,
@@ -298,8 +310,16 @@ export class Vehicle {
     const steerOut = this.driverAids.updateSteering(inputs.steer, forwardSpeed, dt);
     this.wheels[0].steerAngle = steerOut.steerFL;
     this.wheels[1].steerAngle = steerOut.steerFR;
-    this.wheels[2].steerAngle = 0;
-    this.wheels[3].steerAngle = 0;
+    const meanFrontSteer = (steerOut.steerFL + steerOut.steerFR) * 0.5;
+    const rearMax = (((this.config as any).rearSteerMaxDeg ?? 0) * Math.PI) / 180;
+    const rearTransition = Math.max(1, (this.config as any).rearSteerTransitionSpeedMs ?? 20);
+    const speedAbs = Math.abs(forwardSpeed);
+    const phase = PhysicsMath.clamp((speedAbs - (rearTransition - 5)) / 10, 0, 1);
+    const lowSpeedRear = -Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.35, rearMax);
+    const highSpeedRear = Math.sign(meanFrontSteer) * Math.min(Math.abs(meanFrontSteer) * 0.18, rearMax);
+    const rearSteer = lowSpeedRear + (highSpeedRear - lowSpeedRear) * phase;
+    this.wheels[2].steerAngle = rearSteer;
+    this.wheels[3].steerAngle = rearSteer;
 
     // 2. Suspension ground clearance & solve 4-corner displacements and normal loads
     const hardpointsBody = this.getHardpointsBody();
@@ -345,7 +365,7 @@ export class Vehicle {
       this.config.rollStiffnessFront,
       this.config.rollStiffnessRear,
       this.config.antiRollCrossCoupling,
-      0.33,
+      this.config.wheelRadius,
       this.config.tireVerticalStiffness,
       dt
     );

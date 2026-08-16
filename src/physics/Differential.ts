@@ -7,6 +7,7 @@ export interface DifferentialConfig {
   coastRamp: number; // 0..1 (e.g. 0.35)
   preloadTorque: number; // Nm (e.g. 45)
   drivetrain: DrivetrainType; // 'RWD' | 'FWD' | 'AWD'
+  frontTorqueRatio?: number;
 }
 
 export class DifferentialSystem {
@@ -46,9 +47,15 @@ export class DifferentialSystem {
       return { wheelTorques: torques, pinionSpeed: diffOut.carrierSpeed };
     }
 
-    // AWD: Center Differential with 40/60 Front/Rear torque split
-    const frontRatio = 0.40;
-    const rearRatio = 0.60;
+    // Adaptive center coupling: rear-biased baseline, then send more torque
+    // forward when rear-axle overspeed indicates that the rear tires need help.
+    const baseFrontRatio = PhysicsMath.clamp(this.config.frontTorqueRatio ?? 0.40, 0.20, 0.50);
+    const frontOmega = (Math.abs(omegaFL) + Math.abs(omegaFR)) * 0.5;
+    const rearOmega = (Math.abs(omegaRL) + Math.abs(omegaRR)) * 0.5;
+    const axleSpeedRef = Math.max(1.0, (frontOmega + rearOmega) * 0.5);
+    const rearOverspeed = (rearOmega - frontOmega) / axleSpeedRef;
+    const frontRatio = PhysicsMath.clamp(baseFrontRatio + rearOverspeed * 0.28, 0.20, 0.50);
+    const rearRatio = 1.0 - frontRatio;
 
     const frontDiff = this.solveAxleDifferential(inputTorque * frontRatio, omegaFL, omegaFR);
     const rearDiff = this.solveAxleDifferential(inputTorque * rearRatio, omegaRL, omegaRR);

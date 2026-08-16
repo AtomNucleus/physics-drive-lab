@@ -1,4 +1,5 @@
 import { VehicleConfig, VehiclePreset } from '../types';
+import { BMW_M5_2025_OVERRIDES } from './m5G90';
 
 export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   // Mass & Geometry
@@ -104,6 +105,13 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
 };
 
 export const VEHICLE_PRESETS: Record<string, VehiclePreset> = {
+  m5G90: {
+    name: '2025 BMW M5 (G90)',
+    tagline: '5,251 lb measured G90 • 717 hp M Hybrid • rear-biased M xDrive',
+    description: 'Calibrated from instrumented 2025 G90 M5 measurements, BMW gearing and tire geometry, adaptive rear-biased AWD, and active rear steering.',
+    color: '#111827',
+    config: BMW_M5_2025_OVERRIDES,
+  },
   sportGT: {
     name: 'Sports GT (Pacejka Multi-Link)',
     tagline: 'Balanced 1,540 kg chassis with 1.5-Way LSD & dynamic camber gain',
