@@ -38,23 +38,25 @@ function makeM5(overrides: Partial<VehicleConfig> = {}) {
   return { sim, config };
 }
 
-function laneChangeSteer(time: number) {
-  // At 200 km/h, the M5 steering limiter leaves roughly 13.3 deg of available
-  // road-wheel lock. A 4% command therefore peaks near 0.53 deg, which is in the
-  // neighborhood of a 1 g kinematic demand for a 3.0 m wheelbase instead of the
-  // impossible multi-g demand created by the old 18% diagnostic pulse.
+function laneChangeSteer(time: number, amplitude: number) {
+  // Smooth left/right pulse. At 200 km/h, amplitude 0.04 produces roughly half-g
+  // actual lateral response; 0.075 intentionally drives the tire model close to its
+  // road-car lateral limit without requesting the absurd full-lock-at-200-km/h case.
   const pulseDuration = 0.72;
   if (time < pulseDuration) {
-    return 0.04 * Math.sin(Math.PI * time / pulseDuration);
+    return amplitude * Math.sin(Math.PI * time / pulseDuration);
   }
   if (time < pulseDuration * 2) {
     const local = time - pulseDuration;
-    return -0.04 * Math.sin(Math.PI * local / pulseDuration);
+    return -amplitude * Math.sin(Math.PI * local / pulseDuration);
   }
   return 0;
 }
 
-function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
+function runHighSpeedLaneChange(
+  steerAmplitude: number,
+  overrides: Partial<VehicleConfig> = {}
+) {
   const { sim, config } = makeM5({ antiRollCrossCoupling: 0, ...overrides });
   const startY = sim.vehicle.rigidBody.position.y;
 
@@ -68,19 +70,23 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
   let peakTotalNormalLoadN = 0;
   let minimumTotalNormalLoadN = Number.POSITIVE_INFINITY;
   let minimumWheelLoadN = Number.POSITIVE_INFINITY;
+  let minimumInsideSideLoadN = Number.POSITIVE_INFINITY;
+  let peakSideLoadDifferenceN = 0;
   let peakArbForceN = 0;
-  let peakNetSuspensionBiasN = 0;
+  let peakArbNetBiasN = 0;
   let airborneSamples = 0;
 
   for (let step = 0; step < 120 * 3.0; step++) {
     const t = step * DT;
-    const inputs: ControlInputs = { ...zeroInputs, steer: laneChangeSteer(t) };
+    const inputs: ControlInputs = { ...zeroInputs, steer: laneChangeSteer(t, steerAmplitude) };
     const state = sim.stepExplicit(inputs, 1);
     const euler = sim.vehicle.rigidBody.getEuler();
     const localAngularVelocity = sim.vehicle.rigidBody.getLocalAngularVelocity();
     const susp = sim.vehicle.suspension.states;
     const loads = susp.map((corner) => corner.tireNormalForceN);
     const totalNormalLoad = loads.reduce((sum, load) => sum + load, 0);
+    const leftLoad = loads[0] + loads[2];
+    const rightLoad = loads[1] + loads[3];
 
     peakRollDeg = Math.max(peakRollDeg, Math.abs(euler.roll) * 180 / Math.PI);
     peakRollRateDegPerSec = Math.max(
@@ -95,21 +101,20 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
     peakTotalNormalLoadN = Math.max(peakTotalNormalLoadN, totalNormalLoad);
     minimumTotalNormalLoadN = Math.min(minimumTotalNormalLoadN, totalNormalLoad);
     minimumWheelLoadN = Math.min(minimumWheelLoadN, ...loads);
+    minimumInsideSideLoadN = Math.min(minimumInsideSideLoadN, leftLoad, rightLoad);
+    peakSideLoadDifferenceN = Math.max(peakSideLoadDifferenceN, Math.abs(rightLoad - leftLoad));
     peakArbForceN = Math.max(
       peakArbForceN,
       ...susp.map((corner) => Math.abs(corner.antiRollBarForceN))
     );
 
-    // The mechanical ARBs are internal equal-and-opposite forces. On a flat road,
-    // they must not create a net vertical chassis reaction. A positive residual here
-    // exposes force clipping / jacking in the suspension solver.
-    const baseInternalForce = susp.reduce(
-      (sum, corner) => sum + corner.springForceN + corner.damperForceN +
-        corner.bumpStopForceN + corner.hardStopForceN,
-      0
-    );
-    const netSuspensionBias = susp.reduce((sum, corner) => sum + corner.chassisForceN, 0) - baseInternalForce;
-    peakNetSuspensionBiasN = Math.max(peakNetSuspensionBiasN, Math.abs(netSuspensionBias));
+    // With diagonal coupling disabled, the front and rear bars are internal
+    // equal-and-opposite force pairs. Their net vertical contribution must remain
+    // exactly zero even when an inside corner becomes very lightly loaded.
+    const arbNetBias =
+      Math.abs(susp[0].antiRollBarForceN + susp[1].antiRollBarForceN) +
+      Math.abs(susp[2].antiRollBarForceN + susp[3].antiRollBarForceN);
+    peakArbNetBiasN = Math.max(peakArbNetBiasN, arbNetBias);
 
     if (susp.some((corner) => corner.isAirborne)) airborneSamples++;
 
@@ -119,8 +124,11 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
 
   const final = sim.vehicle.getState();
   const weightN = config.mass * 9.81;
+  const geometricSideDifferenceAtPeakLatG =
+    (2 * config.mass * 9.81 * peakLatG * config.centerOfGravityHeight) / config.trackWidth;
 
   return {
+    steerAmplitude,
     peakRollDeg,
     peakRollRateDegPerSec,
     peakLatG,
@@ -131,8 +139,15 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
     peakTotalNormalLoadN,
     minimumTotalNormalLoadN,
     minimumWheelLoadN,
+    minimumInsideSideLoadN,
+    peakSideLoadDifferenceN,
+    geometricSideDifferenceAtPeakLatG,
+    loadTransferRatioToRigidGeometry:
+      geometricSideDifferenceAtPeakLatG > 1
+        ? peakSideLoadDifferenceN / geometricSideDifferenceAtPeakLatG
+        : 0,
     peakArbForceN,
-    peakNetSuspensionBiasN,
+    peakArbNetBiasN,
     airborneSamples,
     weightN,
     finalSpeedKmh: final.speedKmh,
@@ -140,25 +155,43 @@ function runHighSpeedLaneChange(overrides: Partial<VehicleConfig> = {}) {
   };
 }
 
-const currentBars = runHighSpeedLaneChange();
-const noBars = runHighSpeedLaneChange({
+const moderateBars = runHighSpeedLaneChange(0.04);
+const moderateNoBars = runHighSpeedLaneChange(0.04, {
+  rollStiffnessFront: 0,
+  rollStiffnessRear: 0,
+});
+const nearLimitBars = runHighSpeedLaneChange(0.075);
+const nearLimitNoBars = runHighSpeedLaneChange(0.075, {
   rollStiffnessFront: 0,
   rollStiffnessRear: 0,
 });
 
 console.log(JSON.stringify({
-  scenario: '200 km/h smooth ~1 g double lane change on flat dry surface',
-  currentBars,
-  noBars,
-  rollReductionFraction: noBars.peakRollDeg > 1e-6
-    ? 1 - currentBars.peakRollDeg / noBars.peakRollDeg
+  scenario: '200 km/h smooth double lane change on flat dry surface',
+  moderateBars,
+  moderateNoBars,
+  nearLimitBars,
+  nearLimitNoBars,
+  moderateRollReductionFraction: moderateNoBars.peakRollDeg > 1e-6
+    ? 1 - moderateBars.peakRollDeg / moderateNoBars.peakRollDeg
+    : 0,
+  nearLimitRollReductionFraction: nearLimitNoBars.peakRollDeg > 1e-6
+    ? 1 - nearLimitBars.peakRollDeg / nearLimitNoBars.peakRollDeg
     : 0,
 }, null, 2));
 
-// Broad safety gates for the diagnostic pass. These become tighter once the
-// force-conservation issue is corrected and the realistic response is measured.
-assert(currentBars.peakLatG > 0.45, `high-speed maneuver was too mild to exercise roll: ${currentBars.peakLatG.toFixed(2)} g`);
-assert(currentBars.peakRollDeg < 8, `anti-roll model allowed excessive body roll: ${currentBars.peakRollDeg.toFixed(2)} deg`);
-assert(currentBars.peakBodyRiseM < 0.10, `anti-roll model jacked the body upward by ${currentBars.peakBodyRiseM.toFixed(3)} m`);
-assert(currentBars.peakBodyDropM < 0.10, `anti-roll model dropped the body by ${currentBars.peakBodyDropM.toFixed(3)} m`);
-assert(currentBars.finalSpeedKmh > 130, `lane-change test lost implausible speed: ${currentBars.finalSpeedKmh.toFixed(1)} km/h`);
+assert(moderateBars.peakLatG > 0.40, `moderate high-speed maneuver was too mild: ${moderateBars.peakLatG.toFixed(2)} g`);
+assert(moderateBars.airborneSamples === 0, 'moderate high-speed lane change lifted a wheel');
+assert(moderateBars.peakBodyRiseM < 0.05, `moderate maneuver jacked body ${moderateBars.peakBodyRiseM.toFixed(3)} m`);
+assert(moderateBars.peakArbNetBiasN < 1e-6, `ARB created net vertical force: ${moderateBars.peakArbNetBiasN} N`);
+
+assert(nearLimitBars.peakLatG > 0.70, `near-limit maneuver failed to reach meaningful lateral load: ${nearLimitBars.peakLatG.toFixed(2)} g`);
+assert(nearLimitBars.peakLatG < 1.35, `near-limit maneuver exceeded plausible road-tire lateral acceleration: ${nearLimitBars.peakLatG.toFixed(2)} g`);
+assert(nearLimitBars.peakRollDeg < 5.0, `near-limit body roll is excessive: ${nearLimitBars.peakRollDeg.toFixed(2)} deg`);
+assert(nearLimitBars.peakBodyRiseM < 0.06, `near-limit maneuver jacked body ${nearLimitBars.peakBodyRiseM.toFixed(3)} m`);
+assert(nearLimitBars.peakBodyDropM < 0.06, `near-limit maneuver dropped body ${nearLimitBars.peakBodyDropM.toFixed(3)} m`);
+assert(nearLimitBars.airborneSamples === 0, `near-limit lane change created ${nearLimitBars.airborneSamples} airborne samples`);
+assert(nearLimitBars.minimumInsideSideLoadN > 1500, `inside side unloaded implausibly: ${nearLimitBars.minimumInsideSideLoadN.toFixed(0)} N`);
+assert(nearLimitBars.loadTransferRatioToRigidGeometry < 1.55, `lateral load transfer is too large for configured CG: ${nearLimitBars.loadTransferRatioToRigidGeometry.toFixed(2)}x geometric`);
+assert(nearLimitBars.peakArbNetBiasN < 1e-6, `near-limit ARB created net vertical force: ${nearLimitBars.peakArbNetBiasN} N`);
+assert(nearLimitBars.finalSpeedKmh > 130, `lane-change test lost implausible speed: ${nearLimitBars.finalSpeedKmh.toFixed(1)} km/h`);
