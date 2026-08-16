@@ -27,17 +27,27 @@ const collisionModel: Kn5Model = {
   textures: [],
   materials: [],
   markers: [],
-  meshes: [{
-    name: '1ROAD_TEST',
-    materialId: 0,
-    positions: new Float32Array([
-      0, 0, 0, 2, 0, 0, 0, 0, 2,
-      10, 0, 0, 10, 2, 0, 10, 0, 2,
-    ]),
-    normals: new Float32Array(18),
-    uvs: new Float32Array(12),
-    indices: new Uint32Array([0, 1, 2, 3, 4, 5]),
-  }],
+  meshes: [
+    {
+      name: '1ROAD_TEST',
+      materialId: 0,
+      positions: new Float32Array([
+        0, 0, 0, 2, 0, 0, 0, 0, 2,
+        10, 0, 0, 10, 2, 0, 10, 0, 2,
+      ]),
+      normals: new Float32Array(18),
+      uvs: new Float32Array(12),
+      indices: new Uint32Array([0, 1, 2, 3, 4, 5]),
+    },
+    {
+      name: '1ROAD_wall_fixture',
+      materialId: 0,
+      positions: new Float32Array([20, 1, 0, 22, 1, 0, 20, 1, 2]),
+      normals: new Float32Array(9),
+      uvs: new Float32Array(6),
+      indices: new Uint32Array([0, 1, 2]),
+    },
+  ],
 };
 
 const surfaces = parseSurfacesIni(`
@@ -60,7 +70,8 @@ try {
   }, collisionModel);
 
   assert(manifest.collisionTriangleCount === 1, 'horizontal road triangle should be imported');
-  assert(manifest.rejectedSteepTriangleCount === 1, 'vertical wall triangle should be rejected from wheel support');
+  assert(manifest.rejectedSteepTriangleCount === 1, 'vertical triangle should be rejected from wheel support');
+  assert(manifest.rejectedObstacleTriangleCount === 1, 'wall-named mesh should be reserved for future chassis collision');
   assert(manifest.source.collisionModel === 'physics.kn5', 'dedicated collision model should be recorded');
   assert(manifest.spawnPoints[0].x === 12 && manifest.spawnPoints[0].z === 34, 'spawn should be preserved');
   const collision = await readFile(join(dir, 'collision.bin'));
