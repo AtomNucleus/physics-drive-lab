@@ -6,6 +6,8 @@ export interface TireModelConfig {
   loadSensitivity: number;
   slideFrictionMultiplier: number;
   relaxationLength: number;
+  longitudinalRelaxationLength?: number;
+  longitudinalForceRelaxationLength?: number;
   pneumaticTrailMax: number;
   camberStiffness: number;
   optimalTemp: number;

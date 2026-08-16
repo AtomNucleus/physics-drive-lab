@@ -36,6 +36,8 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tireLoadSensitivity: 0.000030,
   slideFrictionMultiplier: 0.83,
   relaxationLength: 0.19,
+  longitudinalRelaxationLength: 0.08,
+  longitudinalForceRelaxationLength: 0.045,
   tirePneumaticTrailMax: 0.030,
   tireSidewallStiffness: 230000,
   tireVerticalStiffness: 280000,

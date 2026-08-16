@@ -156,11 +156,16 @@ export class WheelDynamics {
       this.transientFy *= airborneDecay;
       this.transientMz *= airborneDecay;
     } else {
-      const sigma = Math.max(0.035, this.tireConfig.relaxationLength);
+      const lateralSigma = Math.max(0.035, this.tireConfig.relaxationLength);
+      const longitudinalSigma = Math.max(
+        0.025,
+        this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength
+      );
       const relaxationTravel = Math.max(2.0, Math.abs(longitudinalVelocity)) * dt;
-      const slipAlpha = 1 - Math.exp(-relaxationTravel / sigma);
-      this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * slipAlpha;
-      this.relaxationSlipRatio += (this.rawSlipRatio - this.relaxationSlipRatio) * slipAlpha;
+      const lateralSlipAlpha = 1 - Math.exp(-relaxationTravel / lateralSigma);
+      const longitudinalSlipAlpha = 1 - Math.exp(-relaxationTravel / longitudinalSigma);
+      this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * lateralSlipAlpha;
+      this.relaxationSlipRatio += (this.rawSlipRatio - this.relaxationSlipRatio) * longitudinalSlipAlpha;
     }
 
     const optimalTemp = this.tireConfig.optimalTemp;
@@ -181,12 +186,18 @@ export class WheelDynamics {
       isLeft: this.isLeft,
     });
 
-    const sigmaForce = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
+    const lateralForceSigma = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
+    const longitudinalForceSigma = Math.max(
+      0.018,
+      this.tireConfig.longitudinalForceRelaxationLength ??
+        ((this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength) * 0.55)
+    );
     const forceTravel = Math.max(2.5, Math.abs(longitudinalVelocity)) * dt;
-    const forceAlpha = 1 - Math.exp(-forceTravel / sigmaForce);
-    this.transientFx += (target.fx - this.transientFx) * forceAlpha;
-    this.transientFy += (target.fy - this.transientFy) * forceAlpha;
-    this.transientMz += (target.aligningTorque - this.transientMz) * forceAlpha;
+    const lateralForceAlpha = 1 - Math.exp(-forceTravel / lateralForceSigma);
+    const longitudinalForceAlpha = 1 - Math.exp(-forceTravel / longitudinalForceSigma);
+    this.transientFx += (target.fx - this.transientFx) * longitudinalForceAlpha;
+    this.transientFy += (target.fy - this.transientFy) * lateralForceAlpha;
+    this.transientMz += (target.aligningTorque - this.transientMz) * lateralForceAlpha;
 
     let rrForce = 0;
     if (Math.abs(longitudinalVelocity) > 0.15) {
