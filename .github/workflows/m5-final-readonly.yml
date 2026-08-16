@@ -1,0 +1,137 @@
+name: Final 2025 M5 Validation
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+concurrency:
+  group: m5-final-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Production build
+        run: npm run build
+
+      - name: Run final instrumented M5 validation
+        run: |
+          cat > /tmp/m5-final.ts <<'TS'
+          import fs from 'node:fs';
+          import { Simulation } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/Simulation.ts';
+          import { DEFAULT_VEHICLE_CONFIG } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/vehiclePresets.ts';
+          import { BMW_M5_2025_OVERRIDES, BMW_M5_2025_TARGETS, BMW_M5_2025_STANDING_TARGETS } from '/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/m5G90.ts';
+
+          const DT=1/120, MPH=2.2369362921, G=9.81, FT=3.28084;
+          const cfg:any={...DEFAULT_VEHICLE_CONFIG,...BMW_M5_2025_OVERRIDES};
+          const zero:any={throttle:0,brake:0,steer:0,handbrake:false,shiftUp:false,shiftDown:false};
+          const avg=(xs:number[])=>xs.reduce((a,b)=>a+b,0)/Math.max(1,xs.length);
+
+          function staticLoads(){
+            const sim=new Simulation(cfg); sim.reset(0,0,0);
+            for(let i=0;i<360;i++) sim.stepExplicit(zero,1);
+            const s=sim.vehicle.getState();
+            const loads=s.wheels.map((w:any)=>w.suspensionForce);
+            return {loads,frontFraction:(loads[0]+loads[1])/loads.reduce((a:number,b:number)=>a+b,0),bodyY:s.y};
+          }
+
+          function acceleration(){
+            const sim=new Simulation(cfg); sim.reset(0,0,0); sim.vehicle.powertrain.isAutomatic=true;
+            for(let i=0;i<180;i++) sim.stepExplicit({...zero,throttle:1,brake:1},1);
+            const stagedRpm=sim.vehicle.getState().rpm, stagedBoostPsi=sim.vehicle.powertrain.turboBoostPsi;
+            const z0=sim.vehicle.getState().z;
+            let t30:number|null=null,t60:number|null=null,t100:number|null=null,q:number|null=null,trap:number|null=null,maxSlip=0;
+            const firstSecondG:number[]=[];
+            for(let i=0;i<1800;i++){
+              const s=sim.stepExplicit({...zero,throttle:1},1); const t=(i+1)*DT, mph=s.speedMs*MPH;
+              if(t<=1) firstSecondG.push(Math.abs(sim.vehicle.rigidBody.acceleration.z/G));
+              maxSlip=Math.max(maxSlip,...s.wheels.map((w:any)=>Math.max(0,w.slipRatio)));
+              if(t30===null&&mph>=30)t30=t;
+              if(t60===null&&mph>=60)t60=t;
+              if(t100===null&&mph>=100)t100=t;
+              if(q===null&&Math.abs(s.z-z0)>=402.336){q=t;trap=mph;}
+              if(s.rpm>6800&&sim.vehicle.powertrain.gear<8) sim.vehicle.powertrain.shiftUp();
+              if(t100!==null&&q!==null) break;
+            }
+            return {stagedRpm,stagedBoostPsi,t30,t60,t100,quarterMile:q,quarterTrapMph:trap,meanFirstSecondG:avg(firstSecondG),maxSlip};
+          }
+
+          function brake(startMph:number){
+            const sim=new Simulation(cfg); sim.reset(0,0,0);
+            const v=startMph/MPH;
+            sim.vehicle.rigidBody.velocity={x:0,y:0,z:v};
+            sim.vehicle.wheels.forEach((w:any)=>w.reset(v));
+            sim.vehicle.powertrain.gear=0;
+            for(let i=0;i<12;i++) sim.stepExplicit(zero,1);
+            const z0=sim.vehicle.getState().z;
+            const gs:number[]=[],ps:number[]=[],slips:number[]=[];
+            for(let i=0;i<1800;i++){
+              const s=sim.stepExplicit({...zero,brake:1},1);
+              if(s.speedMs>2){
+                gs.push(Math.abs(sim.vehicle.rigidBody.acceleration.z/G));
+                ps.push(...sim.vehicle.brakes.pressureModulators);
+                slips.push(...s.wheels.map((w:any)=>Math.max(0,-w.slipRatio)));
+              }
+              if(s.speedMs<0.15) break;
+            }
+            return {startMph,distanceFt:Math.abs(sim.vehicle.getState().z-z0)*FT,meanG:avg(gs),meanPressure:avg(ps),meanSlip:avg(slips),absMode:sim.vehicle.driverAids.config.absMode};
+          }
+
+          function skidpad(){
+            const targetMph=46.9, target=targetMph/MPH, rows:any[]=[];
+            for(const steer of [.18,.20,.22,.24,.26,.28]){
+              const sim=new Simulation(cfg); sim.reset(0,0,0);
+              sim.vehicle.rigidBody.velocity={x:0,y:0,z:target};
+              sim.vehicle.wheels.forEach((w:any)=>w.reset(target));
+              sim.vehicle.powertrain.isAutomatic=false; sim.vehicle.powertrain.gear=4;
+              sim.vehicle.powertrain.engineRpm=(target/cfg.wheelRadius)*cfg.forwardGearRatios[3]*cfg.finalDriveRatio*30/Math.PI;
+              const samples:any[]=[];
+              for(let i=0;i<600;i++){
+                const speed=Math.abs(sim.vehicle.rigidBody.getLocalVelocity().z), error=target-speed;
+                const throttle=Math.max(0,Math.min(.5,.10+error*.12));
+                const brakeInput=error<-.7?Math.max(0,Math.min(.18,-error*.035)):0;
+                const s=sim.stepExplicit({...zero,steer,throttle,brake:brakeInput},1);
+                if(i>=420) samples.push({g:Math.abs(sim.vehicle.rigidBody.acceleration.x/G),mph:s.speedMs*MPH,fs:(Math.abs(s.wheels[0].slipAngle)+Math.abs(s.wheels[1].slipAngle))*.5,rs:(Math.abs(s.wheels[2].slipAngle)+Math.abs(s.wheels[3].slipAngle))*.5});
+              }
+              rows.push({steer,latG:avg(samples.map(x=>x.g)),speedMph:avg(samples.map(x=>x.mph)),frontSlipDeg:avg(samples.map(x=>x.fs))*180/Math.PI,rearSlipDeg:avg(samples.map(x=>x.rs))*180/Math.PI});
+            }
+            return {targetMph,rows,peakG:Math.max(...rows.map(r=>r.latG))};
+          }
+
+          const result={
+            publishedTargets:BMW_M5_2025_TARGETS,
+            standingTargets:BMW_M5_2025_STANDING_TARGETS,
+            config:{massKg:cfg.mass,frontWeight:cfg.weightDistributionFront,wheelbaseM:cfg.wheelbase,trackM:cfg.trackWidth,wheelRadiusM:cfg.wheelRadius,frontTorqueRatio:cfg.centerFrontTorqueRatio,brakeForce:cfg.brakeForce,brakeBiasFront:cfg.brakeBiasFront,absMode:cfg.absMode,lowSpeedTorqueFillNm:cfg.lowSpeedTorqueFillNm,torqueFillFadeRpm:cfg.torqueFillFadeRpm,shiftDurationSec:cfg.shiftDurationSec,shiftTorqueMultiplier:cfg.shiftTorqueMultiplier,longitudinalRelaxationLength:cfg.longitudinalRelaxationLength},
+            staticLoads:staticLoads(),
+            acceleration:acceleration(),
+            braking70:brake(70),
+            braking100:brake(100),
+            skidpad:skidpad(),
+          };
+          fs.writeFileSync('m5-final-results.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result,null,2));
+          TS
+          npx tsx /tmp/m5-final.ts | tee m5-final-results.log
+
+      - name: Upload final evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-final-evidence
+          path: |
+            m5-final-results.json
+            m5-final-results.log
+          retention-days: 7
