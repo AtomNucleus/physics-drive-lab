@@ -45,6 +45,8 @@ jobs:
       - name: Automatic transmission and low-speed propulsion regression
         run: npm run test:automatic
 
+      # Permanent 200 km/h double-lane-change coverage at moderate, near-limit,
+      # and ~0.94 g tire-limit loads, including a no-ARB comparison.
       - name: High-speed anti-roll handling regression
         run: npm run test:high-speed
 
