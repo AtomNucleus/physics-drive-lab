@@ -48,18 +48,7 @@ function testStationaryCamberDoesNotCreatePlanarForce() {
     let maxSkidIntensity = 0;
 
     for (let i = 0; i < 720; i++) {
-      const out = wheel.update(
-        0,
-        0,
-        6200,
-        -1.5,
-        0,
-        0,
-        0,
-        1.0,
-        0.015,
-        DT
-      );
+      const out = wheel.update(0, 0, 6200, -1.5, 0, 0, 0, 1.0, 0.015, DT);
       maxPlanarForce = Math.max(maxPlanarForce, Math.hypot(out.fx, out.fy));
       maxSkidIntensity = Math.max(maxSkidIntensity, out.skidIntensity);
       assert(!out.isSkidding, `${id}: stationary tire must never be marked skidding`);
@@ -78,10 +67,6 @@ function testCreepBrushForceIsBoundedAndDissipative() {
   let maxFrictionLimit = 0;
   let sawSkid = false;
   for (let i = 0; i < 240; i++) {
-    // A 3 cm/s sideways disturbance is representative of numerical/body-settle
-    // motion at parking speed. Sustained motion may reach static-friction breakaway,
-    // but the force must remain on the physical friction circle and must not be
-    // classified as a high-energy smoke-producing slide.
     const vy = i < 120 ? 0.03 : -0.03;
     const out = wheel.update(0, vy, 6200, -1.5, 0, 0, 0, 1, 0.015, DT);
     maxForce = Math.max(maxForce, Math.hypot(out.fx, out.fy));
@@ -114,7 +99,20 @@ function testRealWheelspinStillProducesSkid() {
   assert(peakIntensity > 0.05, `real wheelspin skid intensity too low: ${peakIntensity}`);
 }
 
-function runStationaryVehicleScenario(steer: number, label: string) {
+type StationaryScenarioResult = {
+  maxPlanarSpeed: number;
+  maxYawRate: number;
+  horizontalDisplacement: number;
+  maxTempRise: number;
+  maxSkidIntensity: number;
+  skidFrames: number;
+  maxSlipAngle: number;
+  maxSlipRatio: number;
+  maxPlanarTireForce: number;
+  skidByWheel: Record<string, number>;
+};
+
+function runStationaryVehicleScenario(steer: number, label: string): StationaryScenarioResult {
   const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
   const sim = new Simulation(config);
   sim.reset(0, 0, 0);
@@ -128,8 +126,6 @@ function runStationaryVehicleScenario(steer: number, label: string) {
     shiftDown: false,
   };
 
-  // Let unsprung/sprung states settle before applying steering so this test measures
-  // horizontal tire stability rather than the initial vertical suspension drop.
   for (let i = 0; i < 480; i++) sim.stepExplicit(neutral, 1);
 
   const start = sim.vehicle.getState();
@@ -140,6 +136,10 @@ function runStationaryVehicleScenario(steer: number, label: string) {
   let maxYawRate = 0;
   let maxSkidIntensity = 0;
   let skidFrames = 0;
+  let maxSlipAngle = 0;
+  let maxSlipRatio = 0;
+  let maxPlanarTireForce = 0;
+  const skidByWheel: Record<string, number> = { FL: 0, FR: 0, RL: 0, RR: 0 };
 
   for (let i = 0; i < 720; i++) {
     const state = sim.stepExplicit(steering, 1);
@@ -151,7 +151,13 @@ function runStationaryVehicleScenario(steer: number, label: string) {
       assertFinite(wheel.forceVectorLat, `${label} ${wheel.id} lateral force`);
       assertFinite(wheel.forceVectorLong, `${label} ${wheel.id} longitudinal force`);
       maxSkidIntensity = Math.max(maxSkidIntensity, wheel.skidIntensity);
-      if (wheel.isSkidding) skidFrames++;
+      maxSlipAngle = Math.max(maxSlipAngle, Math.abs(wheel.slipAngle));
+      maxSlipRatio = Math.max(maxSlipRatio, Math.abs(wheel.slipRatio));
+      maxPlanarTireForce = Math.max(maxPlanarTireForce, Math.hypot(wheel.forceVectorLong, wheel.forceVectorLat));
+      if (wheel.isSkidding) {
+        skidFrames++;
+        skidByWheel[wheel.id] = (skidByWheel[wheel.id] || 0) + 1;
+      }
     }
   }
 
@@ -159,27 +165,41 @@ function runStationaryVehicleScenario(steer: number, label: string) {
   const horizontalDisplacement = Math.hypot(end.x - start.x, end.z - start.z);
   const maxTempRise = Math.max(...end.wheels.map((w, i) => w.temperature - startTemp[i]));
 
-  assert(skidFrames === 0, `${label}: stationary full-lock steering reported ${skidFrames} skid/smoke wheel-frames`);
-  assert(maxSkidIntensity === 0, `${label}: stationary full-lock steering reached skid intensity ${maxSkidIntensity}`);
-  assert(maxPlanarSpeed < 0.12, `${label}: chassis shook/moved at ${maxPlanarSpeed.toFixed(3)} m/s while parked`);
-  assert(maxYawRate < 0.12, `${label}: chassis yaw oscillation reached ${maxYawRate.toFixed(3)} rad/s while parked`);
-  assert(horizontalDisplacement < 0.08, `${label}: parked car migrated ${horizontalDisplacement.toFixed(3)} m under steering alone`);
-  assert(maxTempRise < 0.10, `${label}: stationary steering heated a tire by ${maxTempRise.toFixed(3)} C`);
-
   console.log(
     `  ${label}: vmax=${maxPlanarSpeed.toFixed(4)} m/s, yaw=${maxYawRate.toFixed(4)} rad/s, ` +
-      `migration=${horizontalDisplacement.toFixed(4)} m, dT=${maxTempRise.toFixed(4)} C`
+      `migration=${horizontalDisplacement.toFixed(4)} m, dT=${maxTempRise.toFixed(4)} C, ` +
+      `skidFrames=${skidFrames}, skidI=${maxSkidIntensity.toFixed(3)}, ` +
+      `alpha=${maxSlipAngle.toFixed(3)} rad, kappa=${maxSlipRatio.toFixed(3)}, ` +
+      `Ftire=${maxPlanarTireForce.toFixed(0)} N, wheels=${JSON.stringify(skidByWheel)}`
   );
 
-  return { maxPlanarSpeed, maxYawRate, horizontalDisplacement, maxTempRise };
+  return {
+    maxPlanarSpeed,
+    maxYawRate,
+    horizontalDisplacement,
+    maxTempRise,
+    maxSkidIntensity,
+    skidFrames,
+    maxSlipAngle,
+    maxSlipRatio,
+    maxPlanarTireForce,
+    skidByWheel,
+  };
 }
 
 function testStationaryFullLockVehicle() {
   const left = runStationaryVehicleScenario(1, 'full-left');
   const right = runStationaryVehicleScenario(-1, 'full-right');
 
-  // Both steering directions should be comparably stable; this also catches a
-  // left/right force transform regression.
+  for (const [label, result] of [['full-left', left], ['full-right', right]] as const) {
+    assert(result.skidFrames === 0, `${label}: stationary full-lock steering reported ${result.skidFrames} skid/smoke wheel-frames`);
+    assert(result.maxSkidIntensity === 0, `${label}: stationary full-lock steering reached skid intensity ${result.maxSkidIntensity}`);
+    assert(result.maxPlanarSpeed < 0.12, `${label}: chassis shook/moved at ${result.maxPlanarSpeed.toFixed(3)} m/s while parked`);
+    assert(result.maxYawRate < 0.12, `${label}: chassis yaw oscillation reached ${result.maxYawRate.toFixed(3)} rad/s while parked`);
+    assert(result.horizontalDisplacement < 0.08, `${label}: parked car migrated ${result.horizontalDisplacement.toFixed(3)} m under steering alone`);
+    assert(result.maxTempRise < 0.10, `${label}: stationary steering heated a tire by ${result.maxTempRise.toFixed(3)} C`);
+  }
+
   const speedAsymmetry = Math.abs(left.maxPlanarSpeed - right.maxPlanarSpeed);
   const displacementAsymmetry = Math.abs(left.horizontalDisplacement - right.horizontalDisplacement);
   assert(speedAsymmetry < 0.05, `left/right stationary speed response differs by ${speedAsymmetry.toFixed(3)} m/s`);
