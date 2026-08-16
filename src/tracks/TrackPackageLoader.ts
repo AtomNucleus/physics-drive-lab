@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DDSLoader } from 'three/addons/loaders/DDSLoader.js';
 import { TrackPackageManifest } from './TrackTypes';
 import { decodeCollisionTriangles, TriangleSurfaceProvider } from './TriangleSurfaceProvider';
 
@@ -42,7 +43,17 @@ async function buildVisualRoot(manifestUrl: string, manifest: TrackPackageManife
   const root = new THREE.Group();
   root.name = `track:${manifest.id}`;
   const textureLoader = new THREE.TextureLoader();
+  const ddsLoader = new DDSLoader();
   const materialCache = new Map<number, THREE.MeshStandardMaterial>();
+
+  const loadTexture = (asset: string, colorTexture: boolean): THREE.Texture => {
+    const url = resolveAsset(manifestUrl, asset);
+    const texture = /\.dds(?:$|[?#])/i.test(url) ? ddsLoader.load(url) : textureLoader.load(url);
+    if (colorTexture) texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+  };
 
   const getMaterial = (materialId: number): THREE.MeshStandardMaterial => {
     const cached = materialCache.get(materialId);
@@ -56,18 +67,8 @@ async function buildVisualRoot(manifestUrl: string, manifest: TrackPackageManife
       material.color.setRGB(Math.min(1, value), Math.min(1, value), Math.min(1, value));
     }
 
-    if (source?.diffuseTexture) {
-      material.map = textureLoader.load(resolveAsset(manifestUrl, source.diffuseTexture));
-      material.map.colorSpace = THREE.SRGBColorSpace;
-      material.map.wrapS = THREE.RepeatWrapping;
-      material.map.wrapT = THREE.RepeatWrapping;
-    }
-
-    if (source?.normalTexture) {
-      material.normalMap = textureLoader.load(resolveAsset(manifestUrl, source.normalTexture));
-      material.normalMap.wrapS = THREE.RepeatWrapping;
-      material.normalMap.wrapT = THREE.RepeatWrapping;
-    }
+    if (source?.diffuseTexture) material.map = loadTexture(source.diffuseTexture, true);
+    if (source?.normalTexture) material.normalMap = loadTexture(source.normalTexture, false);
 
     materialCache.set(materialId, material);
     return material;
