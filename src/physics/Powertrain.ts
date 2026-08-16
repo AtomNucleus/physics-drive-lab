@@ -315,8 +315,7 @@ export class Powertrain {
         this.config.revLimiterRpm - 300
       );
       const launchTargetOmega = (launchTargetRpm * Math.PI) / 30;
-      const launchBlend = 1 - Math.exp(-12 * dt);
-      omegaEngine += (launchTargetOmega - omegaEngine) * launchBlend;
+      omegaEngine = launchTargetOmega;
     }
 
     this.engineRpm = Math.max(this.config.idleRpm, (omegaEngine * 30) / Math.PI);

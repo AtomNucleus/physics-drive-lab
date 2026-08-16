@@ -399,10 +399,10 @@ export class Vehicle {
     // 4. TCS Throttle Reduction
     const drivenSlips =
       this.config.drivetrain === 'FWD'
-        ? [this.wheels[0].relaxationSlipRatio, this.wheels[1].relaxationSlipRatio]
+        ? [this.wheels[0].rawSlipRatio, this.wheels[1].rawSlipRatio]
         : this.config.drivetrain === 'RWD'
-        ? [this.wheels[2].relaxationSlipRatio, this.wheels[3].relaxationSlipRatio]
-        : this.wheels.map((w) => w.relaxationSlipRatio);
+        ? [this.wheels[2].rawSlipRatio, this.wheels[3].rawSlipRatio]
+        : this.wheels.map((w) => w.rawSlipRatio);
 
     const tcsResult = this.driverAids.updateTCS(drivenSlips, dt);
     const effectiveThrottle = inputs.throttle * tcsResult.throttleMultiplier;
@@ -432,10 +432,10 @@ export class Vehicle {
 
     // 6. Brakes & ABS Controller
     const wheelSlips: [number, number, number, number] = [
-      this.wheels[0].relaxationSlipRatio,
-      this.wheels[1].relaxationSlipRatio,
-      this.wheels[2].relaxationSlipRatio,
-      this.wheels[3].relaxationSlipRatio,
+      this.wheels[0].rawSlipRatio,
+      this.wheels[1].rawSlipRatio,
+      this.wheels[2].rawSlipRatio,
+      this.wheels[3].rawSlipRatio,
     ];
 
     const absModulators = this.driverAids.updateABS(
