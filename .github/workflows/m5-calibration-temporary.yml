@@ -27,14 +27,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Apply M5 launch and ABS calibration
+      - name: Apply M5 control calibration
         run: |
           python3 scripts/m5_finalize_patch.py
+          python3 scripts/m5_sensor_patch.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add src/physics/Vehicle.ts src/physics/Powertrain.ts src/physics/DriverAids.ts src/physics/m5G90.ts
-            git commit -m "Match M5 launch coupling and ABS behavior"
+            git commit -m "Use wheel-speed slip for M5 ABS and traction control"
             git push origin HEAD:agent/dynamic-tire-load-transfer
           fi
 
