@@ -23,7 +23,9 @@ export class VehiclePhysicsEngine {
   }
 
   public set config(cfg: VehicleConfig) {
-    this.simulation.vehicle.setConfig(cfg);
+    // Route property assignment through Simulation as well so mass, CG and
+    // principal inertias are updated together with the subsystem tuning.
+    this.simulation.setConfig(cfg);
   }
 
   public get state(): VehicleState {
@@ -50,22 +52,16 @@ export class VehiclePhysicsEngine {
     return this.surfaceProvider.sampleSurface(x, z);
   }
 
-  /**
-   * Advance the 120 Hz fixed accumulator physics with state interpolation for smooth rendering
-   */
+  /** Advance the 120 Hz fixed accumulator physics with state interpolation. */
   public update(deltaTime: number, inputs: ControlInputs): VehicleState {
     return this.simulation.advance(deltaTime, inputs);
   }
 
-  /**
-   * Run headless verification test suite
-   */
   public runHeadlessTests(): TestResult[] {
     return HeadlessTestRunner.runAllTests(this.config);
   }
 }
 
-// Re-export all modular components and types for complete modularity
 export { Simulation } from './Simulation';
 export { Vehicle } from './Vehicle';
 export { RigidBody } from './RigidBody';
