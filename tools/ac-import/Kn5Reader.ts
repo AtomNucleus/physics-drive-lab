@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 export interface Kn5Texture { type: number; name: string; data: Buffer; }
 export interface Kn5Material { id: number; name: string; shader: string; properties: Record<string, number>; textures: Record<string, string>; }
 export interface Kn5Mesh { name: string; materialId: number; positions: Float32Array; normals: Float32Array; uvs: Float32Array; indices: Uint32Array; }
-export interface Kn5Model { version: number; textures: Kn5Texture[]; materials: Kn5Material[]; meshes: Kn5Mesh[]; }
+export interface Kn5Marker { name: string; x: number; y: number; z: number; yaw: number; }
+export interface Kn5Model { version: number; textures: Kn5Texture[]; materials: Kn5Material[]; meshes: Kn5Mesh[]; markers: Kn5Marker[]; }
 
 type Mat4 = [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
 const IDENTITY: Mat4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -96,20 +97,32 @@ function readMeshPayload(cursor: BinaryCursor, name: string, worldMatrix: Mat4, 
   return { name, materialId, positions, normals, uvs, indices };
 }
 
-function readNode(cursor: BinaryCursor, parentWorld: Mat4, meshes: Kn5Mesh[]) {
+function markerFromMatrix(name: string, matrix: Mat4): Kn5Marker {
+  return {
+    name,
+    x: matrix[12],
+    y: matrix[13],
+    z: matrix[14],
+    yaw: Math.atan2(matrix[8], matrix[10]),
+  };
+}
+
+function readNode(cursor: BinaryCursor, parentWorld: Mat4, meshes: Kn5Mesh[], markers: Kn5Marker[]) {
   const type = cursor.readInt32();
   const name = cursor.readString32();
   const childCount = cursor.readInt32();
   cursor.readUInt8();
   let worldMatrix = parentWorld;
 
-  if (type === 1) worldMatrix = multiplyRowMajor(readMatrix(cursor), parentWorld);
-  else if (type === 2) meshes.push(readMeshPayload(cursor, name, worldMatrix, false));
+  if (type === 1) {
+    worldMatrix = multiplyRowMajor(readMatrix(cursor), parentWorld);
+    markers.push(markerFromMatrix(name, worldMatrix));
+  } else if (type === 2) meshes.push(readMeshPayload(cursor, name, worldMatrix, false));
   else if (type === 3) meshes.push(readMeshPayload(cursor, name, worldMatrix, true));
   else throw new Error(`Unsupported KN5 node type ${type} for node "${name}" at byte ${cursor.offset}.`);
 
   if (childCount < 0 || childCount > 1_000_000) throw new Error(`Invalid child count ${childCount} for ${name}.`);
-  for (let child = 0; child < childCount; child++) readNode(cursor, worldMatrix, meshes);
+  for (let child = 0; child < childCount; child++) readNode(cursor, worldMatrix, meshes, markers);
 }
 
 export function parseKn5(buffer: Buffer): Kn5Model {
@@ -146,8 +159,53 @@ export function parseKn5(buffer: Buffer): Kn5Model {
   }
 
   const meshes: Kn5Mesh[] = [];
-  if (cursor.offset < buffer.length) readNode(cursor, IDENTITY, meshes);
-  return { version, textures, materials, meshes };
+  const markers: Kn5Marker[] = [];
+  if (cursor.offset < buffer.length) readNode(cursor, IDENTITY, meshes, markers);
+  return { version, textures, materials, meshes, markers };
+}
+
+export function mergeKn5Models(models: Kn5Model[]): Kn5Model {
+  if (models.length === 0) throw new Error('Cannot merge an empty KN5 model list.');
+
+  const textures: Kn5Texture[] = [];
+  const textureByName = new Map<string, Kn5Texture>();
+  const materials: Kn5Material[] = [];
+  const meshes: Kn5Mesh[] = [];
+  const markers: Kn5Marker[] = [];
+
+  for (const model of models) {
+    for (const texture of model.textures) {
+      const key = texture.name.toLowerCase();
+      const existing = textureByName.get(key);
+      if (!existing) {
+        textureByName.set(key, texture);
+        textures.push(texture);
+      } else if (!existing.data.equals(texture.data)) {
+        throw new Error(`Conflicting embedded texture data for ${texture.name} while merging KN5 models.`);
+      }
+    }
+
+    const materialIdMap = new Map<number, number>();
+    for (const material of model.materials) {
+      const id = materials.length;
+      materialIdMap.set(material.id, id);
+      materials.push({ ...material, id });
+    }
+
+    for (const mesh of model.meshes) {
+      const materialId = materialIdMap.get(mesh.materialId);
+      meshes.push({ ...mesh, materialId: materialId ?? mesh.materialId });
+    }
+    markers.push(...model.markers);
+  }
+
+  return {
+    version: Math.max(...models.map((model) => model.version)),
+    textures,
+    materials,
+    meshes,
+    markers,
+  };
 }
 
 export async function readKn5File(path: string): Promise<Kn5Model> { return parseKn5(await readFile(path)); }
