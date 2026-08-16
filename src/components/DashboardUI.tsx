@@ -8,7 +8,6 @@ import {
   Eye,
   EyeOff,
   Flame,
-  Gauge,
   ShieldAlert,
   Sparkles,
   Timer,
@@ -96,7 +95,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
         <button
           id="hud-show-btn"
           onClick={() => setHudMode('compact')}
-          className="pointer-events-auto absolute right-3 bottom-3 flex items-center gap-1.5 rounded-full border border-slate-700/70 bg-slate-950/75 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300 shadow-lg backdrop-blur-md hover:text-white"
+          className="pointer-events-auto absolute left-1/2 top-14 -translate-x-1/2 flex items-center gap-1.5 rounded-full sm:left-auto sm:right-3 sm:top-auto sm:bottom-3 sm:translate-x-0 border border-slate-700/70 bg-slate-950/75 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300 shadow-lg backdrop-blur-md hover:text-white"
           title="Show HUD (H)"
         >
           <Eye size={13} />
@@ -111,7 +110,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
   return (
     <div id="driving-hud" className="pointer-events-none absolute inset-0 z-10 select-none overflow-hidden font-sans">
       {/* Minimal status rail: only persistent context and active warnings. */}
-      <div className="absolute left-3 top-3 flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center gap-1.5 text-[10px] font-mono">
+      <div className="absolute left-3 top-3 hidden max-w-[calc(100vw-1.5rem)] flex-wrap sm:flex items-center gap-1.5 text-[10px] font-mono">
         <div className="rounded-full border border-slate-700/60 bg-slate-950/72 px-2.5 py-1 text-slate-300 shadow-lg backdrop-blur-md">
           <span className="font-bold text-sky-300">{config.drivetrain}</span>
           <span className="mx-1.5 text-slate-600">•</span>
@@ -142,7 +141,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
 
       {/* Expanded telemetry is intentionally off the main sightline and scrolls instead of growing. */}
       {expanded && showTelemetry && (
-        <div className="pointer-events-auto absolute right-3 top-14 w-[min(19rem,calc(100vw-1.5rem))] max-h-[62vh] overflow-y-auto rounded-2xl border border-slate-700/70 bg-slate-950/88 p-3 text-[10px] text-slate-300 shadow-2xl backdrop-blur-xl">
+        <div className="pointer-events-auto absolute right-3 top-14 w-[min(19rem,calc(100vw-1.5rem))] max-h-[48vh] sm:max-h-[62vh] overflow-y-auto rounded-2xl border border-slate-700/70 bg-slate-950/88 p-3 text-[10px] text-slate-300 shadow-2xl backdrop-blur-xl">
           <div className="mb-2 flex items-center justify-between border-b border-slate-800 pb-2">
             <span className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-slate-100">
               <Activity size={13} className="text-sky-300" />
@@ -294,7 +293,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
       </div>
 
       {/* Compact primary cluster. */}
-      <div className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2">
+      <div className="pointer-events-auto absolute bottom-28 left-1/2 -translate-x-1/2 sm:bottom-3">
         <div className={`flex items-center rounded-2xl border border-slate-700/70 bg-slate-950/86 shadow-2xl backdrop-blur-xl transition-all ${expanded ? 'gap-3 px-3.5 py-2.5' : 'gap-2.5 px-3 py-2'}`}>
           <div className="flex flex-col items-center gap-1">
             <div className="flex h-2 items-center gap-0.5" aria-label="Shift lights">
@@ -326,7 +325,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
             </button>
           </div>
 
-          <div className="flex min-w-[8rem] flex-col">
+          <div className="flex min-w-[5rem] flex-col sm:min-w-[8rem]">
             <div className="flex items-baseline gap-1.5">
               <span className="font-mono text-4xl font-black leading-none tracking-tighter text-white">{displaySpeed}</span>
               <button
@@ -341,7 +340,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
             <div className="mt-1 text-[8px] font-mono text-slate-500">{Math.round(state.rpm)} RPM</div>
           </div>
 
-          <div className={`${expanded ? 'w-44' : 'w-32'} space-y-1.5`}>
+          <div className={`${expanded ? 'w-44' : 'w-32'} hidden space-y-1.5 sm:block`}>
             <div>
               <div className="mb-0.5 flex items-center justify-between text-[8px] font-mono text-slate-500">
                 <span>RPM</span>
@@ -403,7 +402,7 @@ export const DashboardUI: React.FC<DashboardUIProps> = ({
         </div>
 
         <div className="mt-1 text-center text-[8px] font-mono uppercase tracking-[0.18em] text-slate-500/80">
-          <Gauge size={9} className="mr-1 inline" /> H hides HUD
+          H hides HUD
         </div>
       </div>
     </div>
