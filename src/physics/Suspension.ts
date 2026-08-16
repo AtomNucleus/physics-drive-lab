@@ -21,6 +21,17 @@ export interface SuspensionCornerConfig {
   bumpStopExponent?: number;
 }
 
+export interface AntiRollBarForcePair {
+  /** Left suspension travel minus right suspension travel. Positive means left is more compressed. */
+  differentialTravelM: number;
+  /** Positive is an upward reaction on the chassis / downward reaction on the unsprung corner. */
+  leftChassisForceN: number;
+  /** Equal-and-opposite reaction at the right corner. */
+  rightChassisForceN: number;
+  /** Absolute force transferred from one side of the axle to the other. */
+  transferMagnitudeN: number;
+}
+
 export interface SuspensionState {
   displacement: number;
   velocity: number;
@@ -39,6 +50,8 @@ export interface SuspensionState {
   damperForceN: number;
   bumpStopForceN: number;
   hardStopForceN: number;
+  /** Axle-local anti-roll-bar contribution only; excludes optional diagonal coupling. */
+  antiRollBarForceN: number;
   dynamicCamberDeg: number;
   isAirborne: boolean;
   contactPointWorld: Vec3;
@@ -70,6 +83,7 @@ const makeState = (): SuspensionState => ({
   damperForceN: 0,
   bumpStopForceN: 0,
   hardStopForceN: 0,
+  antiRollBarForceN: 0,
   dynamicCamberDeg: 0,
   isAirborne: true,
   contactPointWorld: PhysicsMath.vec3(),
@@ -151,6 +165,36 @@ export function bumpStopForceForDisplacement(
 
   return Math.max(0, stiffness) * bumpTravel *
     (1 + Math.max(0, progression) * Math.pow(progress, Math.max(1, exponent)));
+}
+
+/**
+ * Convert left/right differential suspension travel into the equal-and-opposite
+ * vertical forces produced by an anti-roll bar at the wheel centers.
+ *
+ * `effectiveWheelRateNPerM` is the bar's installed/effective wheel rate rather
+ * than the raw torsional rate of the steel bar. That keeps suspension motion ratio
+ * and lever-arm geometry outside the real-time solver while preserving the physics:
+ * equal bump gives zero force, and differential bump transfers load across the axle.
+ */
+export function calculateAntiRollBarForces(
+  leftDisplacementM: number,
+  rightDisplacementM: number,
+  effectiveWheelRateNPerM: number
+): AntiRollBarForcePair {
+  const left = Number.isFinite(leftDisplacementM) ? leftDisplacementM : 0;
+  const right = Number.isFinite(rightDisplacementM) ? rightDisplacementM : 0;
+  const rate = Number.isFinite(effectiveWheelRateNPerM)
+    ? Math.max(0, effectiveWheelRateNPerM)
+    : 0;
+  const differentialTravelM = left - right;
+  const leftChassisForceN = rate * differentialTravelM;
+
+  return {
+    differentialTravelM,
+    leftChassisForceN,
+    rightChassisForceN: -leftChassisForceN,
+    transferMagnitudeN: Math.abs(leftChassisForceN),
+  };
 }
 
 /**
@@ -374,17 +418,27 @@ export class SuspensionSystem {
       tireForces[i] = tireForce;
     }
 
-    // Anti-roll bars act between the sprung chassis and the two unsprung masses.
-    const chassisForces = [...baseChassisForces];
-    const applyAxleBar = (left: number, right: number, stiffness: number) => {
-      const delta = currentDisplacements[left] - currentDisplacements[right];
-      const transfer = stiffness * delta;
-      chassisForces[left] += transfer;
-      chassisForces[right] -= transfer;
-    };
-    applyAxleBar(0, 1, rollStiffnessFront);
-    applyAxleBar(2, 3, rollStiffnessRear);
+    // True axle-local anti-roll bars. Each bar reacts only to left/right differential
+    // travel on its own axle. Equal bump/heave produces exactly zero ARB force.
+    const antiRollBarForces = [0, 0, 0, 0];
+    const frontBar = calculateAntiRollBarForces(
+      currentDisplacements[0],
+      currentDisplacements[1],
+      rollStiffnessFront
+    );
+    const rearBar = calculateAntiRollBarForces(
+      currentDisplacements[2],
+      currentDisplacements[3],
+      rollStiffnessRear
+    );
+    antiRollBarForces[0] = frontBar.leftChassisForceN;
+    antiRollBarForces[1] = frontBar.rightChassisForceN;
+    antiRollBarForces[2] = rearBar.leftChassisForceN;
+    antiRollBarForces[3] = rearBar.rightChassisForceN;
 
+    // Optional legacy diagonal coupling remains separate from the physical bars so
+    // front/rear ARB balance stays well-defined and independently testable.
+    const crossCouplingForces = [0, 0, 0, 0];
     const cross = PhysicsMath.clamp(antiRollCrossCoupling, 0, 1);
     if (cross > 0) {
       const diagonalDelta =
@@ -392,11 +446,15 @@ export class SuspensionSystem {
         (currentDisplacements[1] + currentDisplacements[2]);
       const averageBar = 0.25 * (rollStiffnessFront + rollStiffnessRear);
       const crossTransfer = diagonalDelta * averageBar * cross * 0.20;
-      chassisForces[0] += crossTransfer;
-      chassisForces[3] += crossTransfer;
-      chassisForces[1] -= crossTransfer;
-      chassisForces[2] -= crossTransfer;
+      crossCouplingForces[0] += crossTransfer;
+      crossCouplingForces[3] += crossTransfer;
+      crossCouplingForces[1] -= crossTransfer;
+      crossCouplingForces[2] -= crossTransfer;
     }
+
+    const chassisForces = baseChassisForces.map(
+      (baseForce, i) => baseForce + antiRollBarForces[i] + crossCouplingForces[i]
+    );
 
     // Integrate each wheel/hub effective mass independently.
     for (let i = 0; i < 4; i++) {
@@ -473,9 +531,9 @@ export class SuspensionSystem {
           (roadVelocitiesY[i] - hubVelocityWorldY) * tireC
       );
 
-      // Retain the explicit anti-roll contribution evaluated at the beginning of
-      // this fixed step. The next 120 Hz step re-evaluates it from the new travel.
-      const antiRollContribution = chassisForces[i] - baseChassisForces[i];
+      // Retain the explicit anti-roll contributions evaluated at the beginning of
+      // this fixed step. The next 120 Hz step re-evaluates them from the new travel.
+      const antiRollContribution = antiRollBarForces[i] + crossCouplingForces[i];
       let chassisForce = Math.max(
         0,
         springForce + damperForce + bumpStopForce + antiRollContribution
@@ -506,6 +564,7 @@ export class SuspensionSystem {
         damperForceN: damperForce,
         bumpStopForceN: bumpStopForce,
         hardStopForceN: hardStopForce,
+        antiRollBarForceN: antiRollBarForces[i],
         dynamicCamberDeg:
           cfg.staticCamberDeg - cfg.camberGainDegPerMeter * Math.max(0, displacement),
         isAirborne,
