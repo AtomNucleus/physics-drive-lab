@@ -108,7 +108,8 @@ export class WheelDynamics {
     handbrakeTorque: number,
     surfaceFriction: number,
     rollingResistance: number,
-    dt: number
+    dt: number,
+    reflectedDrivelineInertia: number = 0
   ): TireForceOutput {
     if (dt <= 0) return this.lastTireOutput;
 
@@ -209,8 +210,9 @@ export class WheelDynamics {
     const brakeSign = Math.sign(spinReference);
     const brakeTorque = brakeRequest * brakeSign;
     const tireReactionTorque = fx * this.radius;
+    const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
     const angularAccel = PhysicsMath.clamp(
-      (driveTorque - brakeTorque - tireReactionTorque) / this.inertia,
+      (driveTorque - brakeTorque - tireReactionTorque) / effectiveRotationalInertia,
       -4500,
       4500
     );

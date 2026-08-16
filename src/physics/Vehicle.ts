@@ -428,39 +428,7 @@ export class Vehicle {
     );
     const powertrainOut = this.powertrain.update(effectiveThrottle, drivenOmega, dt);
 
-    let commandedDriveshaftTorque = powertrainOut.driveshaftTorque;
-
-    // Launch control is a wheel-torque controller, not simply a rev hold plus TCS.
-    // The available tire force from the previous 120 Hz contact solve provides a
-    // feed-forward traction ceiling; raw wheel-speed slip then trims that ceiling.
-    const launchTorqueControlActive = Boolean(
-      this.config.launchControlEnabled &&
-      inputs.throttle > 0.80 &&
-      inputs.brake < 0.10 &&
-      speedMs < ((this.config as any).launchControlEndSpeedMs ?? 30.0)
-    );
-    if (launchTorqueControlActive && commandedDriveshaftTorque > 0) {
-      const targetSlip = (this.config as any).launchSlipTarget ?? 0.12;
-      const utilization = PhysicsMath.clamp((this.config as any).launchTractionUtilization ?? 0.96, 0.70, 1.05);
-      const maxPositiveSlip = Math.max(0, ...drivenSlips.map((slip) => Math.max(0, slip)));
-      const slipError = Math.max(0, maxPositiveSlip - targetSlip);
-      const slipTrim = PhysicsMath.clamp(1.0 - slipError * 1.65, 0.22, 1.0);
-
-      let tireTorqueCapacity = 0;
-      for (let i = 0; i < 4; i++) {
-        const tireLimit = Math.max(
-          0,
-          this.wheels[i].lastTireOutput?.frictionLimit ??
-          (this.suspension.states[i].forceNorm * (i < 2 ? this.config.tireGripFront : this.config.tireGripRear))
-        );
-        tireTorqueCapacity += tireLimit * this.config.wheelRadius;
-      }
-
-      const launchTorqueCeiling = tireTorqueCapacity * utilization * slipTrim;
-      commandedDriveshaftTorque = Math.min(commandedDriveshaftTorque, launchTorqueCeiling);
-    }
-
-    const diffOut = this.differential.distributeTorque(commandedDriveshaftTorque, wheelOmegas);
+    const diffOut = this.differential.distributeTorque(powertrainOut.driveshaftTorque, wheelOmegas);
 
     // 6. Brakes & ABS Controller
     const wheelSlips: [number, number, number, number] = [
@@ -480,6 +448,26 @@ export class Vehicle {
     this.brakes.pressureModulators = absModulators;
 
     const brakeTorques = this.brakes.calculateBrakeTorques(inputs.brake, inputs.handbrake);
+
+    const currentGear = this.powertrain.gear;
+    const currentGearRatio = currentGear > 0
+      ? Math.abs(this.config.forwardGearRatios[currentGear - 1] ?? this.config.gearRatios[currentGear] ?? 0)
+      : 0;
+    const totalRatio = currentGearRatio * Math.abs(this.config.finalDriveRatio);
+    const drivenWheelCount = this.config.drivetrain === 'AWD' ? 4 : 2;
+    const drivelineInputInertia = Math.max(
+      0,
+      (this.config as any).drivelineInputInertia ?? this.config.flywheelInertia
+    );
+    const drivelineCoupling = PhysicsMath.clamp(
+      (this.config as any).drivelineInertiaCoupling ?? 0.75,
+      0,
+      1.5
+    );
+    const reflectedDrivelineInertiaPerDrivenWheel =
+      drivenWheelCount > 0
+        ? (drivelineInputInertia * totalRatio * totalRatio * drivelineCoupling) / drivenWheelCount
+        : 0;
 
     // 7. Solve 4 Wheels & Apply Contact Forces to Rigid Body
     let totalAligningTorque = 0;
@@ -517,7 +505,14 @@ export class Vehicle {
         brakeTorques.handbrakeTorques[i],
         surface.friction * this.config.ambientSurfaceFrictionMultiplier,
         surface.rollingResistance,
-        dt
+        dt,
+        (() => {
+          const isDriven =
+            this.config.drivetrain === 'AWD' ||
+            (this.config.drivetrain === 'FWD' && i < 2) ||
+            (this.config.drivetrain === 'RWD' && i >= 2);
+          return isDriven ? reflectedDrivelineInertiaPerDrivenWheel : 0;
+        })()
       );
 
       totalAligningTorque += tireOut.aligningTorque;

@@ -94,6 +94,8 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   lowSpeedTorqueFillNm: 300,
   torqueFillFadeRpm: 3400,
   automaticTorqueConverter: true,
+  drivelineInputInertia: 0.55,
+  drivelineInertiaCoupling: 1.0,
   launchSlipTarget: 0.12,
   launchTractionUtilization: 0.98,
   launchControlEndSpeedMs: 30.0,
