@@ -74,8 +74,12 @@ export class DriverAidsSystem {
     deltaInner = PhysicsMath.lerp(Math.abs(delta), deltaInner, this.config.ackermannRatio);
     deltaOuter = PhysicsMath.lerp(Math.abs(delta), deltaOuter, this.config.ackermannRatio);
 
-    const steerFL = delta > 0 ? deltaOuter : -deltaInner;
-    const steerFR = delta > 0 ? deltaInner : -deltaOuter;
+    // Ackermann: the wheel on the inside of the turn must steer MORE than the outside wheel.
+    // Positive steer is LEFT, so FL is the inside wheel. Negative steer is RIGHT, so FR is inside.
+    // The previous mapping was reversed, forcing the front tires to scrub against incompatible
+    // turning circles and producing pronounced low-speed understeer at large steering angles.
+    const steerFL = delta > 0 ? deltaInner : -deltaOuter;
+    const steerFR = delta > 0 ? deltaOuter : -deltaInner;
     return { steerFL, steerFR, centerAngle: this.currentCenterSteerAngle };
   }
 
