@@ -47,7 +47,7 @@ jobs:
       - name: Record full-lock visual test
         run: |
           mkdir -p artifacts/raw
-          timeout 60s node --input-type=module <<'JS'
+          timeout 45s node --input-type=module <<'JS'
           import { chromium } from 'playwright';
           import { copyFile } from 'node:fs/promises';
 
@@ -77,8 +77,7 @@ jobs:
             waitUntil: 'domcontentloaded',
             timeout: 15000,
           });
-          const canvas = page.locator('canvas');
-          await canvas.waitFor({ state: 'attached', timeout: 15000 });
+          await page.locator('canvas').waitFor({ state: 'attached', timeout: 15000 });
           await page.waitForTimeout(3000);
 
           await page.evaluate(() => {
@@ -101,16 +100,6 @@ jobs:
             document.body.appendChild(label);
           });
 
-          // Five presses switch chase -> close -> hood -> cockpit -> drift -> orbit.
-          // Default orbit angle is directly in front of the car, so the front tires
-          // are visible without dragging the WebGL canvas (which is very slow under
-          // software rendering on CI).
-          for (let i = 0; i < 5; i++) {
-            await page.keyboard.press('c');
-            await page.waitForTimeout(180);
-          }
-          await page.waitForTimeout(1200);
-
           const setLabel = async (text) => {
             await page.evaluate((t) => {
               const el = document.getElementById('recording-test-label');
@@ -118,15 +107,15 @@ jobs:
             }, text);
           };
 
-          await setLabel('FULL LEFT — car should remain at 0 mph, no smoke');
+          await setLabel('FULL LEFT — 0 mph, no shake, no smoke');
           await page.keyboard.down('ArrowLeft');
           await page.waitForTimeout(3500);
           await page.keyboard.up('ArrowLeft');
 
-          await setLabel('CENTER — checking for residual shake / creep');
+          await setLabel('CENTER — checking residual movement');
           await page.waitForTimeout(1800);
 
-          await setLabel('FULL RIGHT — car should remain at 0 mph, no smoke');
+          await setLabel('FULL RIGHT — 0 mph, no shake, no smoke');
           await page.keyboard.down('ArrowRight');
           await page.waitForTimeout(3500);
           await page.keyboard.up('ArrowRight');
