@@ -173,3 +173,5 @@ export class ProvingGroundSurfaceProvider implements ISurfaceProvider {
           git add src/physics/SurfaceProvider.ts src/graphics/environment.ts .github/workflows/apply-flat-proving-ground.yml
           git commit -m "Make proving ground completely flat"
           git push origin HEAD:fix/flat-proving-ground
+
+# trigger validation
