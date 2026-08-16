@@ -119,6 +119,53 @@ export class Powertrain {
     return 1.0;
   }
 
+  private getLockedRpmForGear(drivenAxleAngularVelocity: number, gear: number): number {
+    const ratio = Math.abs(this.getGearRatio(gear) * this.finalDriveRatio);
+    return Math.abs(drivenAxleAngularVelocity) * ratio * 30 / Math.PI;
+  }
+
+  /**
+   * Throttle-aware automatic shift schedule.
+   *
+   * Low throttle favors early, smooth upshifts; high throttle carries the engine
+   * close to the limiter. Downshifts use a separate lower threshold to provide
+   * hysteresis, and a predicted lower-gear RPM check prevents money-shift over-revs.
+   */
+  private updateAutomaticShiftSchedule(throttleInput: number, drivenAxleAngularVelocity: number) {
+    if (!this.isAutomatic || this.shiftTimer > 0 || this.gear <= 0) return;
+
+    const maxGears = this.forwardGearRatios.length;
+    if (maxGears <= 0) return;
+
+    const throttle = PhysicsMath.clamp(throttleInput, 0, 1);
+    const throttleForUpshift = Math.pow(throttle, 1.5);
+    const throttleForDownshift = Math.pow(throttle, 1.2);
+
+    const lowLoadUpshiftRpm = this.config.idleRpm + 1500;
+    const fullLoadUpshiftRpm = Math.max(lowLoadUpshiftRpm + 500, this.config.revLimiterRpm - 250);
+    const upshiftRpm = PhysicsMath.lerp(lowLoadUpshiftRpm, fullLoadUpshiftRpm, throttleForUpshift);
+
+    const coastDownshiftRpm = this.config.idleRpm + 350;
+    const kickdownRpm = Math.min(this.config.revLimiterRpm - 900, this.config.idleRpm + 3100);
+    const downshiftRpm = PhysicsMath.lerp(coastDownshiftRpm, kickdownRpm, throttleForDownshift);
+
+    const lockedCurrentRpm = this.getLockedRpmForGear(drivenAxleAngularVelocity, this.gear);
+    const effectiveCurrentRpm = Math.max(this.engineRpm, lockedCurrentRpm);
+
+    if (this.gear < maxGears && effectiveCurrentRpm >= upshiftRpm) {
+      this.shiftUp();
+      return;
+    }
+
+    if (this.gear > 1 && this.engineRpm <= downshiftRpm) {
+      const predictedLowerGearRpm = this.getLockedRpmForGear(drivenAxleAngularVelocity, this.gear - 1);
+      const safeDownshiftRpm = this.config.revLimiterRpm - 250;
+      if (predictedLowerGearRpm <= safeDownshiftRpm) {
+        this.shiftDown();
+      }
+    }
+  }
+
   public getRawEngineTorqueCurve(rpm: number): number {
     const normRpm = PhysicsMath.clamp(
       (rpm - this.config.idleRpm) / (this.config.maxRpm - this.config.idleRpm),
@@ -143,6 +190,8 @@ export class Powertrain {
       this.clutchKickDurationTimer -= dt;
       if (this.clutchKickDurationTimer <= 0) this.clutchPedal = 0;
     }
+
+    this.updateAutomaticShiftSchedule(throttleInput, drivenAxleAngularVelocity);
 
     let effectiveThrottle = throttleInput;
     if (this.autoBlipTimer > 0) effectiveThrottle = Math.max(effectiveThrottle, 0.75);
