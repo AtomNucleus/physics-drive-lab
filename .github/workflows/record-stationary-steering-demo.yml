@@ -47,13 +47,18 @@ jobs:
       - name: Record full-lock visual test
         run: |
           mkdir -p artifacts/raw
-          node --input-type=module <<'JS'
+          timeout 90s node --input-type=module <<'JS'
           import { chromium } from 'playwright';
           import { copyFile } from 'node:fs/promises';
 
           const browser = await chromium.launch({
             headless: true,
-            args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'],
+            args: [
+              '--use-gl=swiftshader',
+              '--enable-webgl',
+              '--ignore-gpu-blocklist',
+              '--disable-dev-shm-usage',
+            ],
           });
           const context = await browser.newContext({
             viewport: { width: 1280, height: 720 },
@@ -62,9 +67,18 @@ jobs:
               size: { width: 1280, height: 720 },
             },
           });
+          context.setDefaultTimeout(15000);
           const page = await context.newPage();
-          await page.goto('http://127.0.0.1:4173', { waitUntil: 'networkidle' });
-          await page.locator('canvas').waitFor({ state: 'visible' });
+          page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
+          page.on('pageerror', (err) => console.error(`[browser:error] ${err.message}`));
+
+          await page.goto('http://127.0.0.1:4173', {
+            waitUntil: 'domcontentloaded',
+            timeout: 15000,
+          });
+          const canvas = page.locator('canvas');
+          await canvas.waitFor({ state: 'attached', timeout: 15000 });
+          await page.waitForTimeout(3000);
 
           await page.evaluate(() => {
             const label = document.createElement('div');
@@ -86,15 +100,11 @@ jobs:
             document.body.appendChild(label);
           });
 
-          // Give suspension and camera time to settle.
-          await page.waitForTimeout(2500);
-
           // Switch from chase to orbit camera and move to a front-quarter/side view.
           for (let i = 0; i < 5; i++) {
             await page.keyboard.press('c');
             await page.waitForTimeout(180);
           }
-          const canvas = page.locator('canvas');
           const box = await canvas.boundingBox();
           if (box) {
             const cx = box.x + box.width * 0.52;
@@ -130,11 +140,12 @@ jobs:
           await page.waitForTimeout(1800);
 
           const video = page.video();
-          await context.close();
           if (!video) throw new Error('Playwright did not create a video');
+          await context.close();
           const rawPath = await video.path();
           await copyFile(rawPath, 'artifacts/stationary-steering-test.webm');
           await browser.close();
+          console.log('Video captured:', rawPath);
           JS
 
       - name: Convert recording to MP4
