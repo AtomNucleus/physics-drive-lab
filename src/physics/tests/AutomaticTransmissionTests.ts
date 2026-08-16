@@ -109,6 +109,54 @@ function testAutomaticKickdownRejectsOverRev() {
   assert.equal(powertrain.gear, 4, 'automatic mode must not downshift into a predicted over-rev');
 }
 
+function testAutomaticCoastDownshiftDoesNotInjectThrottle() {
+  const powertrain = makeM5Powertrain();
+  powertrain.isAutomatic = true;
+  powertrain.gear = 3;
+  powertrain.engineRpm = M5_CONFIG.idleRpm + 250;
+  powertrain.flywheelRpm = powertrain.engineRpm;
+
+  const axleOmega = axleOmegaForLockedRpm(powertrain, 2, 1800);
+  const out = powertrain.update(0, axleOmega, DT);
+
+  assert.equal(powertrain.gear, 2, 'closed-throttle automatic coast should downshift when RPM falls below the coast threshold');
+  assert(
+    out.engineTorque <= 0,
+    `automatic coast downshift injected positive engine torque: ${out.engineTorque.toFixed(1)} Nm`
+  );
+}
+
+function testManualDownshiftStillAutoBlips() {
+  const powertrain = makeM5Powertrain();
+  powertrain.isAutomatic = false;
+  powertrain.gear = 3;
+  powertrain.engineRpm = 1800;
+  powertrain.flywheelRpm = 1800;
+
+  powertrain.shiftDown();
+  const axleOmega = axleOmegaForLockedRpm(powertrain, 2, 1800);
+  const out = powertrain.update(0, axleOmega, DT);
+
+  assert.equal(powertrain.gear, 2, 'manual downshift should select the requested lower gear');
+  assert(out.engineTorque > 0, 'manual rev-match aid should still blip the engine on a manual downshift');
+}
+
+function testAutomaticIdleCreepTorqueIsBounded() {
+  const powertrain = makeM5Powertrain();
+  powertrain.isAutomatic = true;
+  powertrain.gear = 1;
+  powertrain.engineRpm = M5_CONFIG.idleRpm;
+  powertrain.flywheelRpm = M5_CONFIG.idleRpm;
+
+  const out = powertrain.update(0, 0, DT);
+
+  assert(out.driveshaftTorque > 0, 'automatic in Drive should retain a small amount of idle creep');
+  assert(
+    out.driveshaftTorque < 500,
+    `idle creep is strong enough to self-propel against normal braking: ${out.driveshaftTorque.toFixed(1)} Nm driveshaft torque`
+  );
+}
+
 function testM5FullThrottleDriveActuallyChangesGear() {
   const engine = new VehiclePhysicsEngine(M5_CONFIG);
   engine.state.isAutomatic = true;
@@ -160,6 +208,9 @@ function main() {
     ['automatic mode upshifts near full-load redline', testAutomaticModeUpshiftsNearFullLoadRedline],
     ['automatic kickdown selects a safe lower gear', testAutomaticKickdownUsesSafeLowerGear],
     ['automatic kickdown blocks predicted over-rev', testAutomaticKickdownRejectsOverRev],
+    ['automatic coast downshift does not inject throttle', testAutomaticCoastDownshiftDoesNotInjectThrottle],
+    ['manual downshift rev-match aid still blips', testManualDownshiftStillAutoBlips],
+    ['automatic idle creep torque stays bounded', testAutomaticIdleCreepTorqueIsBounded],
     ['M5 full-throttle automatic drive changes gear', testM5FullThrottleDriveActuallyChangesGear],
   ];
 
