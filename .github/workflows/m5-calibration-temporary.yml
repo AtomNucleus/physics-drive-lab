@@ -42,6 +42,9 @@ jobs:
       - name: Run shift interruption sweep
         run: npx tsx scripts/m5_shift_sweep.ts | tee m5-shift-sweep.log
 
+      - name: Run focused launch fill sweep
+        run: npx tsx scripts/m5_launch_fill_sweep.ts | tee m5-launch-fill-sweep.log
+
       - name: Run hybrid acceleration sweep
         run: npx tsx scripts/m5_hybrid_accel_diag.ts | tee m5-hybrid-accel-diag.log
 
@@ -64,6 +67,7 @@ jobs:
             m5-launch-diag.log
             m5-parameter-sweep.log
             m5-shift-sweep.log
+            m5-launch-fill-sweep.log
             m5-hybrid-accel-diag.log
             m5-brake-diag.log
             m5-drag-brake-diag.log
