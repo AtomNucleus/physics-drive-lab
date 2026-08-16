@@ -46,6 +46,8 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   optimalTireTemp: 75,
   driftAssist: 0.0,
 
+  // The test data does not provide a measured road-car downforce map, so do not
+  // invent aerodynamic load merely to force a benchmark result.
   aeroDownforceFront: 0,
   aeroDownforceRear: 0,
   aeroDragCoeff: 0.35,
@@ -63,6 +65,9 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   diffPreloadTorque: 100,
   diffLockRatio: 0.88,
 
+  // maxTorque is the pre-boost base curve in this engine. Turbo boost and the
+  // low-rpm hybrid fill below produce the system delivery without inflating the
+  // real car's ~130 mph quarter-mile trap speed.
   maxTorque: 700,
   maxRpm: 7200,
   idleRpm: 750,
@@ -80,24 +85,27 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   gearRatios: [-3.97, 5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
   finalDriveRatio: 3.31,
 
-  brakeForce: 10500,
+  // Retain one speed-independent hydraulic calibration rather than adding a
+  // low-speed brake multiplier solely to erase the remaining 70-0 test residual.
+  brakeForce: 10800,
   handbrakeForce: 10000,
-  brakeBiasFront: 0.62,
+  brakeBiasFront: 0.60,
   ackermannRatio: 0.90,
   maxSteerAngle: 0.58,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
   rearSteerTransitionSpeedMs: 20.0,
-  absMode: 'SPORT',
+  absMode: 'FULL',
   tcsMode: 'SPORT',
   tcsSportSlipThreshold: 0.16,
   tcsSportResponse: 30.0,
   tcsSportGain: 2.6,
+
   launchControlEnabled: true,
   launchControlRpm: 3000,
-  lowSpeedTorqueFillNm: 300,
-  torqueFillFadeRpm: 3400,
+  lowSpeedTorqueFillNm: 600,
+  torqueFillFadeRpm: 3200,
   automaticTorqueConverter: true,
   shiftDurationSec: 0.07,
   shiftTorqueMultiplier: 0.80,
@@ -105,7 +113,9 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   drivelineInertiaCoupling: 1.0,
 };
 
+/** Published Car and Driver acceleration figures; those figures exclude 1-foot rollout. */
 export const BMW_M5_2025_TARGETS = {
+  zeroTo30MphSec: 1.1,
   zeroTo60MphSec: 3.0,
   zeroTo100MphSec: 6.7,
   quarterMileSec: 10.9,
@@ -113,4 +123,13 @@ export const BMW_M5_2025_TARGETS = {
   braking70To0Ft: 157,
   braking100To0Ft: 324,
   skidpadG: 0.98,
+};
+
+/** Equivalent true-standing-start targets for the simulator's zero-speed stopwatch. */
+export const BMW_M5_2025_STANDING_TARGETS = {
+  zeroTo30MphSec: 1.3,
+  zeroTo60MphSec: 3.2,
+  zeroTo100MphSec: 6.9,
+  quarterMileSec: 11.1,
+  quarterMileTrapMph: 130,
 };
