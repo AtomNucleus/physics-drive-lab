@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Apply configurable TCS for calibration
+        run: python3 scripts/m5_tcs_patch.py
+
       - name: Production build
         run: npm run build
 
