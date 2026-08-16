@@ -524,7 +524,7 @@ export class Vehicle {
       const tireOut = wheel.update(
         vxWheel,
         vyWheel,
-        suspState.forceNorm,
+        suspState.tireNormalForceN,
         suspState.dynamicCamberDeg,
         diffOut.wheelTorques[i],
         brakeTorques.hydraulicTorques[i],
@@ -543,11 +543,11 @@ export class Vehicle {
 
       totalAligningTorque += tireOut.aligningTorque;
 
-      if (!suspState.isAirborne && suspState.forceNorm > 0) {
+      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {
         // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
         const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
-        const fyBody = suspState.forceNorm; // Normal upward reaction from suspension
+        const fyBody = suspState.chassisForceN; // Delayed spring/damper reaction transmitted into the sprung chassis
 
         const forceBody = PhysicsMath.vec3(fxBody, fyBody, fzBody);
         this.rigidBody.addBodyForceAtPoint(forceBody, contactPointBody);
@@ -632,7 +632,7 @@ export class Vehicle {
         damperVelocity: susp.velocity,
         verticalTravelM: susp.hubTravelM,
         bumpStopEngaged: susp.bumpStopEngaged,
-        suspensionForce: susp.forceNorm,
+        suspensionForce: susp.tireNormalForceN,
         slipAngle: w.relaxationSlipAngle,
         slipRatio: w.relaxationSlipRatio,
         pneumaticTrail: tire.pneumaticTrail,
@@ -656,7 +656,7 @@ export class Vehicle {
         surfaceFriction: surface.friction,
         forceVectorLong: tire.fx,
         forceVectorLat: tire.fy,
-        forceVectorNorm: susp.forceNorm,
+        forceVectorNorm: susp.tireNormalForceN,
         frictionLimitN: tire.frictionLimit,
         gripUtilization: tire.gripUtilization,
         absActive: this.driverAids.absActive && this.brakes.pressureModulators[idx] < 0.9,

@@ -29,7 +29,12 @@ export interface SuspensionState {
   bumpStopEngaged: boolean;
   atCompressionLimit: boolean;
   atReboundLimit: boolean;
+  /** Chassis-side vertical suspension reaction retained for Vehicle compatibility. */
   forceNorm: number;
+  /** Spring/damper/ARB/hard-stop load actually transmitted into the chassis. */
+  chassisForceN: number;
+  /** Instantaneous vertical road load at the tire contact patch. */
+  tireNormalForceN: number;
   springForceN: number;
   damperForceN: number;
   bumpStopForceN: number;
@@ -38,6 +43,11 @@ export interface SuspensionState {
   isAirborne: boolean;
   contactPointWorld: Vec3;
   tireCompressionM: number;
+  /** Independent vertical wheel/hub state: the unsprung DOF. */
+  hubPositionWorldY: number;
+  hubVelocityWorldY: number;
+  unsprungAccelerationMps2: number;
+  unsprungMassKg: number;
 }
 
 type SurfaceLike = {
@@ -54,6 +64,8 @@ const makeState = (): SuspensionState => ({
   atCompressionLimit: false,
   atReboundLimit: false,
   forceNorm: 0,
+  chassisForceN: 0,
+  tireNormalForceN: 0,
   springForceN: 0,
   damperForceN: 0,
   bumpStopForceN: 0,
@@ -62,6 +74,10 @@ const makeState = (): SuspensionState => ({
   isAirborne: true,
   contactPointWorld: PhysicsMath.vec3(),
   tireCompressionM: 0,
+  hubPositionWorldY: Number.NaN,
+  hubVelocityWorldY: 0,
+  unsprungAccelerationMps2: 0,
+  unsprungMassKg: 45,
 });
 
 /**
@@ -138,18 +154,113 @@ export function bumpStopForceForDisplacement(
 }
 
 /**
- * Four independent spring/damper corners with axle anti-roll coupling.
- * Chassis pitch/roll moves the hardpoints, which changes each corner's jounce,
- * spring/damper load, and therefore the actual rigid-body moments. No visual
- * body-roll force is generated here.
+ * Four independent spring/damper corners with a true vertical unsprung DOF.
+ *
+ * The wheel center is no longer snapped directly to the road-height solution every
+ * frame. Tire vertical load accelerates the wheel/hub effective mass first; spring,
+ * damper and anti-roll forces then transmit that motion into the chassis. This is
+ * the important two-stage response that makes a heavy car react to a bump as a
+ * wheel assembly followed by a ~2.4-ton body instead of as one rigid object.
+ *
+ * `unsprungMassKgByCorner` is an effective vertical inertia. Static wheel weight is
+ * already included in VehicleConfig.mass / chassis gravity, so gravity is not added
+ * a second time to this relative subsystem.
  */
 export class SuspensionSystem {
   public states: [SuspensionState, SuspensionState, SuspensionState, SuspensionState] = [
     makeState(), makeState(), makeState(), makeState(),
   ];
 
+  public unsprungMassKgByCorner: [number, number, number, number] = [45, 45, 45, 45];
+  public tireVerticalDampingNsPerM: number = 1500;
+
   public reset() {
     this.states = [makeState(), makeState(), makeState(), makeState()];
+  }
+
+  public setUnsprungMassCorner(mass: number | [number, number, number, number]) {
+    if (Array.isArray(mass)) {
+      this.unsprungMassKgByCorner = mass.map((value) =>
+        Math.max(5, Number.isFinite(value) ? value : 45)
+      ) as [number, number, number, number];
+      return;
+    }
+
+    const value = Math.max(5, Number.isFinite(mass) ? mass : 45);
+    this.unsprungMassKgByCorner = [value, value, value, value];
+  }
+
+  private springForce(cfg: SuspensionCornerConfig, displacement: number): number {
+    // Installed spring preload carries static chassis load at nominal ride height.
+    const preloadTravel = Math.max(0, cfg.maxDroop) * 0.78;
+    const preloadForce = preloadTravel * Math.max(0, cfg.springStiffness);
+
+    return Math.max(
+      0,
+      preloadForce + progressiveSpringIncrement(
+        displacement,
+        cfg.springStiffness,
+        Math.max(0.001, cfg.maxBump),
+        cfg.springProgressionRatio ?? 0.65
+      )
+    );
+  }
+
+  /**
+   * Start a fresh wheel at static tire/spring equilibrium instead of introducing a
+   * fake first-frame impact. The bisection solves tire compression load = spring /
+   * bump-stop load for the current chassis pose.
+   */
+  private initializeHubPositionY(
+    hardpointY: number,
+    surfaceY: number,
+    wheelRadius: number,
+    tireVerticalStiffness: number,
+    cfg: SuspensionCornerConfig
+  ): number {
+    const pickupOffset = Math.max(0, cfg.maxDroop);
+    const minDisplacement = -Math.max(0, cfg.maxDroop);
+    const maxDisplacement = Math.max(0.001, cfg.maxBump);
+
+    // Displacement that would put an infinitely stiff tire exactly on the road.
+    const groundDisplacement =
+      surfaceY + wheelRadius - hardpointY + pickupOffset + cfg.restLength;
+
+    if (groundDisplacement <= minDisplacement) {
+      return hardpointY - pickupOffset - cfg.restLength + minDisplacement;
+    }
+
+    let low = minDisplacement;
+    let high = Math.min(maxDisplacement, groundDisplacement);
+
+    const loadBalance = (displacement: number) => {
+      const tireCompression = Math.max(0, groundDisplacement - displacement);
+      const tireForce = tireCompression * tireVerticalStiffness;
+      const suspensionForce =
+        this.springForce(cfg, displacement) +
+        bumpStopForceForDisplacement(
+          displacement,
+          maxDisplacement,
+          cfg.bumpStopThreshold,
+          cfg.bumpStopStiffness,
+          cfg.bumpStopProgression ?? 4.0,
+          cfg.bumpStopExponent ?? 2.2
+        );
+      return tireForce - suspensionForce;
+    };
+
+    if (loadBalance(low) < 0) {
+      return hardpointY - pickupOffset - cfg.restLength + low;
+    }
+
+    for (let iteration = 0; iteration < 24; iteration++) {
+      const mid = (low + high) * 0.5;
+      if (loadBalance(mid) > 0) low = mid;
+      else high = mid;
+    }
+
+    const displacement = (low + high) * 0.5;
+    return hardpointY - pickupOffset - cfg.restLength + displacement;
   }
 
   public update(
@@ -169,72 +280,58 @@ export class SuspensionSystem {
   ) {
     if (dt <= 0) return;
 
-    const rawForces = [0, 0, 0, 0];
-    const newDisplacements = [0, 0, 0, 0];
-    const newVelocities = [0, 0, 0, 0];
-    const airborne = [false, false, false, false];
-    const contacts: Vec3[] = new Array(4);
-    const tireCompression = [0, 0, 0, 0];
-    const bumpStops = [false, false, false, false];
-    const compressionLimits = [false, false, false, false];
-    const reboundLimits = [false, false, false, false];
-    const springForces = [0, 0, 0, 0];
-    const damperForces = [0, 0, 0, 0];
-    const bumpStopForces = [0, 0, 0, 0];
-    const hardStopForces = [0, 0, 0, 0];
+    const tireK = Math.max(1000, tireVerticalStiffness);
+    const tireC = Math.max(0, this.tireVerticalDampingNsPerM);
 
+    const hardpointsWorld: Vec3[] = new Array(4);
+    const hardpointVelocitiesWorld: Vec3[] = new Array(4);
+    const roadVelocitiesY = [0, 0, 0, 0];
+    const surfaces: SurfaceLike[] = new Array(4);
+    const currentDisplacements = [0, 0, 0, 0];
+    const baseChassisForces = [0, 0, 0, 0];
+    const tireForces = [0, 0, 0, 0];
+
+    // Evaluate forces at the beginning of the fixed step.
     for (let i = 0; i < 4; i++) {
       const cfg = configs[i];
-      const prev = this.states[i];
-      const hpBody = hardpointsBody[i];
-      const hpWorldOffset = PhysicsMath.quatRotateVec3(bodyOrientation, hpBody);
-      const hpWorld = PhysicsMath.vec3Add(bodyPosition, hpWorldOffset);
-      const surface = sampleSurface(hpWorld.x, hpWorld.z);
+      const hardpointWorldOffset = PhysicsMath.quatRotateVec3(bodyOrientation, hardpointsBody[i]);
+      const hardpointWorld = PhysicsMath.vec3Add(bodyPosition, hardpointWorldOffset);
+      const angularPointVelocity = PhysicsMath.vec3Cross(bodyAngularVelocityWorld, hardpointWorldOffset);
+      const hardpointVelocityWorld = PhysicsMath.vec3Add(bodyVelocityWorld, angularPointVelocity);
+      const surface = sampleSurface(hardpointWorld.x, hardpointWorld.z);
+      const pickupOffset = Math.max(0, cfg.maxDroop);
 
-      // The configured wheel travel is a hard physical constraint. The virtual
-      // pickup offset preserves the existing installed ride-height convention.
-      const strutPickupOffset = Math.max(0, cfg.maxDroop);
-      const geometricLength = hpWorld.y - strutPickupOffset - surface.elevation - wheelRadius;
-      const desiredDisplacement = cfg.restLength - geometricLength;
+      let state = this.states[i];
+      if (!Number.isFinite(state.hubPositionWorldY)) {
+        const hubPositionWorldY = this.initializeHubPositionY(
+          hardpointWorld.y,
+          surface.elevation,
+          wheelRadius,
+          tireK,
+          cfg
+        );
+        state = {
+          ...state,
+          hubPositionWorldY,
+          hubVelocityWorldY: hardpointVelocityWorld.y,
+        };
+        this.states[i] = state;
+      }
 
       const minDisplacement = -Math.max(0, cfg.maxDroop);
       const maxDisplacement = Math.max(0.001, cfg.maxBump);
-      const displacement = PhysicsMath.clamp(desiredDisplacement, minDisplacement, maxDisplacement);
-      const velocity = (displacement - prev.displacement) / dt;
-
-      newDisplacements[i] = displacement;
-      newVelocities[i] = velocity;
-      compressionLimits[i] = desiredDisplacement >= maxDisplacement - 1e-5;
-      reboundLimits[i] = desiredDisplacement <= minDisplacement + 1e-5;
-
-      // Once full droop cannot reach the road, that corner contributes no normal load.
-      const canReachGround = desiredDisplacement >= minDisplacement - 1e-4;
-      airborne[i] = !canReachGround;
-
-      const currentLength = cfg.restLength - displacement;
-      const wheelBottomY = hpWorld.y - strutPickupOffset - currentLength - wheelRadius;
-      const tirePenetration = Math.max(0, surface.elevation - wheelBottomY);
-      tireCompression[i] = tirePenetration;
-
-      // Installed spring preload carries static chassis load at nominal ride height.
-      const preloadTravel = Math.max(0, cfg.maxDroop) * 0.78;
-      const preloadForce = preloadTravel * Math.max(0, cfg.springStiffness);
-      const springForce = Math.max(
-        0,
-        preloadForce + progressiveSpringIncrement(
-          displacement,
-          cfg.springStiffness,
-          maxDisplacement,
-          cfg.springProgressionRatio ?? 0.65
-        )
+      const displacement = PhysicsMath.clamp(
+        state.hubPositionWorldY - hardpointWorld.y + pickupOffset + cfg.restLength,
+        minDisplacement,
+        maxDisplacement
       );
-      springForces[i] = springForce;
+      const shaftVelocity = state.hubVelocityWorldY - hardpointVelocityWorld.y;
 
-      // Compression and rebound use different valving on both sides of the shaft-speed knee.
+      const springForce = this.springForce(cfg, displacement);
       const reboundHighSpeed = cfg.dampingReboundHighSpeed ??
         Math.max(cfg.dampingHighSpeed * 1.10, cfg.dampingRebound * 0.62);
       const damperForce = damperForceForVelocity(
-        velocity,
+        shaftVelocity,
         cfg.dampingLowSpeed,
         cfg.dampingHighSpeed,
         cfg.dampingRebound,
@@ -242,8 +339,6 @@ export class SuspensionSystem {
         cfg.damperKneeVelocity ?? 0.12,
         cfg.damperHighSpeedVelocity ?? 0.77
       );
-      damperForces[i] = damperForce;
-
       const bumpStopForce = bumpStopForceForDisplacement(
         displacement,
         maxDisplacement,
@@ -252,34 +347,40 @@ export class SuspensionSystem {
         cfg.bumpStopProgression ?? 4.0,
         cfg.bumpStopExponent ?? 2.2
       );
-      bumpStopForces[i] = bumpStopForce;
-      bumpStops[i] = bumpStopForce > 0;
 
-      // Past full jounce, suspension travel cannot continue. A very stiff hard-stop
-      // contact plus tire radial compliance prevents the chassis from treating the
-      // tire as extra suspension travel.
-      const overTravel = Math.max(0, desiredDisplacement - maxDisplacement);
-      const hardStopRate = Math.max(
-        Math.max(0, cfg.bumpStopStiffness) * 8,
-        Math.max(0, tireVerticalStiffness) * 1.5
+      // Surface normal gives the vertical velocity of a spatial road profile as the
+      // wheel moves horizontally across it: dy/dt = -(nx*vx + nz*vz) / ny.
+      const normalY = Math.abs(surface.normal.y) > 0.15 ? surface.normal.y : 1;
+      const roadVelocityY = -(
+        surface.normal.x * hardpointVelocityWorld.x +
+        surface.normal.z * hardpointVelocityWorld.z
+      ) / normalY;
+
+      const tireCompression = Math.max(
+        0,
+        surface.elevation + wheelRadius - state.hubPositionWorldY
       );
-      const hardStopForce = overTravel * hardStopRate;
-      hardStopForces[i] = hardStopForce;
+      const tireForce = Math.max(
+        0,
+        tireCompression * tireK + (roadVelocityY - state.hubVelocityWorldY) * tireC
+      );
 
-      const tireForce = tirePenetration * Math.max(0, tireVerticalStiffness);
-
-      rawForces[i] = airborne[i]
-        ? 0
-        : Math.max(0, springForce + damperForce + bumpStopForce + hardStopForce + tireForce);
-      contacts[i] = PhysicsMath.vec3(hpWorld.x, surface.elevation, hpWorld.z);
+      hardpointsWorld[i] = hardpointWorld;
+      hardpointVelocitiesWorld[i] = hardpointVelocityWorld;
+      roadVelocitiesY[i] = roadVelocityY;
+      surfaces[i] = surface;
+      currentDisplacements[i] = displacement;
+      baseChassisForces[i] = Math.max(0, springForce + damperForce + bumpStopForce);
+      tireForces[i] = tireForce;
     }
 
-    // Anti-roll bars transfer load across an axle; they do not animate the body.
+    // Anti-roll bars act between the sprung chassis and the two unsprung masses.
+    const chassisForces = [...baseChassisForces];
     const applyAxleBar = (left: number, right: number, stiffness: number) => {
-      const delta = newDisplacements[left] - newDisplacements[right];
+      const delta = currentDisplacements[left] - currentDisplacements[right];
       const transfer = stiffness * delta;
-      rawForces[left] += transfer;
-      rawForces[right] -= transfer;
+      chassisForces[left] += transfer;
+      chassisForces[right] -= transfer;
     };
     applyAxleBar(0, 1, rollStiffnessFront);
     applyAxleBar(2, 3, rollStiffnessRear);
@@ -287,38 +388,137 @@ export class SuspensionSystem {
     const cross = PhysicsMath.clamp(antiRollCrossCoupling, 0, 1);
     if (cross > 0) {
       const diagonalDelta =
-        (newDisplacements[0] + newDisplacements[3]) -
-        (newDisplacements[1] + newDisplacements[2]);
+        (currentDisplacements[0] + currentDisplacements[3]) -
+        (currentDisplacements[1] + currentDisplacements[2]);
       const averageBar = 0.25 * (rollStiffnessFront + rollStiffnessRear);
       const crossTransfer = diagonalDelta * averageBar * cross * 0.20;
-      rawForces[0] += crossTransfer;
-      rawForces[3] += crossTransfer;
-      rawForces[1] -= crossTransfer;
-      rawForces[2] -= crossTransfer;
+      chassisForces[0] += crossTransfer;
+      chassisForces[3] += crossTransfer;
+      chassisForces[1] -= crossTransfer;
+      chassisForces[2] -= crossTransfer;
     }
 
+    // Integrate each wheel/hub effective mass independently.
     for (let i = 0; i < 4; i++) {
       const cfg = configs[i];
-      const displacement = newDisplacements[i];
-      const fz = airborne[i] ? 0 : Math.max(0, rawForces[i]);
+      const hardpointWorld = hardpointsWorld[i];
+      const hardpointVelocityWorld = hardpointVelocitiesWorld[i];
+      const surface = surfaces[i];
+      const pickupOffset = Math.max(0, cfg.maxDroop);
+      const minDisplacement = -Math.max(0, cfg.maxDroop);
+      const maxDisplacement = Math.max(0.001, cfg.maxBump);
+      const unsprungMassKg = Math.max(5, this.unsprungMassKgByCorner[i]);
+      const previous = this.states[i];
+
+      let unsprungAcceleration =
+        (tireForces[i] - Math.max(0, chassisForces[i])) / unsprungMassKg;
+      // Safety bound prevents a malformed terrain sample from destabilizing the 120 Hz solver.
+      unsprungAcceleration = PhysicsMath.clamp(unsprungAcceleration, -300, 300);
+
+      let hubVelocityWorldY = previous.hubVelocityWorldY + unsprungAcceleration * dt;
+      let hubPositionWorldY = previous.hubPositionWorldY + hubVelocityWorldY * dt;
+      const predictedDisplacement =
+        hubPositionWorldY - hardpointWorld.y + pickupOffset + cfg.restLength;
+
+      const hitCompressionLimit = predictedDisplacement >= maxDisplacement;
+      const hitReboundLimit = predictedDisplacement <= minDisplacement;
+
+      if (predictedDisplacement > maxDisplacement) {
+        hubPositionWorldY =
+          hardpointWorld.y - pickupOffset - cfg.restLength + maxDisplacement;
+        if (hubVelocityWorldY > hardpointVelocityWorld.y) {
+          hubVelocityWorldY = hardpointVelocityWorld.y;
+        }
+      } else if (predictedDisplacement < minDisplacement) {
+        hubPositionWorldY =
+          hardpointWorld.y - pickupOffset - cfg.restLength + minDisplacement;
+        if (hubVelocityWorldY < hardpointVelocityWorld.y) {
+          hubVelocityWorldY = hardpointVelocityWorld.y;
+        }
+      }
+
+      const displacement = PhysicsMath.clamp(
+        hubPositionWorldY - hardpointWorld.y + pickupOffset + cfg.restLength,
+        minDisplacement,
+        maxDisplacement
+      );
+      const shaftVelocity = hubVelocityWorldY - hardpointVelocityWorld.y;
+      const springForce = this.springForce(cfg, displacement);
+      const reboundHighSpeed = cfg.dampingReboundHighSpeed ??
+        Math.max(cfg.dampingHighSpeed * 1.10, cfg.dampingRebound * 0.62);
+      const damperForce = damperForceForVelocity(
+        shaftVelocity,
+        cfg.dampingLowSpeed,
+        cfg.dampingHighSpeed,
+        cfg.dampingRebound,
+        reboundHighSpeed,
+        cfg.damperKneeVelocity ?? 0.12,
+        cfg.damperHighSpeedVelocity ?? 0.77
+      );
+      const bumpStopForce = bumpStopForceForDisplacement(
+        displacement,
+        maxDisplacement,
+        cfg.bumpStopThreshold,
+        cfg.bumpStopStiffness,
+        cfg.bumpStopProgression ?? 4.0,
+        cfg.bumpStopExponent ?? 2.2
+      );
+      const tireCompression = Math.max(
+        0,
+        surface.elevation + wheelRadius - hubPositionWorldY
+      );
+      const tireNormalForce = Math.max(
+        0,
+        tireCompression * tireK +
+          (roadVelocitiesY[i] - hubVelocityWorldY) * tireC
+      );
+
+      // Retain the explicit anti-roll contribution evaluated at the beginning of
+      // this fixed step. The next 120 Hz step re-evaluates it from the new travel.
+      const antiRollContribution = chassisForces[i] - baseChassisForces[i];
+      let chassisForce = Math.max(
+        0,
+        springForce + damperForce + bumpStopForce + antiRollContribution
+      );
+
+      // At a hard jounce stop, any road force that the compliant spring/damper can
+      // no longer absorb is transmitted directly into the chassis constraint.
+      let hardStopForce = 0;
+      if (hitCompressionLimit || displacement >= maxDisplacement - 1e-6) {
+        hardStopForce = Math.max(0, tireNormalForce - chassisForce);
+        chassisForce += hardStopForce;
+      }
+
+      const isAirborne = tireNormalForce < 1 && tireCompression <= 1e-5;
 
       this.states[i] = {
         displacement,
-        velocity: newVelocities[i],
-        compressionRatio: PhysicsMath.clamp(displacement / Math.max(0.001, cfg.maxBump), 0, 1),
+        velocity: shaftVelocity,
+        compressionRatio: PhysicsMath.clamp(displacement / maxDisplacement, 0, 1),
         hubTravelM: displacement,
-        bumpStopEngaged: bumpStops[i],
-        atCompressionLimit: compressionLimits[i],
-        atReboundLimit: reboundLimits[i],
-        forceNorm: fz,
-        springForceN: springForces[i],
-        damperForceN: damperForces[i],
-        bumpStopForceN: bumpStopForces[i],
-        hardStopForceN: hardStopForces[i],
-        dynamicCamberDeg: cfg.staticCamberDeg - cfg.camberGainDegPerMeter * Math.max(0, displacement),
-        isAirborne: airborne[i],
-        contactPointWorld: contacts[i],
-        tireCompressionM: tireCompression[i],
+        bumpStopEngaged: bumpStopForce > 0,
+        atCompressionLimit: hitCompressionLimit || displacement >= maxDisplacement - 1e-6,
+        atReboundLimit: hitReboundLimit || displacement <= minDisplacement + 1e-6,
+        forceNorm: chassisForce,
+        chassisForceN: chassisForce,
+        tireNormalForceN: tireNormalForce,
+        springForceN: springForce,
+        damperForceN: damperForce,
+        bumpStopForceN: bumpStopForce,
+        hardStopForceN: hardStopForce,
+        dynamicCamberDeg:
+          cfg.staticCamberDeg - cfg.camberGainDegPerMeter * Math.max(0, displacement),
+        isAirborne,
+        contactPointWorld: PhysicsMath.vec3(
+          hardpointWorld.x,
+          surface.elevation,
+          hardpointWorld.z
+        ),
+        tireCompressionM: tireCompression,
+        hubPositionWorldY,
+        hubVelocityWorldY,
+        unsprungAccelerationMps2: unsprungAcceleration,
+        unsprungMassKg,
       };
     }
   }

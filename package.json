@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts"
+    "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
+    "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
