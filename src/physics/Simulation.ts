@@ -77,13 +77,19 @@ export class Simulation {
     this.accumulatedTime += clampedDelta;
 
     let subStepsTaken = 0;
+    // Render frame deltas such as 1/30 and 1/60 are not exactly representable in
+    // binary floating point. Without a tiny tolerance, one cadence can occasionally
+    // sit microscopically below fixedDt and skip a 120 Hz step that another cadence
+    // executes. That creates false frame-rate-dependent handling.
+    const timeEpsilon = 1e-10;
 
-    while (this.accumulatedTime >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
+    while (this.accumulatedTime + timeEpsilon >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
       this.previousState = this.currentState;
       this.vehicle.step(inputs, this.fixedDt);
       this.currentState = this.vehicle.getState();
 
       this.accumulatedTime -= this.fixedDt;
+      if (Math.abs(this.accumulatedTime) < timeEpsilon) this.accumulatedTime = 0;
       this.totalSimTime += this.fixedDt;
       this.stepCount++;
       subStepsTaken++;
