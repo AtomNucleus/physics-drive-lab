@@ -11,7 +11,7 @@
     "lint": "tsc --noEmit",
     "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
-    "test:track": "tsx src/tracks/tests/TriangleSurfaceProviderTests.ts && tsx tools/ac-import/tests/Kn5ReaderTests.ts",
+    "test:track": "tsx src/tracks/tests/TriangleSurfaceProviderTests.ts && tsx tools/ac-import/tests/Kn5ReaderTests.ts && tsx tools/ac-import/tests/ModelsIniTests.ts && tsx tools/ac-import/tests/TrackPackageWriterTests.ts",
     "import:ac-track": "tsx tools/ac-import/index.ts"
   },
   "dependencies": {
