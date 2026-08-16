@@ -467,7 +467,7 @@ export class CarRenderer {
 
     // The visual shell rotates around the same CG used by the rigid body instead of
     // orbiting around road level during a wipeout.
-    const chassisCgOffset = config.centerOfGravityHeight;
+    const chassisCgOffset = config.centerOfGravityHeight + 0.35;
     this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);
     this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');
     this.chassisGroup.position.set(0, -chassisCgOffset, 0);

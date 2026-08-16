@@ -11,10 +11,6 @@ import { AerodynamicsSystem } from './Aero';
 import { TelemetrySystem } from './Telemetry';
 import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';
 
-// Suspension top mounts sit above the physical CG. Keeping this offset in the
-// hardpoint geometry lets RigidBody.position remain the true center of mass.
-export const SUSPENSION_PICKUP_HEIGHT_ABOVE_CG_M = 0.35;
-
 export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {
   const normal = PhysicsMath.vec3Normalize(surfaceNormal);
   if (PhysicsMath.vec3Length(normal) < 1e-7) return forceWorld;
@@ -77,7 +73,7 @@ export class Vehicle {
         inertia: PhysicsMath.vec3(Ixx, Iyy, Izz),
         centerOfGravityHeight: H,
       },
-      PhysicsMath.vec3(0, H, 0),
+      PhysicsMath.vec3(0, H + 0.35, 0),
       0
     );
 
@@ -301,7 +297,7 @@ export class Vehicle {
 
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
     const H = this.config.centerOfGravityHeight;
-    this.rigidBody.position = PhysicsMath.vec3(x, H, z);
+    this.rigidBody.position = PhysicsMath.vec3(x, H + 0.35, z);
     this.rigidBody.velocity = PhysicsMath.vec3(0, 0, 0);
     this.rigidBody.angularVelocity = PhysicsMath.vec3(0, 0, 0);
     this.rigidBody.orientation = PhysicsMath.quatFromEuler(0, yaw, 0);
@@ -337,10 +333,10 @@ export class Vehicle {
 
     // +X is vehicle-left in the right-handed (+X left, +Y up, +Z forward) body frame.
     return [
-      PhysicsMath.vec3(W, SUSPENSION_PICKUP_HEIGHT_ABOVE_CG_M, frontDist),  // FL
-      PhysicsMath.vec3(-W, SUSPENSION_PICKUP_HEIGHT_ABOVE_CG_M, frontDist), // FR
-      PhysicsMath.vec3(W, SUSPENSION_PICKUP_HEIGHT_ABOVE_CG_M, -rearDist),  // RL
-      PhysicsMath.vec3(-W, SUSPENSION_PICKUP_HEIGHT_ABOVE_CG_M, -rearDist), // RR
+      PhysicsMath.vec3(W, 0, frontDist),  // FL
+      PhysicsMath.vec3(-W, 0, frontDist), // FR
+      PhysicsMath.vec3(W, 0, -rearDist),  // RL
+      PhysicsMath.vec3(-W, 0, -rearDist), // RR
     ];
   }
 
@@ -727,7 +723,7 @@ export class Vehicle {
       pitch: euler.pitch * this.config.bodyPitchMultiplier,
       roll: euler.roll * this.config.bodyRollMultiplier,
       // Heave is suspension/body motion relative to the local road, not world altitude.
-      heave: pos.y - cgSurface.elevation - this.config.centerOfGravityHeight,
+      heave: pos.y - cgSurface.elevation - (this.config.centerOfGravityHeight + 0.35),
       vx: localVel.x,
       vy: localVel.y,
       vz: localVel.z,
