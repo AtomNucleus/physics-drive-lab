@@ -44,7 +44,7 @@ export class DriverAidsSystem {
    * Update steering rack with Ackermann geometry and speed-sensitive filtering
    */
   public updateSteering(
-    steerInput: number, // -1 (left) to +1 (right)
+    steerInput: number,
     forwardSpeedMs: number,
     dt: number
   ): {
@@ -52,13 +52,11 @@ export class DriverAidsSystem {
     steerFR: number;
     centerAngle: number;
   } {
-    // Speed-sensitive steering reduction
-    const speedRatio = Math.min(1.0, forwardSpeedMs / 38.0); // max reduction at ~136 km/h
+    const speedRatio = Math.min(1.0, Math.abs(forwardSpeedMs) / 38.0);
     const maxAllowedAngle = this.config.maxSteerAngle * (1.0 - speedRatio * this.config.steerSpeedReduction);
 
     const targetCenterAngle = -steerInput * maxAllowedAngle;
 
-    // Rate-limited steering rack movement
     const steerStep = this.config.steerSpeed * dt;
     if (Math.abs(targetCenterAngle - this.currentCenterSteerAngle) <= steerStep) {
       this.currentCenterSteerAngle = targetCenterAngle;
@@ -71,8 +69,6 @@ export class DriverAidsSystem {
       return { steerFL: 0, steerFR: 0, centerAngle: 0 };
     }
 
-    // Ackermann Steering Kinematics:
-    // When turning, inner wheel turns more sharply than outer wheel
     const L = this.config.wheelbase;
     const W = this.config.trackWidth;
     const tanDelta = Math.tan(Math.abs(delta));
@@ -80,7 +76,6 @@ export class DriverAidsSystem {
     let deltaInner = Math.atan((L * tanDelta) / Math.max(0.1, L - 0.5 * W * tanDelta));
     let deltaOuter = Math.atan((L * tanDelta) / Math.max(0.1, L + 0.5 * W * tanDelta));
 
-    // Blend between parallel steering and full Ackermann
     const ackermann = this.config.ackermannRatio;
     deltaInner = PhysicsMath.lerp(Math.abs(delta), deltaInner, ackermann);
     deltaOuter = PhysicsMath.lerp(Math.abs(delta), deltaOuter, ackermann);
@@ -89,11 +84,9 @@ export class DriverAidsSystem {
     let steerFR = 0;
 
     if (delta > 0) {
-      // Steer Right (FL is outer, FR is inner)
       steerFL = deltaOuter;
       steerFR = deltaInner;
     } else {
-      // Steer Left (FL is inner, FR is outer)
       steerFL = -deltaInner;
       steerFR = -deltaOuter;
     }
@@ -106,12 +99,12 @@ export class DriverAidsSystem {
   }
 
   /**
-   * Update ABS hydraulic pressure modulators
+   * Four-channel slip-regulating ABS.
    *
-   * @param wheelSlipRatios Longitudinal slip kappa for [FL, FR, RL, RR]
-   * @param wheelAngularVelocities Angular velocities (rad/s)
-   * @param speedMs Vehicle forward speed (m/s)
-   * @param dt Timestep (s)
+   * The tire model peaks in longitudinal force around 13-15% slip. ABS therefore
+   * regulates near that region instead of waiting for the wheel to reach deep
+   * lockup. SPORT permits a little more slip/rotation than FULL, but both stay
+   * near the useful part of the tire curve.
    */
   public updateABS(
     wheelSlipRatios: [number, number, number, number],
@@ -123,28 +116,38 @@ export class DriverAidsSystem {
     if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.4) {
       this.absActive = false;
       this.absPressureStates = [1, 1, 1, 1];
+      this.absHoldTimers = [0, 0, 0, 0];
       return this.absPressureStates;
     }
 
     let anyIntervention = false;
-    // Slip lockup threshold: -15% in FULL, -26% in SPORT
-    const lockupThreshold = this.config.absMode === 'SPORT' ? -0.26 : -0.15;
+
+    // Hysteresis band around the tire's peak-slip region.
+    // FULL: tighter road-car regulation. SPORT: slightly more slip and pedal feel.
+    const dumpThreshold = this.config.absMode === 'SPORT' ? -0.17 : -0.145;
+    const holdThreshold = this.config.absMode === 'SPORT' ? -0.135 : -0.115;
+    const releaseRate = this.config.absMode === 'SPORT' ? 20.0 : 24.0;
+    const reapplyRate = this.config.absMode === 'SPORT' ? 10.0 : 8.0;
+    const minimumPressure = this.config.absMode === 'SPORT' ? 0.16 : 0.12;
 
     for (let i = 0; i < 4; i++) {
       const slip = wheelSlipRatios[i];
       const omega = wheelAngularVelocities[i];
+      const nearLock = speedMs > 3.0 && Math.abs(omega) < 0.35;
 
-      if (slip < lockupThreshold || (speedMs > 3.0 && omega < 0.2)) {
-        // Deep lockup detected: DUMP pressure
-        this.absPressureStates[i] = Math.max(0.12, this.absPressureStates[i] - 18.0 * dt);
-        this.absHoldTimers[i] = 0.04; // Hold timer 40ms
+      if (slip < dumpThreshold || nearLock) {
+        // RELEASE: rapidly reduce pressure when the tire passes peak braking slip.
+        this.absPressureStates[i] = Math.max(minimumPressure, this.absPressureStates[i] - releaseRate * dt);
+        this.absHoldTimers[i] = 0.012; // ~12 ms hydraulic/valve hold
         anyIntervention = true;
-      } else if (this.absHoldTimers[i] > 0) {
-        // HOLD phase
-        this.absHoldTimers[i] -= dt;
+      } else if (slip < holdThreshold || this.absHoldTimers[i] > 0) {
+        // HOLD: sit near peak slip rather than instantly reapplying into another lock.
+        this.absHoldTimers[i] = Math.max(0, this.absHoldTimers[i] - dt);
+        anyIntervention = anyIntervention || this.absPressureStates[i] < 0.995;
       } else {
-        // RE-APPLY pressure
-        this.absPressureStates[i] = Math.min(1.0, this.absPressureStates[i] + 12.0 * dt);
+        // REAPPLY progressively when the wheel has recovered.
+        this.absPressureStates[i] = Math.min(1.0, this.absPressureStates[i] + reapplyRate * dt);
+        anyIntervention = anyIntervention || this.absPressureStates[i] < 0.995;
       }
     }
 
@@ -152,12 +155,7 @@ export class DriverAidsSystem {
     return this.absPressureStates;
   }
 
-  /**
-   * Update Traction Control System
-   *
-   * @param drivenWheelSlipRatios Slip ratios of driven wheels
-   * @param dt Timestep (s)
-   */
+  /** Update Traction Control System */
   public updateTCS(
     drivenWheelSlipRatios: number[],
     dt: number
@@ -171,20 +169,22 @@ export class DriverAidsSystem {
       return { throttleMultiplier: 1.0, tcsActive: false };
     }
 
-    const tcsThreshold = this.config.tcsMode === 'SPORT' ? 0.28 : 0.14;
+    // Peak longitudinal traction is well below the old 28% SPORT threshold.
+    // SPORT still permits useful wheelspin, while FULL stays close to peak grip.
+    const tcsThreshold = this.config.tcsMode === 'SPORT' ? 0.18 : 0.11;
     const maxSlip = Math.max(0, ...drivenWheelSlipRatios);
 
     if (maxSlip > tcsThreshold) {
       const excess = maxSlip - tcsThreshold;
-      const targetReduction = Math.min(0.85, excess * 2.8);
-      this.tcsThrottleReduction += (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, 16.0 * dt);
+      const targetReduction = Math.min(0.88, excess * 3.4);
+      this.tcsThrottleReduction += (targetReduction - this.tcsThrottleReduction) * Math.min(1.0, 18.0 * dt);
       this.tcsActive = true;
     } else {
-      this.tcsThrottleReduction = Math.max(0, this.tcsThrottleReduction - 6.0 * dt);
-      this.tcsActive = this.tcsThrottleReduction > 0.05;
+      this.tcsThrottleReduction = Math.max(0, this.tcsThrottleReduction - 5.0 * dt);
+      this.tcsActive = this.tcsThrottleReduction > 0.04;
     }
 
-    const throttleMultiplier = Math.max(0.15, 1.0 - this.tcsThrottleReduction);
+    const throttleMultiplier = Math.max(0.12, 1.0 - this.tcsThrottleReduction);
     return { throttleMultiplier, tcsActive: this.tcsActive };
   }
 }
