@@ -14,7 +14,11 @@ export interface SurfaceSample {
 }
 
 export interface ISurfaceProvider {
-  sampleSurface(x: number, z: number): SurfaceSample;
+  /**
+   * Sample the driveable surface at world X/Z. referenceY is optional and lets
+   * mesh-backed providers disambiguate stacked road layers such as bridges.
+   */
+  sampleSurface(x: number, z: number, referenceY?: number): SurfaceSample;
 }
 
 /**
@@ -25,7 +29,7 @@ export interface ISurfaceProvider {
  * retaining the existing material/friction zones for grip testing.
  */
 export class ProvingGroundSurfaceProvider implements ISurfaceProvider {
-  public sampleSurface(x: number, z: number): SurfaceSample {
+  public sampleSurface(x: number, z: number, _referenceY?: number): SurfaceSample {
     const elevation = 0;
     const slopePitch = 0;
     const slopeRoll = 0;
