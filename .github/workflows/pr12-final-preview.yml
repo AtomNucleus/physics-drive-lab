@@ -1,0 +1,45 @@
+name: PR12 Final BMW Preview
+on:
+  push:
+    branches: [deploy/pr12-netlify-test]
+    paths: [.github/workflows/pr12-final-preview.yml]
+permissions:
+  contents: read
+jobs:
+  qa-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Install Chromium
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Start preview
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 >/tmp/vite.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173 >/dev/null && exit 0; sleep 1; done
+          cat /tmp/vite.log; exit 1
+      - name: Capture runtime
+        run: |
+          cat > capture.cjs <<'JS'
+          const {chromium,devices}=require('playwright'); const fs=require('fs');
+          (async()=>{const browser=await chromium.launch({headless:true});const out=[];
+          async function shot(name,opt){const ctx=await browser.newContext(opt);const p=await ctx.newPage();const errors=[],fails=[],bad=[];p.on('pageerror',e=>errors.push(String(e)));p.on('requestfailed',r=>fails.push(`${r.url()} :: ${r.failure()?.errorText}`));p.on('response',r=>{if(r.status()>=400)bad.push(`${r.status()} ${r.url()}`)});const res=await p.goto('http://127.0.0.1:4173',{waitUntil:'networkidle'});await p.waitForTimeout(8000);const info=await p.evaluate(()=>({title:document.title,importer:[...document.querySelectorAll('button')].map(b=>b.textContent?.trim()).find(t=>t&&/assetto|import/i.test(t))||null,text:document.body.innerText.slice(0,1200)}));await p.screenshot({path:`final-${name}.png`,fullPage:true});out.push({name,status:res?.status(),info,errors,fails,bad});await ctx.close();}
+          await shot('desktop',{viewport:{width:1440,height:900},deviceScaleFactor:1});await shot('iphone',{...devices['iPhone 15 Pro']});await browser.close();fs.writeFileSync('final-qa.json',JSON.stringify(out,null,2));console.log(JSON.stringify(out,null,2));if(out.some(x=>x.status!==200||x.errors.length||x.fails.length||x.bad.length))process.exit(2);})().catch(e=>{console.error(e);process.exit(1)});
+          JS
+          node capture.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr12-final-browser-qa
+          path: |
+            final-desktop.png
+            final-iphone.png
+            final-qa.json
+      - name: Deploy anonymously to Netlify
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
