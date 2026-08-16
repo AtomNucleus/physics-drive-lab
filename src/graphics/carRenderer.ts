@@ -465,7 +465,7 @@ export class CarRenderer {
 
     // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave
     this.chassisGroup.position.y = state.heave;
-    this.chassisGroup.rotation.z = -state.roll;
+    this.chassisGroup.rotation.z = state.roll;
     this.chassisGroup.rotation.x = state.pitch;
 
     // 3. Active Aerodynamic Wing Rotation (DRS vs High Downforce vs Airbrake Pitch)

@@ -16,12 +16,32 @@ export class Simulation {
 
   constructor(config: VehicleConfig, surfaceProvider?: ISurfaceProvider) {
     this.vehicle = new Vehicle(config, surfaceProvider);
+    this.configureSuspensionDynamics(config);
     this.previousState = this.vehicle.getState();
     this.currentState = this.vehicle.getState();
   }
 
+  private configureSuspensionDynamics(config: VehicleConfig) {
+    // The vertical wheel/hub inertia is intentionally configured independently of
+    // wheel rotational inertia. The M5 preset uses 55 kg effective unsprung mass
+    // per corner; lighter presets keep their own configured value.
+    const unsprungMassCorner = Math.max(
+      5,
+      Number((config as any).unsprungMassCorner ?? 45)
+    );
+    this.vehicle.suspension.setUnsprungMassCorner(unsprungMassCorner);
+    this.vehicle.suspension.tireVerticalDampingNsPerM = Math.max(
+      0,
+      Number((config as any).tireVerticalDamping ?? 1500)
+    );
+  }
+
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
     this.vehicle.reset(x, z, yaw);
+    // Wheel-center positions are world-space dynamic states now; they must be reset
+    // together with the chassis so a restart cannot carry old suspension energy.
+    this.vehicle.suspension.reset();
+    this.configureSuspensionDynamics(this.vehicle.config);
     this.accumulatedTime = 0;
     this.totalSimTime = 0;
     this.stepCount = 0;
@@ -32,6 +52,7 @@ export class Simulation {
   public setConfig(newConfig: VehicleConfig) {
     const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
     this.vehicle.setConfig(newConfig);
+    this.configureSuspensionDynamics(newConfig);
 
     // Rebuild rigid-body properties from the selected vehicle's actual mass and
     // geometry. Presets are merged onto DEFAULT_VEHICLE_CONFIG in the UI, so using
