@@ -1,0 +1,64 @@
+name: Temporary Brake Bias Sweep
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+jobs:
+  bias:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+      - run: npm install
+      - name: Sweep brake bias
+        run: |
+          cat > /tmp/bias.ts <<'TS'
+          import fs from 'node:fs';
+          import { Simulation } from '${{ github.workspace }}/src/physics/Simulation.ts';
+          import { DEFAULT_VEHICLE_CONFIG } from '${{ github.workspace }}/src/physics/vehiclePresets.ts';
+          const DT=1/120,G=9.81;
+          const zero:any={throttle:0,brake:0,steer:0,handbrake:false,shiftUp:false,shiftDown:false};
+          const avg=(a:number[])=>a.reduce((x,y)=>x+y,0)/a.length;
+          const deg=(r:number)=>r*180/Math.PI;
+          function make(speed:number,bias:number){
+            const cfg={...DEFAULT_VEHICLE_CONFIG,brakeBiasFront:bias};
+            const sim=new Simulation(cfg as any); sim.reset(0,0,0);
+            const v=speed/3.6; sim.vehicle.rigidBody.velocity={x:0,y:0,z:v}; sim.vehicle.wheels.forEach(w=>w.reset(v)); sim.vehicle.powertrain.gear=0;
+            for(let i=0;i<60;i++) sim.stepExplicit(zero,1); return sim;
+          }
+          function brake(bias:number){
+            const sim=make(100,bias),z0=sim.vehicle.getState().z; const rows:any[]=[];
+            for(let i=0;i<960;i++){
+              const s=sim.stepExplicit({...zero,brake:1},1);
+              if(s.speedMs>5) rows.push({g:Math.abs(sim.vehicle.rigidBody.acceleration.z/G),slips:s.wheels.map(w=>Math.abs(w.slipRatio)),mods:[...sim.vehicle.brakes.pressureModulators]});
+              if(s.speedMs<0.8) break;
+            }
+            const end=sim.vehicle.getState();
+            return {bias,stopDistance:Math.abs(end.z-z0),stopTime:(sim.totalSimTime-.5),meanDecelG:avg(rows.map(r=>r.g)),
+              frontSlip:avg(rows.flatMap(r=>r.slips.slice(0,2))),rearSlip:avg(rows.flatMap(r=>r.slips.slice(2))),
+              frontPressure:avg(rows.flatMap(r=>r.mods.slice(0,2))),rearPressure:avg(rows.flatMap(r=>r.mods.slice(2)))};
+          }
+          function trail(bias:number){
+            const sim=make(80,bias),steer=.11; const pre:any[]=[];
+            for(let i=0;i<120;i++){const s=sim.stepExplicit({...zero,steer},1);if(i>72)pre.push(Math.abs(s.yawRate));}
+            const post:any[]=[];
+            for(let i=0;i<72;i++){const s=sim.stepExplicit({...zero,steer,brake:.22},1);if(i>=18&&i<60)post.push({yaw:Math.abs(s.yawRate),fs:Math.abs((s.wheels[0].slipAngle+s.wheels[1].slipAngle)/2),rs:Math.abs((s.wheels[2].slipAngle+s.wheels[3].slipAngle)/2)});}
+            const preYaw=avg(pre),postYaw=avg(post.map(r=>r.yaw));
+            return {bias,preYawDegS:deg(preYaw),trailYawDegS:deg(postYaw),yawChangePct:(postYaw/preYaw-1)*100,frontSlipDeg:deg(avg(post.map(r=>r.fs))),rearSlipDeg:deg(avg(post.map(r=>r.rs)))};
+          }
+          const biases=[.60,.62,.64,.66,.68,.70];
+          const out={hardBrake:biases.map(brake),trailBrake:biases.map(trail)};
+          fs.writeFileSync('brake-bias-sweep.json',JSON.stringify(out,null,2)); console.log(JSON.stringify(out,null,2));
+          TS
+          npx tsx /tmp/bias.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brake-bias-sweep
+          path: brake-bias-sweep.json
+          retention-days: 1
