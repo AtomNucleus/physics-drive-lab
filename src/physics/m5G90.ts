@@ -90,6 +90,10 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   absMode: 'SPORT',
   tcsMode: 'SPORT',
   launchControlEnabled: true,
+  launchControlRpm: 3000,
+  lowSpeedTorqueFillNm: 300,
+  torqueFillFadeRpm: 3400,
+  automaticTorqueConverter: true,
 };
 
 export const BMW_M5_2025_TARGETS = {

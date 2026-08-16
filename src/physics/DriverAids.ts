@@ -85,7 +85,7 @@ export class DriverAidsSystem {
     isBraking: boolean,
     dt: number
   ): [number, number, number, number] {
-    if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.4) {
+    if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.8) {
       this.absActive = false;
       this.absPressureStates = [1, 1, 1, 1];
       this.absHoldTimers = [0, 0, 0, 0];
@@ -93,9 +93,9 @@ export class DriverAidsSystem {
     }
 
     const isSport = this.config.absMode === 'SPORT';
-    const targetSlip = isSport ? 0.145 : 0.12;
-    const deadband = isSport ? 0.018 : 0.014;
-    const minPressure = isSport ? 0.24 : 0.20;
+    const targetSlip = isSport ? 0.145 : 0.125;
+    const deadband = isSport ? 0.018 : 0.015;
+    const minPressure = isSport ? 0.34 : 0.30;
     let anyIntervention = false;
 
     for (let i = 0; i < 4; i++) {
@@ -104,22 +104,27 @@ export class DriverAidsSystem {
       const effectiveSlip = nearLock ? Math.max(slipMag, 0.9) : slipMag;
       let p = this.absPressureStates[i];
 
-      if (effectiveSlip > targetSlip + deadband) {
-        // Overslip: proportional pressure release. Deep lock releases faster, but
-        // no single 120 Hz tick can throw away most of the available brake force.
+      if (effectiveSlip > 0.34) {
+        // A genuinely locking wheel must be released decisively, but only until
+        // it recovers; this state should be brief, not the controller's steady state.
+        const deepLockRate = isSport ? 7.2 : 8.0;
+        p = Math.max(minPressure, p - deepLockRate * dt);
+        anyIntervention = true;
+      } else if (effectiveSlip > targetSlip + deadband) {
+        // Around peak grip, trim pressure gently. The old controller released up
+        // to 9 pressure-units/s and averaged ~40% pressure at full pedal.
         const over = effectiveSlip - (targetSlip + deadband);
-        const releaseRate = 3.0 + Math.min(6.0, over * 10.0); // pressure units / s
+        const releaseRate = (isSport ? 1.55 : 1.85) + Math.min(1.8, over * 5.0);
         p = Math.max(minPressure, p - releaseRate * dt);
         anyIntervention = true;
       } else if (effectiveSlip < targetSlip - deadband) {
-        // Reapply briskly enough to keep the tire near peak µ rather than spending
-        // long periods at low hydraulic pressure after each ABS event.
+        // Reapply much faster than the modulation release so the caliper spends
+        // most of the stop near useful pressure, like a modern four-channel ABS.
         const under = (targetSlip - deadband) - effectiveSlip;
-        const reapplyRate = 2.4 + Math.min(2.6, under * 12.0);
+        const reapplyRate = (isSport ? 6.5 : 7.2) + Math.min(3.0, under * 18.0);
         p = Math.min(1.0, p + reapplyRate * dt);
         anyIntervention = anyIntervention || p < 0.995;
       } else {
-        // In the target band, hold pressure. This is the useful braking state.
         anyIntervention = anyIntervention || p < 0.995;
       }
 

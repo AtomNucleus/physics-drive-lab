@@ -17,6 +17,11 @@ export interface PowertrainConfig {
   forwardGearRatios?: number[]; // [3.82, 2.36, 1.68, 1.29, 1.00, 0.79]
   gearRatios?: number[]; // Legacy array [R, 1, 2, 3, 4, 5, 6]
   finalDriveRatio: number; // (e.g. 3.45)
+  launchControlEnabled?: boolean;
+  launchControlRpm?: number;
+  lowSpeedTorqueFillNm?: number;
+  torqueFillFadeRpm?: number;
+  automaticTorqueConverter?: boolean;
   autoBlipDownshift: boolean;
 }
 
@@ -40,6 +45,7 @@ export class Powertrain {
   public wastegateOpen: boolean = false;
   public deliveredDriveshaftTorque: number = 0;
   public engineTorqueOutput: number = 0;
+  public launchControlActive: boolean = false;
 
   // Timers & Internal State
   private shiftTimer: number = 0;
@@ -70,6 +76,7 @@ export class Powertrain {
     this.wastegateOpen = false;
     this.deliveredDriveshaftTorque = 0;
     this.engineTorqueOutput = 0;
+    this.launchControlActive = false;
     this.shiftTimer = 0;
     this.autoBlipTimer = 0;
     this.revCutTimer = 0;
@@ -213,6 +220,18 @@ export class Powertrain {
 
     // 4. Engine Torque Calculation
     let rawTorque = this.getRawEngineTorqueCurve(this.engineRpm) * turboBoostMultiplier;
+
+    // PHEV/EV torque fill: only supplements the low-rpm hole. It fades away well
+    // before the upper gears so quarter-mile trap speed still comes from real power.
+    const fillTorque = Math.max(0, this.config.lowSpeedTorqueFillNm || 0);
+    const fillFadeRpm = Math.max(this.config.idleRpm + 200, this.config.torqueFillFadeRpm || 3200);
+    const fillFraction = 1 - PhysicsMath.clamp(
+      (this.engineRpm - this.config.idleRpm) / (fillFadeRpm - this.config.idleRpm),
+      0,
+      1
+    );
+    rawTorque += fillTorque * fillFraction;
+
     if (this.isRevLimiting && this.revCutBounce) {
       rawTorque = 0; // Cut cylinder ignition
     }
@@ -239,11 +258,26 @@ export class Powertrain {
     let omegaEngine = (this.engineRpm * Math.PI) / 30;
 
     let clutchCapacityFraction = 1.0 - this.clutchPedal;
-    if (this.isAutomatic || this.gear === 0 || this.gear === 1) {
-      if (this.engineRpm < 1400 && this.gear !== 0) {
-        const stallMargin = Math.max(0, (this.engineRpm - this.config.idleRpm) / (1400 - this.config.idleRpm));
-        clutchCapacityFraction = Math.min(clutchCapacityFraction, stallMargin);
-      }
+    const hasAutomaticConverter = Boolean(this.isAutomatic && this.config.automaticTorqueConverter);
+
+    if (this.gear === 0) {
+      clutchCapacityFraction = 0;
+    } else if (this.launchControlActive && this.config.launchControlEnabled && this.gear === 1) {
+      // Staging: converter/clutch slips deliberately so the engine and turbos can
+      // preload while the service brakes hold the car stationary.
+      clutchCapacityFraction = Math.min(clutchCapacityFraction, 0.08);
+    } else if (hasAutomaticConverter && this.gear === 1) {
+      // A torque-converter automatic transmits meaningful launch torque at low rpm;
+      // it does not behave like a manual clutch that transmits zero torque at idle.
+      const converterCoupling = PhysicsMath.clamp(
+        0.42 + 0.58 * ((this.engineRpm - this.config.idleRpm) / 1800),
+        0.42,
+        1.0
+      );
+      clutchCapacityFraction = Math.min(clutchCapacityFraction, converterCoupling);
+    } else if (this.gear === 1 && this.engineRpm < 1400) {
+      const stallMargin = Math.max(0, (this.engineRpm - this.config.idleRpm) / (1400 - this.config.idleRpm));
+      clutchCapacityFraction = Math.min(clutchCapacityFraction, stallMargin);
     }
 
     const baseClutchCapacity = this.config.maxClutchTorque || (this.config.maxTorque * 2.2);
@@ -273,6 +307,17 @@ export class Powertrain {
     const dOmegaEngine = (netFlywheelTorque / flywheelInertia) * dt;
 
     omegaEngine += dOmegaEngine;
+
+    if (this.launchControlActive && this.config.launchControlEnabled) {
+      const launchTargetRpm = PhysicsMath.clamp(
+        this.config.launchControlRpm || 3000,
+        this.config.idleRpm,
+        this.config.revLimiterRpm - 300
+      );
+      const launchTargetOmega = (launchTargetRpm * Math.PI) / 30;
+      const launchBlend = 1 - Math.exp(-12 * dt);
+      omegaEngine += (launchTargetOmega - omegaEngine) * launchBlend;
+    }
 
     this.engineRpm = Math.max(this.config.idleRpm, (omegaEngine * 30) / Math.PI);
     this.flywheelRpm = this.engineRpm;

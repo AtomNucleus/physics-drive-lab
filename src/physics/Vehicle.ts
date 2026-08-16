@@ -114,14 +114,15 @@ export class Vehicle {
       wastegatePressurePsi: this.config.wastegatePressurePsi,
       reverseRatio: this.config.reverseRatio,
       forwardGearRatios: this.config.forwardGearRatios,
-      reverseRatio: this.config.reverseRatio,
-      forwardGearRatios: this.config.forwardGearRatios,
       gearRatios: this.config.gearRatios,
       finalDriveRatio: this.config.finalDriveRatio,
       maxClutchTorque: this.config.maxClutchTorque,
       transmissionEfficiency: this.config.transmissionEfficiency,
-      maxClutchTorque: this.config.maxClutchTorque,
-      transmissionEfficiency: this.config.transmissionEfficiency,
+      launchControlEnabled: this.config.launchControlEnabled,
+      launchControlRpm: (this.config as any).launchControlRpm,
+      lowSpeedTorqueFillNm: (this.config as any).lowSpeedTorqueFillNm,
+      torqueFillFadeRpm: (this.config as any).torqueFillFadeRpm,
+      automaticTorqueConverter: (this.config as any).automaticTorqueConverter,
       autoBlipDownshift: this.config.autoBlipDownshift,
     });
 
@@ -187,14 +188,15 @@ export class Vehicle {
       wastegatePressurePsi: newConfig.wastegatePressurePsi,
       reverseRatio: newConfig.reverseRatio,
       forwardGearRatios: newConfig.forwardGearRatios,
-      reverseRatio: newConfig.reverseRatio,
-      forwardGearRatios: newConfig.forwardGearRatios,
       gearRatios: newConfig.gearRatios,
       finalDriveRatio: newConfig.finalDriveRatio,
       maxClutchTorque: newConfig.maxClutchTorque,
       transmissionEfficiency: newConfig.transmissionEfficiency,
-      maxClutchTorque: newConfig.maxClutchTorque,
-      transmissionEfficiency: newConfig.transmissionEfficiency,
+      launchControlEnabled: newConfig.launchControlEnabled,
+      launchControlRpm: (newConfig as any).launchControlRpm,
+      lowSpeedTorqueFillNm: (newConfig as any).lowSpeedTorqueFillNm,
+      torqueFillFadeRpm: (newConfig as any).torqueFillFadeRpm,
+      automaticTorqueConverter: (newConfig as any).automaticTorqueConverter,
       autoBlipDownshift: newConfig.autoBlipDownshift,
     };
     this.differential.config = {
@@ -237,8 +239,6 @@ export class Vehicle {
     // Update wheel tire configs
     for (let i = 0; i < 4; i++) {
       const isFront = i < 2;
-      (this.wheels[i] as any).radius = newConfig.wheelRadius;
-      (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       (this.wheels[i] as any).radius = newConfig.wheelRadius;
       (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       this.wheels[i].tireConfig = {
@@ -421,6 +421,11 @@ export class Vehicle {
         ? (wheelOmegas[0] + wheelOmegas[1]) * 0.5
         : (wheelOmegas[2] + wheelOmegas[3]) * 0.5;
 
+    // The G90 M5 can preload its automatic/hybrid powertrain against the brake.
+    // Keep this physical state in the powertrain rather than faking extra launch force.
+    this.powertrain.launchControlActive = Boolean(
+      this.config.launchControlEnabled && inputs.brake > 0.55 && inputs.throttle > 0.80 && speedMs < 2.0
+    );
     const powertrainOut = this.powertrain.update(effectiveThrottle, drivenOmega, dt);
 
     const diffOut = this.differential.distributeTorque(powertrainOut.driveshaftTorque, wheelOmegas);
