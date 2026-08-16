@@ -682,7 +682,8 @@ export class Vehicle {
       yaw: euler.yaw,
       pitch: euler.pitch * this.config.bodyPitchMultiplier,
       roll: euler.roll * this.config.bodyRollMultiplier,
-      heave: pos.y - (this.config.centerOfGravityHeight + 0.35),
+      // Heave is suspension/body motion relative to the local road, not world altitude.
+      heave: pos.y - cgSurface.elevation - (this.config.centerOfGravityHeight + 0.35),
       vx: localVel.x,
       vy: localVel.y,
       vz: localVel.z,

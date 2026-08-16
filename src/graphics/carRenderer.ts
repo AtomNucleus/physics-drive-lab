@@ -458,7 +458,9 @@ export class CarRenderer {
 
   public update(state: VehicleState, config: VehicleConfig) {
     // 1. Root Group tracks World Position and Heading Yaw
-    this.rootGroup.position.set(state.x, state.y, state.z);
+    // Root follows local road elevation. Chassis heave below is terrain-relative,
+    // preventing world altitude from being applied twice on hills/crests.
+    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);
     this.rootGroup.rotation.y = state.yaw;
 
     // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave
