@@ -19,7 +19,8 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Verify physics surface is flat
-        run: npx tsx -e "import { ProvingGroundSurfaceProvider } from './src/physics/SurfaceProvider.ts'; const s=new ProvingGroundSurfaceProvider(); for(let x=-1300;x<=1300;x+=25){for(let z=-1300;z<=1300;z+=25){const p=s.sampleSurface(x,z); if(p.elevation!==0||p.slopePitch!==0||p.slopeRoll!==0||Math.abs(p.normal.x)>1e-12||Math.abs(p.normal.y-1)>1e-12||Math.abs(p.normal.z)>1e-12) throw new Error('Non-flat sample at '+x+','+z);}} console.log('Flat surface grid: PASS');"
+        run: |
+          npx tsx -e "import { ProvingGroundSurfaceProvider } from './src/physics/SurfaceProvider.ts'; const s=new ProvingGroundSurfaceProvider(); for(let x=-1300;x<=1300;x+=25){for(let z=-1300;z<=1300;z+=25){const p=s.sampleSurface(x,z); if(p.elevation!==0||p.slopePitch!==0||p.slopeRoll!==0||Math.abs(p.normal.x)>1e-12||Math.abs(p.normal.y-1)>1e-12||Math.abs(p.normal.z)>1e-12) throw new Error('Non-flat sample at '+x+','+z);}} console.log('Flat surface grid PASS');"
       - name: Run suspension regression
         run: npm run test:suspension
       - name: Production build
