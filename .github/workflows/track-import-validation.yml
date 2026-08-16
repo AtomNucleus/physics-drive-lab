@@ -9,6 +9,16 @@ on:
       - 'src/physics/vehiclePhysics.ts'
       - 'package.json'
       - '.github/workflows/track-import-validation.yml'
+  push:
+    branches:
+      - 'agent/ac-track-import-pipeline'
+    paths:
+      - 'src/tracks/**'
+      - 'tools/ac-import/**'
+      - 'src/physics/SurfaceProvider.ts'
+      - 'src/physics/vehiclePhysics.ts'
+      - 'package.json'
+      - '.github/workflows/track-import-validation.yml'
 
 permissions:
   contents: read
