@@ -39,6 +39,9 @@ jobs:
       - name: Run M5 parameter sweep
         run: npx tsx scripts/m5_parameter_sweep.ts | tee m5-parameter-sweep.log
 
+      - name: Run hybrid acceleration sweep
+        run: npx tsx scripts/m5_hybrid_accel_diag.ts | tee m5-hybrid-accel-diag.log
+
       - name: Run brake torque diagnostic
         run: npx tsx scripts/m5_brake_diag.ts | tee m5-brake-diag.log
 
@@ -57,6 +60,7 @@ jobs:
             m5-calibration.log
             m5-launch-diag.log
             m5-parameter-sweep.log
+            m5-hybrid-accel-diag.log
             m5-brake-diag.log
             m5-drag-brake-diag.log
             m5-skidpad-speed-control.log
