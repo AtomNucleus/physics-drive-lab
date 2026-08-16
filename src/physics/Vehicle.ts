@@ -114,8 +114,12 @@ export class Vehicle {
       wastegatePressurePsi: this.config.wastegatePressurePsi,
       reverseRatio: this.config.reverseRatio,
       forwardGearRatios: this.config.forwardGearRatios,
+      reverseRatio: this.config.reverseRatio,
+      forwardGearRatios: this.config.forwardGearRatios,
       gearRatios: this.config.gearRatios,
       finalDriveRatio: this.config.finalDriveRatio,
+      maxClutchTorque: this.config.maxClutchTorque,
+      transmissionEfficiency: this.config.transmissionEfficiency,
       maxClutchTorque: this.config.maxClutchTorque,
       transmissionEfficiency: this.config.transmissionEfficiency,
       autoBlipDownshift: this.config.autoBlipDownshift,
@@ -183,8 +187,12 @@ export class Vehicle {
       wastegatePressurePsi: newConfig.wastegatePressurePsi,
       reverseRatio: newConfig.reverseRatio,
       forwardGearRatios: newConfig.forwardGearRatios,
+      reverseRatio: newConfig.reverseRatio,
+      forwardGearRatios: newConfig.forwardGearRatios,
       gearRatios: newConfig.gearRatios,
       finalDriveRatio: newConfig.finalDriveRatio,
+      maxClutchTorque: newConfig.maxClutchTorque,
+      transmissionEfficiency: newConfig.transmissionEfficiency,
       maxClutchTorque: newConfig.maxClutchTorque,
       transmissionEfficiency: newConfig.transmissionEfficiency,
       autoBlipDownshift: newConfig.autoBlipDownshift,
@@ -229,6 +237,8 @@ export class Vehicle {
     // Update wheel tire configs
     for (let i = 0; i < 4; i++) {
       const isFront = i < 2;
+      (this.wheels[i] as any).radius = newConfig.wheelRadius;
+      (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       (this.wheels[i] as any).radius = newConfig.wheelRadius;
       (this.wheels[i] as any).inertia = newConfig.wheelInertia;
       this.wheels[i].tireConfig = {
