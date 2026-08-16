@@ -1,0 +1,91 @@
+name: Apply crash stability patch
+
+on:
+  push:
+    branches:
+      - agent/full-tire-combined-slip
+    paths:
+      - .github/workflows/agent-crash-stability-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-tire-combined-slip
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Patch crash tire authority and wheel attachment rendering
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          vehicle = Path('src/physics/Vehicle.ts')
+          text = vehicle.read_text()
+          old = """      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {\n        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.\n        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;\n        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;\n\n        // Tire shear follows the chassis/wheel heading, but suspension support is\n        // an external ground-normal reaction. Rotating support with chassis pitch/roll\n        // can invent propulsion on a flat road; apply it along the actual road normal.\n        const tirePlanarWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          surface.normal,\n          suspState.chassisForceN\n        );\n        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);\n\n        // Apply self-aligning torque Mz to chassis\n        this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));\n      }\n"""
+          new = """      // The vertical unsprung/suspension model assumes a mostly upright chassis.\n      // During a rollover the body shell, not four road-oriented tires, must carry the\n      // impact. Fade tire/spring authority only at extreme tip angles so ordinary body\n      // roll remains completely untouched while a sideways car cannot store explosive\n      // spring energy against the road.\n      const bodyUpWorld = PhysicsMath.quatRotateVec3(\n        this.rigidBody.orientation,\n        PhysicsMath.vec3(0, 1, 0)\n      );\n      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, surface.normal);\n      const wheelContactAuthority = PhysicsMath.clamp(\n        (contactUprightness - 0.20) / 0.45,\n        0,\n        1\n      );\n\n      if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {\n        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.\n        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;\n        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;\n\n        // Tire shear follows the chassis/wheel heading, but suspension support is\n        // an external ground-normal reaction. Rotating support with chassis pitch/roll\n        // can invent propulsion on a flat road; apply it along the actual road normal.\n        const tirePlanarWorld = PhysicsMath.vec3Scale(\n          PhysicsMath.quatRotateVec3(\n            this.rigidBody.orientation,\n            PhysicsMath.vec3(fxBody, 0, fzBody)\n          ),\n          wheelContactAuthority\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          surface.normal,\n          suspState.chassisForceN * wheelContactAuthority\n        );\n        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);\n\n        // Apply self-aligning torque Mz to chassis with the same contact authority.\n        this.rigidBody.addBodyTorque(\n          PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)\n        );\n      }\n"""
+          if old not in text:
+              raise SystemExit('Vehicle.ts target block not found')
+          vehicle.write_text(text.replace(old, new, 1))
+
+          renderer = Path('src/graphics/carRenderer.ts')
+          text = renderer.read_text()
+          old_import = "import { VehicleConfig, VehicleState } from '../types';\n"
+          new_import = old_import + "import { computeWheelVisualPose } from './wheelVisualPose';\n"
+          if old_import not in text:
+              raise SystemExit('carRenderer import target not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_pose = """      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;\n      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);\n      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);\n\n      // Steer rotation (Y axis)\n      wheelGroup.rotation.y = wheel.steerAngle;\n\n      // Camber rotation (Z axis) dynamically driven by suspension kinematics\n      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;\n"""
+          new_pose = """      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      const visualPose = computeWheelVisualPose({\n        chassisHeaveM: state.heave,\n        chassisPitchRad: state.pitch,\n        chassisRollRad: state.roll,\n        mountX: wheel.localPos.x,\n        mountZ: wheel.localPos.z,\n        suspensionTravelM: wheel.verticalTravelM,\n        tireSquishM: wheel.tireSquishM,\n        sidewallDeflectionM: wheel.sidewallDeflection,\n        isLeft: wheel.isLeft,\n        camberRad,\n        visualWheelRadiusM: 0.33,\n      });\n      wheelGroup.position.set(visualPose.x, visualPose.y, visualPose.z);\n\n      // Steer rotation remains road-relative in normal driving. During a rollover\n      // the wheel assembly progressively follows the chassis so it cannot visually\n      // detach from its spring pickup.\n      wheelGroup.rotation.y = wheel.steerAngle;\n      wheelGroup.rotation.x = visualPose.rotationX;\n      wheelGroup.rotation.z = visualPose.rotationZ;\n"""
+          if old_pose not in text:
+              raise SystemExit('carRenderer wheel pose target not found')
+          text = text.replace(old_pose, new_pose, 1)
+
+          old_fv = "          fvGroup.position.set(wheel.localPos.x, 0.01, wheel.localPos.z);"
+          new_fv = "          fvGroup.position.set(visualPose.mountX, 0.01, visualPose.mountZ);"
+          if old_fv not in text:
+              raise SystemExit('carRenderer force-vector target not found')
+          text = text.replace(old_fv, new_fv, 1)
+          renderer.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Crash stability regression
+        run: npm run test:crash
+
+      - name: Wheel attachment rendering regression
+        run: npm run test:wheel-visual
+
+      - name: Existing tire and suspension regressions
+        run: |
+          npm run test:tire
+          npm run test:stationary
+          npm run test:suspension
+          npm run test:corner-load
+          npm run test:smoke
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested patch and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/agent-crash-stability-patch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/Vehicle.ts src/graphics/carRenderer.ts .github/workflows/agent-crash-stability-patch.yml
+          git commit -m "Fix spin and wipeout chassis stability"
+          git push origin HEAD:agent/full-tire-combined-slip
