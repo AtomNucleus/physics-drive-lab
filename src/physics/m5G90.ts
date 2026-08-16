@@ -27,8 +27,10 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   camberGain: 7.5,
   antiDiveFront: 0.45,
   antiSquatRear: 0.35,
-  bodyRollMultiplier: 1.15,
-  bodyPitchMultiplier: 1.05,
+  // Render exactly the rigid-body pitch/roll produced by the suspension and tire forces.
+  // No visual multiplier is allowed on the M5 calibration.
+  bodyRollMultiplier: 1.0,
+  bodyPitchMultiplier: 1.0,
 
   tireGripFront: 1.21,
   tireGripRear: 1.20,
