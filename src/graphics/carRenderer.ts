@@ -3,6 +3,7 @@ import { VehicleConfig, VehicleState } from '../types';
 
 export class CarRenderer {
   public rootGroup: THREE.Group;
+  public chassisPivotGroup: THREE.Group;
   public chassisGroup: THREE.Group;
   public rearWingBlade: THREE.Mesh | null = null;
   public wheelMeshes: THREE.Group[] = [];
@@ -26,8 +27,11 @@ export class CarRenderer {
 
   constructor(bodyColor: string = '#2563eb') {
     this.rootGroup = new THREE.Group();
+    this.chassisPivotGroup = new THREE.Group();
+    this.chassisPivotGroup.rotation.order = 'YXZ';
     this.chassisGroup = new THREE.Group();
-    this.rootGroup.add(this.chassisGroup);
+    this.chassisPivotGroup.add(this.chassisGroup);
+    this.rootGroup.add(this.chassisPivotGroup);
 
     this.buildCarBody(bodyColor);
     this.buildWheels();
@@ -457,16 +461,16 @@ export class CarRenderer {
   }
 
   public update(state: VehicleState, config: VehicleConfig) {
-    // 1. Root Group tracks World Position and Heading Yaw
-    // Root follows local road elevation. Chassis heave below is terrain-relative,
-    // preventing world altitude from being applied twice on hills/crests.
     this.rootGroup.position.set(state.x, state.elevationHeight, state.z);
     this.rootGroup.rotation.y = state.yaw;
 
-    // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave
-    this.chassisGroup.position.y = state.heave;
-    this.chassisGroup.rotation.z = state.roll;
-    this.chassisGroup.rotation.x = state.pitch;
+    // The visual shell rotates around the same CG used by the rigid body instead of
+    // orbiting around road level during a wipeout.
+    const chassisCgOffset = config.centerOfGravityHeight + 0.35;
+    this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);
+    this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');
+    this.chassisGroup.position.set(0, -chassisCgOffset, 0);
+    this.chassisGroup.rotation.set(0, 0, 0);
 
     // 3. Active Aerodynamic Wing Rotation (DRS vs High Downforce vs Airbrake Pitch)
     if (this.rearWingBlade) {

@@ -283,6 +283,22 @@ export class WheelDynamics {
     let staticFy = this.lowSpeedLatDeflection * bristleStiffness + latPatchSlipSpeed * bristleDamping;
 
     const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);
+
+    // Rubber shear from a completed spin relaxes over time once there is no longer
+    // meaningful contact-patch motion or applied axle torque. This prevents old
+    // bristle deflection from becoming a persistent low-speed oscillation source.
+    const patchNearlySettled =
+      fz >= 20 &&
+      rollingSpeed < 0.55 &&
+      patchSlipSpeed < 0.28 &&
+      Math.abs(driveTorque) < 15 &&
+      brakeRequest < 15;
+    if (patchNearlySettled) {
+      const creepDecay = Math.exp(-dt / 0.35);
+      this.lowSpeedLongDeflection *= creepDecay;
+      this.lowSpeedLatDeflection *= creepDecay;
+    }
+
     const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);
     const lowSpeedMuMultiplier = PhysicsMath.lerp(
       1.08,
@@ -374,6 +390,25 @@ export class WheelDynamics {
     if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
       const sync = 1 - Math.exp(-14 * dt);
       this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
+    }
+
+    // A freely rolling loaded wheel at essentially zero chassis speed is a static
+    // no-slip constraint. Letting a several-kN residual tire force integrate through
+    // the tiny wheel inertia can kick omega by multiple rad/s every 120 Hz step,
+    // creating a numerical reaction-torque chatter after a spin. Project only this
+    // quiescent, unpowered/unbraked case to the road speed; genuine acceleration,
+    // braking, wheelspin and rolling behavior are unaffected.
+    const quiescentFreeRolling =
+      fz >= 20 &&
+      Math.abs(longitudinalVelocity) < 0.35 &&
+      Math.abs(lateralVelocity) < 0.25 &&
+      Math.abs(driveTorque) < 15 &&
+      brakeRequest < 15;
+    if (quiescentFreeRolling) {
+      this.angularVelocity = roadOmega;
+      const slipStateDecay = Math.exp(-dt / 0.10);
+      this.rawSlipRatio *= slipStateDecay;
+      this.relaxationSlipRatio *= slipStateDecay;
     }
 
     this.rotationAngle += this.angularVelocity * dt;
