@@ -1,0 +1,35 @@
+name: Assetto Corsa importer validation
+
+on:
+  push:
+    branches:
+      - agent/ac-car-importer
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Stationary steering regression
+        run: npm run test:stationary
+
+      - name: Suspension regression
+        run: npm run test:suspension
+
+      - name: Dynamic corner-load regression
+        run: npm run test:corner-load
+
+      - name: Production build
+        run: npm run build

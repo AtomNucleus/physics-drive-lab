@@ -12,9 +12,35 @@ import { DashboardUI } from './components/DashboardUI';
 import { ControlsOverlay } from './components/ControlsOverlay';
 import { TuningModal } from './components/TuningModal';
 import { PhysicsTestRunnerModal } from './components/PhysicsTestRunnerModal';
+import { AssettoCorsaImportPanel } from './components/AssettoCorsaImportPanel';
+import type { Kn5VisualResult } from './graphics/kn5Loader';
 
 const INITIAL_PRESET_KEY = 'm5G90';
 const INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
+
+function disposeImportedVisual(root: THREE.Object3D) {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
+
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    if (object.geometry) geometries.add(object.geometry);
+    const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
+    meshMaterials.forEach((material) => {
+      if (!material) return;
+      materials.add(material);
+      const candidate = material as THREE.Material & Record<string, any>;
+      ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'alphaMap', 'emissiveMap'].forEach((key) => {
+        if (candidate[key] instanceof THREE.Texture) textures.add(candidate[key]);
+      });
+    });
+  });
+
+  geometries.forEach((geometry) => geometry.dispose());
+  textures.forEach((texture) => texture.dispose());
+  materials.forEach((material) => material.dispose());
+}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -41,6 +67,7 @@ export default function App() {
   // Physics engine & rendering engine refs
   const physicsEngineRef = useRef<VehiclePhysicsEngine | null>(null);
   const carRendererRef = useRef<CarRenderer | null>(null);
+  const importedVisualRef = useRef<THREE.Group | null>(null);
   const envManagerRef = useRef<EnvironmentManager | null>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   const keysDownRef = useRef<{ [code: string]: boolean }>({});
@@ -255,6 +282,10 @@ export default function App() {
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      if (importedVisualRef.current) {
+        disposeImportedVisual(importedVisualRef.current);
+        importedVisualRef.current = null;
+      }
       renderer.dispose();
     };
   }, []);
@@ -267,10 +298,46 @@ export default function App() {
     }
   };
 
+  const restoreProceduralBody = () => {
+    const renderer = carRendererRef.current;
+    const imported = importedVisualRef.current;
+    if (!renderer || !imported) return;
+
+    renderer.chassisGroup.remove(imported);
+    disposeImportedVisual(imported);
+    importedVisualRef.current = null;
+    renderer.chassisGroup.children.forEach((child) => {
+      child.visible = true;
+    });
+  };
+
+  const handleApplyImportedVisual = (visual: Kn5VisualResult) => {
+    const renderer = carRendererRef.current;
+    if (!renderer) return;
+
+    const previous = importedVisualRef.current;
+    if (previous) {
+      renderer.chassisGroup.remove(previous);
+      disposeImportedVisual(previous);
+      importedVisualRef.current = null;
+    }
+
+    // Keep the procedural body intact but hidden so selecting a built-in preset
+    // can instantly restore it. Wheels are not children of chassisGroup; they stay
+    // visible and continue to articulate from the simulator's suspension state.
+    renderer.chassisGroup.children.forEach((child) => {
+      child.visible = false;
+    });
+    visual.group.visible = true;
+    renderer.chassisGroup.add(visual.group);
+    importedVisualRef.current = visual.group;
+  };
+
   // Preset Selection
   const handleSelectPreset = (presetKey: string) => {
     const preset = VEHICLE_PRESETS[presetKey];
     if (!preset) return;
+    restoreProceduralBody();
     setActivePresetKey(presetKey);
     setCurrentColor(preset.color);
     const mergedConfig: VehicleConfig = {
@@ -406,6 +473,13 @@ export default function App() {
         onSelectPreset={handleSelectPreset}
         activeKeys={activeKeys}
         onTouchInput={handleTouchInput}
+      />
+
+      {/* Assetto Corsa local car-data + KN5 importer */}
+      <AssettoCorsaImportPanel
+        config={config as unknown as Record<string, any>}
+        onApply={(importedConfig) => handleConfigChange(importedConfig as VehicleConfig)}
+        onApplyVisual={handleApplyImportedVisual}
       />
 
       {/* Physics & Chassis Tuning Workshop Modal */}
