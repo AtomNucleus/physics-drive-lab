@@ -107,7 +107,10 @@ export class Powertrain {
     if (this.gear > -1 && this.shiftTimer <= 0) {
       this.gear--;
       this.shiftTimer = this.shiftDuration;
-      if (this.config.autoBlipDownshift && this.gear >= 1) this.autoBlipTimer = 0.18;
+      // A manual rev-match blip is a driver aid. In automatic mode the gearbox
+      // controller must not turn a closed-throttle downshift into a real throttle
+      // request at the wheels; doing so injects propulsion during corner entry.
+      if (this.config.autoBlipDownshift && this.gear >= 1 && !this.isAutomatic) this.autoBlipTimer = 0.18;
     }
   }
 
@@ -277,7 +280,24 @@ export class Powertrain {
     } else {
       const deltaOmega = omegaEngine - clutchPlateAngularVelocity;
       const clutchSlipTorque = deltaOmega * 95.0;
-      transmittedClutchTorque = PhysicsMath.clamp(clutchSlipTorque, -maxClutchTorqueCapacity, maxClutchTorqueCapacity);
+
+      // A torque converter can make a stopped automatic creep, but idle-speed
+      // creep is only a small fraction of full clutch capacity. The previous
+      // 42%-minimum coupling could transmit ~630 Nm engine-side at idle on the
+      // M5, which multiplies to nearly 10,000 Nm after 1st gear/final drive and
+      // can re-accelerate the car during a slow turn. Keep coast/engine-braking
+      // torque intact while capping only positive closed-throttle creep torque.
+      let positiveTorqueCapacity = maxClutchTorqueCapacity;
+      if (hasAutomaticConverter && this.gear === 1 && effectiveThrottle <= 0.02 && deltaOmega > 0) {
+        const idleCreepTorque = PhysicsMath.clamp(this.config.maxTorque * 0.03, 12, 24);
+        positiveTorqueCapacity = Math.min(positiveTorqueCapacity, idleCreepTorque);
+      }
+
+      transmittedClutchTorque = PhysicsMath.clamp(
+        clutchSlipTorque,
+        -maxClutchTorqueCapacity,
+        positiveTorqueCapacity
+      );
       this.clutchEngaged = Math.abs(deltaOmega) < 1.5;
     }
 
