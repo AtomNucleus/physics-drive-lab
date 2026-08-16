@@ -1,0 +1,37 @@
+name: Temporary Rear Grip Balance Sweep
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+jobs:
+  grip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+      - run: npm install
+      - name: Sweep rear tire balance
+        run: |
+          cat > /tmp/grip.ts <<'TS'
+          import fs from 'node:fs';
+          import { Simulation } from '${{ github.workspace }}/src/physics/Simulation.ts';
+          import { DEFAULT_VEHICLE_CONFIG } from '${{ github.workspace }}/src/physics/vehiclePresets.ts';
+          const DT=1/120,G=9.81; const zero:any={throttle:0,brake:0,steer:0,handbrake:false,shiftUp:false,shiftDown:false};
+          const avg=(a:number[])=>a.reduce((x,y)=>x+y,0)/a.length; const deg=(r:number)=>r*180/Math.PI;
+          function make(rear:number,speed=80){const cfg={...DEFAULT_VEHICLE_CONFIG,tireGripRear:rear};const sim=new Simulation(cfg as any);sim.reset(0,0,0);const v=speed/3.6;sim.vehicle.rigidBody.velocity={x:0,y:0,z:v};sim.vehicle.wheels.forEach(w=>w.reset(v));sim.vehicle.powertrain.gear=0;for(let i=0;i<60;i++)sim.stepExplicit(zero,1);return sim;}
+          function steady(rear:number){const sim=make(rear),rows:any[]=[];for(let i=0;i<240;i++){const s=sim.stepExplicit({...zero,steer:.15},1);if(i>=192)rows.push({g:Math.abs(sim.vehicle.rigidBody.acceleration.x/G),yaw:Math.abs(s.yawRate),fs:Math.abs((s.wheels[0].slipAngle+s.wheels[1].slipAngle)/2),rs:Math.abs((s.wheels[2].slipAngle+s.wheels[3].slipAngle)/2),speed:s.speedKmh});}return{rearGrip:rear,latG:avg(rows.map(r=>r.g)),yawDegS:deg(avg(rows.map(r=>r.yaw))),frontSlipDeg:deg(avg(rows.map(r=>r.fs))),rearSlipDeg:deg(avg(rows.map(r=>r.rs))),slipDeltaDeg:deg(avg(rows.map(r=>r.fs))-avg(rows.map(r=>r.rs))),endSpeed:avg(rows.map(r=>r.speed))};}
+          function trail(rear:number){const sim=make(rear),pre:any[]=[];for(let i=0;i<120;i++){const s=sim.stepExplicit({...zero,steer:.11},1);if(i>=72)pre.push(Math.abs(s.yawRate));}const post:any[]=[];for(let i=0;i<72;i++){const s=sim.stepExplicit({...zero,steer:.11,brake:.22},1);if(i>=18&&i<60)post.push({yaw:Math.abs(s.yawRate),fs:Math.abs((s.wheels[0].slipAngle+s.wheels[1].slipAngle)/2),rs:Math.abs((s.wheels[2].slipAngle+s.wheels[3].slipAngle)/2),g:Math.abs(sim.vehicle.rigidBody.acceleration.x/G)});}const a=avg(pre),b=avg(post.map(r=>r.yaw));return{rearGrip:rear,yawChangePct:(b/a-1)*100,preYawDegS:deg(a),trailYawDegS:deg(b),trailLatG:avg(post.map(r=>r.g)),frontSlipDeg:deg(avg(post.map(r=>r.fs))),rearSlipDeg:deg(avg(post.map(r=>r.rs)))};}
+          const grips=[1.18,1.20,1.22,1.24,1.26]; const out={steady:grips.map(steady),trail:grips.map(trail)};fs.writeFileSync('rear-grip-sweep.json',JSON.stringify(out,null,2));console.log(JSON.stringify(out,null,2));
+          TS
+          npx tsx /tmp/grip.ts
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rear-grip-sweep
+          path: rear-grip-sweep.json
+          retention-days: 1
