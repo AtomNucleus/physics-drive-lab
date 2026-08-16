@@ -28,6 +28,11 @@ export class DriverAidsSystem {
   public tcsActive: boolean = false;
   private tcsThrottleReduction: number = 0;
 
+  // Slip-ratio sign reverses when the car travels in reverse. Keep a persistent
+  // motion-direction estimate from wheel rotation so ABS/TCS can reason in a
+  // direction-normalized convention: + = driven wheelspin, - = braking lock.
+  private motionDirectionSign: 1 | -1 = 1;
+
   public currentCenterSteerAngle: number = 0;
 
   constructor(config: DriverAidsConfig) {
@@ -40,7 +45,21 @@ export class DriverAidsSystem {
     this.absActive = false;
     this.tcsActive = false;
     this.tcsThrottleReduction = 0;
+    this.motionDirectionSign = 1;
     this.currentCenterSteerAngle = 0;
+  }
+
+  private updateMotionDirectionFromWheels(wheelAngularVelocities: number[]) {
+    if (wheelAngularVelocities.length === 0) return;
+    const averageOmega = wheelAngularVelocities.reduce((sum, omega) => sum + omega, 0) /
+      wheelAngularVelocities.length;
+    if (Math.abs(averageOmega) > 0.35) {
+      this.motionDirectionSign = averageOmega < 0 ? -1 : 1;
+    }
+  }
+
+  private normalizedTravelSlip(slipRatio: number): number {
+    return slipRatio * this.motionDirectionSign;
   }
 
   public updateSteering(
@@ -76,8 +95,6 @@ export class DriverAidsSystem {
 
     // Ackermann: the wheel on the inside of the turn must steer MORE than the outside wheel.
     // Positive steer is LEFT, so FL is the inside wheel. Negative steer is RIGHT, so FR is inside.
-    // The previous mapping was reversed, forcing the front tires to scrub against incompatible
-    // turning circles and producing pronounced low-speed understeer at large steering angles.
     const steerFL = delta > 0 ? deltaInner : -deltaOuter;
     const steerFR = delta > 0 ? deltaOuter : -deltaInner;
     return { steerFL, steerFR, centerAngle: this.currentCenterSteerAngle };
@@ -88,7 +105,8 @@ export class DriverAidsSystem {
    *
    * This controller regulates pressure continuously around the peak of the tire's
    * longitudinal slip curve instead of using a deep-lock bang/bang threshold.
-   * That prevents the unrealistic case where more pedal produces LESS braking.
+   * Slip is normalized by travel direction so reverse braking behaves as the exact
+   * mirror of forward braking instead of silently swapping the lock sign.
    */
   public updateABS(
     wheelSlipRatios: [number, number, number, number],
@@ -97,7 +115,10 @@ export class DriverAidsSystem {
     isBraking: boolean,
     dt: number
   ): [number, number, number, number] {
-    if (this.config.absMode === 'OFF' || !isBraking || speedMs < 1.8) {
+    this.updateMotionDirectionFromWheels(wheelAngularVelocities);
+    const speedMagnitude = Math.abs(speedMs);
+
+    if (this.config.absMode === 'OFF' || !isBraking || speedMagnitude < 1.8) {
       this.absActive = false;
       this.absPressureStates = [1, 1, 1, 1];
       this.absHoldTimers = [0, 0, 0, 0];
@@ -111,8 +132,9 @@ export class DriverAidsSystem {
     let anyIntervention = false;
 
     for (let i = 0; i < 4; i++) {
-      const slipMag = Math.max(0, -wheelSlipRatios[i]);
-      const nearLock = speedMs > 3.0 && Math.abs(wheelAngularVelocities[i]) < 0.35;
+      const normalizedSlip = this.normalizedTravelSlip(wheelSlipRatios[i]);
+      const slipMag = Math.max(0, -normalizedSlip);
+      const nearLock = speedMagnitude > 3.0 && Math.abs(wheelAngularVelocities[i]) < 0.35;
       const effectiveSlip = nearLock ? Math.max(slipMag, 0.9) : slipMag;
       let p = this.absPressureStates[i];
 
@@ -156,7 +178,13 @@ export class DriverAidsSystem {
     const tcsThreshold = isSport
       ? (this.config.tcsSportSlipThreshold ?? 0.19)
       : (this.config.tcsFullSlipThreshold ?? 0.12);
-    const maxSlip = Math.max(0, ...drivenWheelSlipRatios);
+    // The last wheel-rotation direction is updated every ABS pass, including when
+    // ABS itself is inactive. This makes reverse wheelspin normalize to positive
+    // drive slip while ordinary forward braking stays negative and does not trigger TCS.
+    const maxSlip = Math.max(
+      0,
+      ...drivenWheelSlipRatios.map((slip) => this.normalizedTravelSlip(slip))
+    );
 
     if (maxSlip > tcsThreshold) {
       const excess = maxSlip - tcsThreshold;
