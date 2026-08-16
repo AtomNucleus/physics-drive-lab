@@ -132,19 +132,10 @@ jobs:
           console.log('Video captured:', rawPath);
           JS
 
-      - name: Convert recording to MP4
-        run: |
-          ffmpeg -y -i artifacts/stationary-steering-test.webm \
-            -c:v libx264 -preset medium -crf 21 -pix_fmt yuv420p -movflags +faststart \
-            artifacts/stationary-steering-test.mp4
-          ls -lh artifacts/stationary-steering-test.*
-
       - name: Upload video
         uses: actions/upload-artifact@v4
         with:
           name: stationary-steering-test-video
-          path: |
-            artifacts/stationary-steering-test.mp4
-            artifacts/stationary-steering-test.webm
+          path: artifacts/stationary-steering-test.webm
           if-no-files-found: error
           retention-days: 7
