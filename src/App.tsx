@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { VehicleConfig, VehicleState, CameraMode } from './types';
 import { DEFAULT_VEHICLE_CONFIG, VEHICLE_PRESETS } from './physics/vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from './physics/m5G90';
+import { disableM5TwoWheelDrive, enableM5TwoWheelDrive } from './physics/m5DriveMode';
+import type { M5XDriveRestoreSnapshot } from './physics/m5DriveMode';
 import { VehiclePhysicsEngine } from './physics/vehiclePhysics';
 import { CarRenderer } from './graphics/carRenderer';
 import { EnvironmentManager } from './graphics/environment';
@@ -89,6 +91,7 @@ export default function App() {
   const defaultVisualLoadTokenRef = useRef(0);
   const envManagerRef = useRef<EnvironmentManager | null>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
+  const m5XDriveRestoreRef = useRef<M5XDriveRestoreSnapshot | null>(null);
   const keysDownRef = useRef<{ [code: string]: boolean }>({});
   const touchInputsRef = useRef<{
     throttle: boolean;
@@ -359,6 +362,7 @@ export default function App() {
   const handleSelectPreset = (presetKey: string) => {
     const preset = VEHICLE_PRESETS[presetKey];
     if (!preset) return;
+    m5XDriveRestoreRef.current = null;
     restoreProceduralBody();
     setActivePresetKey(presetKey);
     setCurrentColor(preset.color);
@@ -436,6 +440,24 @@ export default function App() {
     }
   };
 
+  const handleSetM5RwdMode = (enabled: boolean) => {
+    if (enabled) {
+      if (config.drivetrain === 'RWD') return;
+      const entered = enableM5TwoWheelDrive(config as unknown as Record<string, any>);
+      m5XDriveRestoreRef.current = entered.restore;
+      handleConfigChange(entered.config as unknown as VehicleConfig);
+      return;
+    }
+
+    if (config.drivetrain === 'AWD' && !m5XDriveRestoreRef.current) return;
+    const restored = disableM5TwoWheelDrive(
+      config as unknown as Record<string, any>,
+      m5XDriveRestoreRef.current
+    );
+    m5XDriveRestoreRef.current = null;
+    handleConfigChange(restored as unknown as VehicleConfig);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -494,6 +516,9 @@ export default function App() {
             setVehicleTelemetry({ ...physicsEngineRef.current.state });
           }
         }}
+        showM5XDriveSetting={activePresetKey === INITIAL_PRESET_KEY}
+        isM5RwdMode={config.drivetrain === 'RWD'}
+        onSetM5RwdMode={handleSetM5RwdMode}
       />
 
       <AssettoCorsaImportPanel

@@ -35,6 +35,9 @@ interface ControlsOverlayProps {
   onTouchInput: (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => void;
   isAutomatic: boolean;
   onSetAutomatic: (automatic: boolean) => void;
+  showM5XDriveSetting: boolean;
+  isM5RwdMode: boolean;
+  onSetM5RwdMode?: (enabled: boolean) => void;
 }
 
 type TouchAction = 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake';
@@ -74,6 +77,9 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   onTouchInput,
   isAutomatic,
   onSetAutomatic,
+  showM5XDriveSetting,
+  isM5RwdMode,
+  onSetM5RwdMode,
 }) => {
   const [toolbarExpanded, setToolbarExpanded] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
@@ -171,7 +177,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         {showDrivingSettings && (
           <div
             id="driving-settings-panel"
-            className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
+            className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
           >
             <div className="mb-2 flex items-center gap-2 border-b border-slate-800 pb-2">
               <Settings2 size={14} className="text-sky-300" />
@@ -203,6 +209,38 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
               <span className={isAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{isAutomatic ? 'Automatic' : 'Manual'}</span>
             </div>
             <div className="mt-2 px-1 text-[8px] text-slate-500">Keyboard shortcut: M</div>
+
+            {showM5XDriveSetting && onSetM5RwdMode && (
+              <div className="mt-3 border-t border-slate-800 pt-3">
+                <div className={`flex items-center justify-between gap-3 rounded-xl border p-2.5 ${isM5RwdMode ? 'border-amber-400/40 bg-amber-400/10' : 'border-slate-800 bg-slate-900/65'}`}>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold text-white">M xDrive</div>
+                    <div className="mt-0.5 text-[8px] leading-relaxed text-slate-500">AWD / rear-wheel-drive 2WD mode</div>
+                  </div>
+                  <button
+                    id="m5-rwd-mode-toggle"
+                    type="button"
+                    role="switch"
+                    aria-checked={isM5RwdMode}
+                    onClick={() => onSetM5RwdMode(!isM5RwdMode)}
+                    className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${isM5RwdMode ? 'border-amber-300/70 bg-amber-400/30' : 'border-slate-600 bg-slate-800'}`}
+                    aria-label="Toggle BMW M5 AWD or rear-wheel-drive mode"
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isM5RwdMode ? 'translate-x-6' : 'translate-x-0.5'}`}
+                    />
+                  </button>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">
+                  <span>Drive</span>
+                  <span className={isM5RwdMode ? 'text-amber-300' : 'text-emerald-300'}>{isM5RwdMode ? 'RWD / 2WD' : 'AWD / 4WD'}</span>
+                </div>
+                {isM5RwdMode && (
+                  <div className="mt-1 px-1 text-[8px] leading-relaxed text-amber-200/75">Rear axle only • traction control off • Launch Control unavailable</div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
