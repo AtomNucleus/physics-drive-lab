@@ -6,6 +6,9 @@ on:
       - agent/fix-stationary-steering-shake
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -13,6 +16,72 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Apply road-normal suspension force fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/physics/Vehicle.ts')
+          text = path.read_text()
+          old = '''      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {
+            // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame
+            const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
+            const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
+            const fyBody = suspState.chassisForceN; // Delayed spring/damper reaction transmitted into the sprung chassis
+
+            const forceBody = PhysicsMath.vec3(fxBody, fyBody, fzBody);
+            this.rigidBody.addBodyForceAtPoint(forceBody, contactPointBody);
+
+            // Apply self-aligning torque Mz to chassis
+            this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));
+          }'''
+          new = '''      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {
+            // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.
+            const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
+            const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
+
+            // Tire shear follows the chassis/wheel heading, but the suspension's
+            // support reaction is an external ground-normal force. Applying that
+            // support as body-local +Y rotates it with chassis pitch/roll and can
+            // invent propulsion on a flat road (a 0.22 deg settled pitch produced
+            // ~90 N of forward force on the M5). Keep the planar tire force in the
+            // body frame, transform it to world space, then add the delayed sprung
+            // reaction along the actual road normal.
+            const tirePlanarWorld = PhysicsMath.quatRotateVec3(
+              this.rigidBody.orientation,
+              PhysicsMath.vec3(fxBody, 0, fzBody)
+            );
+            const suspensionSupportWorld = PhysicsMath.vec3Scale(
+              surface.normal,
+              suspState.chassisForceN
+            );
+            const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+            this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+
+            // Apply self-aligning torque Mz to chassis
+            this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));
+          }'''
+
+          if old in text:
+              path.write_text(text.replace(old, new, 1))
+              print('Applied road-normal suspension support fix')
+          elif new in text:
+              print('Road-normal suspension support fix already present')
+          else:
+              raise SystemExit('Expected Vehicle.ts contact-force block not found; refusing blind edit')
+          PY
+
+          if git diff --quiet -- src/physics/Vehicle.ts; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/Vehicle.ts
+          git commit -m "Apply road-normal suspension support forces"
+          git push origin HEAD:agent/fix-stationary-steering-shake
 
       - name: Setup Node
         uses: actions/setup-node@v4
