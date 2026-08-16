@@ -9,6 +9,8 @@ interface CliOptions {
   inputPath: string;
   surfacesPath?: string;
   collisionKn5Path?: string;
+  includeModels?: string[];
+  excludeModels?: string[];
   outputDir?: string;
   id?: string;
   name?: string;
@@ -18,7 +20,7 @@ interface CliOptions {
 }
 
 function usage(): never {
-  console.error(`Usage:\n  npm run import:ac-track -- /path/to/track.kn5 [options]\n  npm run import:ac-track -- /path/to/models_layout.ini [options]\n\nOptions:\n  --surfaces /path/to/surfaces.ini\n  --collision-kn5 /path/to/physics.kn5\n  --out ./public/tracks/id\n  --id id\n  --name "Track Name"\n  --spawn-x 0 --spawn-z 0 --spawn-yaw 0\n\nFor AC layout INIs, the importer reads every MODEL_n KN5, automatically separates a physics/collision KN5 when its filename contains "physics" or "collision", and uses AC_START_0 as the default spawn when available. The importer runs offline; the browser never parses KN5 files.`);
+  console.error(`Usage:\n  npm run import:ac-track -- /path/to/track.kn5 [options]\n  npm run import:ac-track -- /path/to/models_layout.ini [options]\n\nOptions:\n  --surfaces /path/to/surfaces.ini\n  --collision-kn5 /path/to/physics.kn5\n  --include-model filename-or-substring   (repeatable)\n  --exclude-model filename-or-substring   (repeatable)\n  --out ./public/tracks/id\n  --id id\n  --name "Track Name"\n  --spawn-x 0 --spawn-z 0 --spawn-yaw 0\n\nFor AC layout INIs, the importer reads MODEL_n KN5 files, automatically separates a physics/collision KN5 when its filename contains "physics" or "collision", and uses AC_START_0 as the default spawn when available. Include/exclude filters apply only to visual models; the selected collision KN5 is always retained for physics. The importer runs offline; the browser never parses KN5 files.`);
   process.exit(1);
 }
 
@@ -31,6 +33,8 @@ function parseArgs(argv: string[]): CliOptions {
     switch (flag) {
       case '--surfaces': options.surfacesPath = resolve(value); break;
       case '--collision-kn5': options.collisionKn5Path = resolve(value); break;
+      case '--include-model': (options.includeModels ??= []).push(value); break;
+      case '--exclude-model': (options.excludeModels ??= []).push(value); break;
       case '--out': options.outputDir = resolve(value); break;
       case '--id': options.id = value; break;
       case '--name': options.name = value; break;
@@ -56,6 +60,12 @@ async function findSurfacesPath(inputPath: string, explicit?: string): Promise<s
   candidates.push(join(inputDir, 'data', 'surfaces.ini'));
   for (const candidate of candidates) if (await exists(candidate)) return candidate;
   return undefined;
+}
+
+function matchesAny(file: string, filters: string[] | undefined): boolean {
+  if (!filters || filters.length === 0) return false;
+  const lower = file.toLowerCase();
+  return filters.some((filter) => lower.includes(filter.toLowerCase()));
 }
 
 async function loadInput(options: CliOptions) {
@@ -95,9 +105,7 @@ async function loadInput(options: CliOptions) {
   }
 
   let collisionPath = options.collisionKn5Path;
-  if (!collisionPath) {
-    collisionPath = loaded.find((entry) => /physics|collision/i.test(entry.file))?.path;
-  }
+  if (!collisionPath) collisionPath = loaded.find((entry) => /physics|collision/i.test(entry.file))?.path;
 
   let collisionFilename: string;
   let collisionModel;
@@ -115,14 +123,16 @@ async function loadInput(options: CliOptions) {
     console.warn('No dedicated physics/collision KN5 detected; using the merged layout with mesh-name surface heuristics.');
   }
 
-  const visualEntries = collisionEntry ? loaded.filter((entry) => entry !== collisionEntry) : loaded;
-  const effectiveVisualEntries = visualEntries.length > 0 ? visualEntries : loaded;
-  const visualModel = mergeKn5Models(effectiveVisualEntries.map((entry) => entry.model));
+  let visualEntries = collisionEntry ? loaded.filter((entry) => entry !== collisionEntry) : loaded;
+  if (options.includeModels?.length) visualEntries = visualEntries.filter((entry) => matchesAny(entry.file, options.includeModels));
+  if (options.excludeModels?.length) visualEntries = visualEntries.filter((entry) => !matchesAny(entry.file, options.excludeModels));
+  if (visualEntries.length === 0) throw new Error('Visual model filters removed every layout model. Keep at least one visual KN5.');
 
+  const visualModel = mergeKn5Models(visualEntries.map((entry) => entry.model));
   return {
     visualModel,
     collisionModel,
-    sourceModels: effectiveVisualEntries.map((entry) => entry.file),
+    sourceModels: visualEntries.map((entry) => entry.file),
     collisionFilename,
   };
 }
