@@ -40,9 +40,10 @@ const finiteVehicle = (sim: Simulation) => {
 };
 
 // ---------------------------------------------------------------------------
-// High-energy UPRIGHT spin recovery. This deliberately contains yaw and large
-// lateral slip but no artificial roll/pitch tumble. It targets the reported
-// post-spin shake independently of the rollover/body-contact problem below.
+// High-energy UPRIGHT spin recovery. It contains yaw and large lateral slip but no
+// artificial roll/pitch tumble. After the energetic phase we remove only remaining
+// whole-car/wheel momentum while preserving all tire brush + suspension states. If
+// those stored states are unstable they will restart the shake on their own.
 // ---------------------------------------------------------------------------
 const spinSim = new Simulation(config);
 spinSim.reset(0, 0, 0);
@@ -65,7 +66,20 @@ let maxSpinTipDeg = 0;
 let spinNonFinite = 0;
 let lateShakeEnergy = 0;
 let lateSkidFrames = 0;
-for (let i = 0; i < 960; i++) {
+let latePeakVerticalSpeedMps = 0;
+
+for (let i = 0; i < 1080; i++) {
+  // After five seconds of genuine high-energy spin dynamics, remove remaining
+  // macroscopic momentum but DO NOT reset tire or suspension internal states.
+  // This isolates the reported "after the spin" self-excitation failure.
+  if (i === 600) {
+    spinSim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, 0);
+    spinSim.vehicle.rigidBody.angularVelocity = PhysicsMath.vec3(0, 0, 0);
+    spinSim.vehicle.wheels.forEach((wheel) => {
+      wheel.angularVelocity = 0;
+    });
+  }
+
   const state = spinSim.stepExplicit(neutral, 1);
   const angularSpeed = PhysicsMath.vec3Length(spinSim.vehicle.rigidBody.angularVelocity);
   const euler = spinSim.vehicle.rigidBody.getEuler();
@@ -81,17 +95,20 @@ for (let i = 0; i < 960; i++) {
     assert(wheel.verticalTravelM >= -0.120001, `spin exceeded droop travel: ${wheel.verticalTravelM}`);
   }
 
-  // Last two seconds: the car should have stopped feeding a self-excited shake.
-  if (i >= 720) {
+  // Sample only after two seconds of post-spin recovery time.
+  if (i >= 840) {
+    const verticalSpeed = Math.abs(spinSim.vehicle.rigidBody.velocity.y);
+    latePeakVerticalSpeedMps = Math.max(latePeakVerticalSpeedMps, verticalSpeed);
     lateShakeEnergy +=
       Math.abs(state.rollRate) +
       Math.abs(state.pitchRate) +
-      Math.abs(spinSim.vehicle.rigidBody.velocity.y) * 0.5;
+      verticalSpeed * 0.5;
     if (state.wheels.some((wheel) => wheel.isSkidding && wheel.skidIntensity > 0.05)) {
       lateSkidFrames++;
     }
   }
 }
+
 assert(spinNonFinite === 0, `spin recovery produced ${spinNonFinite} non-finite samples`);
 assert(maxSpinAngularSpeed < 12, `spin angular velocity ran away: ${maxSpinAngularSpeed} rad/s`);
 assert(maxSpinTipDeg < 35, `upright spin unexpectedly became a rollover: ${maxSpinTipDeg} deg`);
@@ -103,7 +120,11 @@ assert(
   maxSpinVerticalSpeedMps < 4.0,
   `upright spin injected excessive vertical velocity: ${maxSpinVerticalSpeedMps} m/s`
 );
-assert(lateSkidFrames === 0, `post-spin tire state kept skidding for ${lateSkidFrames} late frames`);
+assert(lateSkidFrames === 0, `stored post-spin tire state restarted skid for ${lateSkidFrames} frames`);
+assert(
+  latePeakVerticalSpeedMps < 0.12,
+  `stored post-spin state restarted vertical shake at ${latePeakVerticalSpeedMps} m/s`
+);
 assert(lateShakeEnergy / 240 < 0.08, `post-spin chassis retained shake energy: ${lateShakeEnergy / 240}`);
 
 // ---------------------------------------------------------------------------
@@ -149,9 +170,6 @@ assert(
   `body shell penetrated road after crash projection: ${maxPostStepPenetrationM} m`
 );
 assert(maxCrashAngularSpeed <= 12.01, `wipeout angular speed exceeded crash ceiling: ${maxCrashAngularSpeed}`);
-// A rolled car's CG legitimately rises while the shell pivots on its side/roof, so
-// heave is reported here for diagnostics but suspension travel—not absolute heave—
-// is the invariant that proves the body has not escaped its four wheel constraints.
 
 console.log(JSON.stringify({
   uprightSpin: {
@@ -160,6 +178,7 @@ console.log(JSON.stringify({
     maxHeaveDeltaM: maxSpinHeaveDeltaM,
     maxVerticalSpeedMps: maxSpinVerticalSpeedMps,
     meanLateShakeEnergy: lateShakeEnergy / 240,
+    latePeakVerticalSpeedMps,
     lateSkidFrames,
     nonFiniteSamples: spinNonFinite,
   },
