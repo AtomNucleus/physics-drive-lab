@@ -6,6 +6,8 @@ on:
       - 'src/physics/**'
       - 'src/graphics/carRenderer.ts'
       - 'package.json'
+      - 'PHYSICS_CONVENTIONS.md'
+      - 'AGENTS.md'
       - '.github/workflows/low-speed-tire-regression.yml'
   workflow_dispatch:
 
@@ -26,6 +28,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Physics coordinate/sign convention guardrails
+        run: npm run test:conventions
 
       - name: Mobile steering regression
         run: npm run test:mobile
