@@ -14,18 +14,13 @@ interface CompactMaterialRecord {
 
 class BinaryReader {
   private offset = 0;
-
   constructor(private readonly bytes: Uint8Array) {}
-
   private take(length: number): Uint8Array {
-    if (length < 0 || this.offset + length > this.bytes.length) {
-      throw new Error('Compact BMW visual is truncated.');
-    }
+    if (length < 0 || this.offset + length > this.bytes.length) throw new Error('Compact BMW visual is truncated.');
     const result = this.bytes.subarray(this.offset, this.offset + length);
     this.offset += length;
     return result;
   }
-
   u8(): number { return this.take(1)[0]; }
   u16(): number { const b = this.take(2); return b[0] | (b[1] << 8); }
   i16(): number { const value = this.u16(); return value & 0x8000 ? value - 0x10000 : value; }
@@ -36,14 +31,12 @@ class BinaryReader {
 }
 
 async function loadBundledBytes(): Promise<Uint8Array> {
-  const parts = await Promise.all(
-    Array.from({ length: DEFAULT_M5_ASSET_PARTS }, async (_, index) => {
-      const part = String(index).padStart(2, '0');
-      const response = await fetch(`${DEFAULT_M5_ASSET_DIR}/part-${part}.b64`);
-      if (!response.ok) throw new Error(`Default BMW asset part ${part} failed to load (${response.status}).`);
-      return (await response.text()).trim();
-    })
-  );
+  const parts = await Promise.all(Array.from({ length: DEFAULT_M5_ASSET_PARTS }, async (_, index) => {
+    const part = String(index).padStart(2, '0');
+    const response = await fetch(`${DEFAULT_M5_ASSET_DIR}/part-${part}.b64`);
+    if (!response.ok) throw new Error(`Default BMW asset part ${part} failed to load (${response.status}).`);
+    return (await response.text()).trim();
+  }));
   const binary = atob(parts.join('').replace(/\s+/g, ''));
   const compressed = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) compressed[i] = binary.charCodeAt(i);
@@ -57,10 +50,7 @@ function materialFor(record: CompactMaterialRecord): THREE.MeshStandardMaterial 
   const name = record.name.toLowerCase();
   const material = new THREE.MeshStandardMaterial({ name: record.name, color: 0x20252c, roughness: 0.46, metalness: 0.18 });
   if (name === 'carpaint') {
-    material.color.set(0x315f8f);
-    material.metalness = 0.58;
-    material.roughness = 0.24;
-    material.envMapIntensity = 1.35;
+    material.color.set(0x315f8f); material.metalness = 0.58; material.roughness = 0.24; material.envMapIntensity = 1.35;
   } else if (name === 'window') {
     material.color.set(0x101b2a); material.metalness = 0.04; material.roughness = 0.08; material.transparent = true; material.opacity = 0.28; material.depthWrite = false; material.side = THREE.DoubleSide;
   } else if (name === 'glass_red') {
@@ -94,6 +84,7 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
   const fallback = new THREE.MeshStandardMaterial({ color: 0x20252c, roughness: 0.46, metalness: 0.18 });
   const group = new THREE.Group();
   group.name = 'bmw_m5_2024_default_runtime';
+
   for (let meshIndex = 0; meshIndex < meshCount; meshIndex += 1) {
     const name = reader.string();
     const materialId = reader.i16();
@@ -110,6 +101,10 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
     }
     const indices = new Uint16Array(indexCount);
     for (let i = 0; i < indexCount; i += 1) indices[i] = reader.u16();
+    // The asset is mirrored on X offline; restore winding so Three.js normals/front-face culling remain outward.
+    for (let i = 0; i + 2 < indexCount; i += 3) {
+      const temp = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = temp;
+    }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
