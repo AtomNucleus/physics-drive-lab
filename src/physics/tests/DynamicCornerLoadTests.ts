@@ -12,9 +12,6 @@ const config = {
   ...BMW_M5_2025_OVERRIDES,
 } as any;
 
-const sim = new Simulation(config);
-sim.reset(0, 0, 0);
-
 const neutral = {
   throttle: 0,
   brake: 0,
@@ -23,6 +20,12 @@ const neutral = {
   shiftUp: false,
   shiftDown: false,
 };
+
+// ---------------------------------------------------------------------------
+// Full-vehicle outside-corner load transfer
+// ---------------------------------------------------------------------------
+const sim = new Simulation(config);
+sim.reset(0, 0, 0);
 
 // Settle the sprung/unsprung system before introducing road speed.
 for (let i = 0; i < 240; i++) sim.stepExplicit(neutral, 1);
@@ -80,15 +83,85 @@ assert(
   `outside-load transfer is too small to be physical at 90 km/h: ${averageOutsideLoadGainN.toFixed(0)}N`
 );
 
+// ---------------------------------------------------------------------------
+// High-speed flat-road sprung/unsprung stability
+// ---------------------------------------------------------------------------
+const highSpeedSim = new Simulation(config);
+highSpeedSim.reset(0, 0, 0);
+for (let i = 0; i < 360; i++) highSpeedSim.stepExplicit(neutral, 1);
+
+const highSpeedMs = 250 / 3.6;
+highSpeedSim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, highSpeedMs);
+highSpeedSim.vehicle.wheels.forEach((wheel) => wheel.reset(highSpeedMs));
+
+const highSpeedInitial = highSpeedSim.vehicle.getState();
+const baselineHeave = highSpeedInitial.heave;
+let maxHeaveDeltaM = 0;
+let maxVerticalGMagnitude = 0;
+let maxTravelM = -Infinity;
+let minTravelM = Infinity;
+let airborneSamples = 0;
+let nonFiniteSamples = 0;
+let maxYawDeviationDeg = 0;
+const initialYaw = highSpeedInitial.yaw;
+
+// Five seconds on the literal flat proving-ground plane. With no bump input, a
+// stable unsprung model must not excite wheel hop on its own or let the chassis
+// visually/physically separate from the four wheel centers at high speed.
+for (let step = 0; step < 600; step++) {
+  const state = highSpeedSim.stepExplicit(neutral, 1);
+  maxHeaveDeltaM = Math.max(maxHeaveDeltaM, Math.abs(state.heave - baselineHeave));
+  maxVerticalGMagnitude = Math.max(maxVerticalGMagnitude, Math.abs(state.verticalG));
+  maxYawDeviationDeg = Math.max(
+    maxYawDeviationDeg,
+    Math.abs((state.yaw - initialYaw) * 180 / Math.PI)
+  );
+
+  for (const wheel of state.wheels) {
+    maxTravelM = Math.max(maxTravelM, wheel.verticalTravelM);
+    minTravelM = Math.min(minTravelM, wheel.verticalTravelM);
+    if (wheel.isAirborne) airborneSamples++;
+    if (
+      !Number.isFinite(wheel.verticalTravelM) ||
+      !Number.isFinite(wheel.suspensionForce) ||
+      !Number.isFinite(wheel.forceVectorNorm)
+    ) {
+      nonFiniteSamples++;
+    }
+  }
+}
+
+assert(nonFiniteSamples === 0, 'high-speed suspension produced non-finite wheel state');
+assert(airborneSamples === 0, `flat road generated ${airborneSamples} false airborne wheel samples`);
+assert(maxTravelM <= 0.140001, `suspension exceeded max bump travel at speed: ${maxTravelM} m`);
+assert(minTravelM >= -0.120001, `suspension exceeded max droop at speed: ${minTravelM} m`);
+assert(
+  maxHeaveDeltaM < 0.02,
+  `chassis separated vertically from settled ride height on flat road: ${maxHeaveDeltaM} m`
+);
+assert(
+  maxYawDeviationDeg < 0.1,
+  `straight 250 km/h flat-road run developed spurious yaw: ${maxYawDeviationDeg} deg`
+);
+
 console.log(JSON.stringify({
-  test: 'dynamic left-turn outside-load transfer',
-  input: 'left steer +0.18 at 90 km/h',
-  averageLeftLoadN,
-  averageRightLoadN,
-  averageOutsideLoadGainN,
-  peakOutsideLoadDeltaN: peakLoadDeltaN,
-  peakRollDeg,
-  peakYawRateDegS,
-  expected: 'FR + RR > FL + RL',
+  leftTurn90Kmh: {
+    averageLeftLoadN,
+    averageRightLoadN,
+    averageOutsideLoadGainN,
+    peakOutsideLoadDeltaN: peakLoadDeltaN,
+    peakRollDeg,
+    peakYawRateDegS,
+    expected: 'FR + RR > FL + RL',
+  },
+  flatRoad250Kmh: {
+    durationSec: 5,
+    maxHeaveDeltaM,
+    maxVerticalGMagnitude,
+    minTravelM,
+    maxTravelM,
+    airborneSamples,
+    maxYawDeviationDeg,
+  },
   status: 'passed',
 }, null, 2));
