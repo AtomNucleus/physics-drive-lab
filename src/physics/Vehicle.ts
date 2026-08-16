@@ -585,7 +585,19 @@ export class Vehicle {
           suspState.tireNormalForceN * wheelContactAuthority
         );
         const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+
+        // The rigid-body translation reference is the suspension-pickup plane,
+        // 0.35 m above the configured physical CG. Apply the same linear contact
+        // force, but evaluate its roll/pitch moment about a point shifted upward by
+        // that reference-to-CG offset. This gives tire shear the configured 0.52 m
+        // ground-to-CG lever arm instead of the accidental ~0.87 m lever arm that
+        // previously exaggerated high-speed load transfer and body roll.
+        const contactMomentPointWorld = PhysicsMath.vec3(
+          contactWorld.x,
+          contactWorld.y + 0.35,
+          contactWorld.z
+        );
+        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactMomentPointWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
