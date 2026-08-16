@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - agent/mobile-mode-touch-controls-20260816
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
