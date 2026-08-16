@@ -45,6 +45,9 @@ jobs:
       - name: Automatic transmission and low-speed propulsion regression
         run: npm run test:automatic
 
+      - name: High-speed anti-roll handling regression
+        run: npm run test:high-speed
+
       - name: Tire smoke regression
         run: npm run test:smoke
 
