@@ -39,9 +39,9 @@ function makeM5(overrides: Partial<VehicleConfig> = {}) {
 }
 
 function laneChangeSteer(time: number, amplitude: number) {
-  // Smooth left/right pulse. At 200 km/h, amplitude 0.04 produces roughly half-g
-  // actual lateral response; 0.075 intentionally drives the tire model close to its
-  // road-car lateral limit without requesting the absurd full-lock-at-200-km/h case.
+  // Smooth left/right pulse. At 200 km/h, amplitude 0.04 produces roughly half-g,
+  // 0.075 reaches the upper three-quarter-g range, and 0.10 pushes close to the
+  // calibrated road-tire lateral limit without using an impossible full-lock input.
   const pulseDuration = 0.72;
   if (time < pulseDuration) {
     return amplitude * Math.sin(Math.PI * time / pulseDuration);
@@ -108,9 +108,6 @@ function runHighSpeedLaneChange(
       ...susp.map((corner) => Math.abs(corner.antiRollBarForceN))
     );
 
-    // With diagonal coupling disabled, the front and rear bars are internal
-    // equal-and-opposite force pairs. Their net vertical contribution must remain
-    // exactly zero even when an inside corner becomes very lightly loaded.
     const arbNetBias =
       Math.abs(susp[0].antiRollBarForceN + susp[1].antiRollBarForceN) +
       Math.abs(susp[2].antiRollBarForceN + susp[3].antiRollBarForceN);
@@ -165,6 +162,7 @@ const nearLimitNoBars = runHighSpeedLaneChange(0.075, {
   rollStiffnessFront: 0,
   rollStiffnessRear: 0,
 });
+const tireLimitBars = runHighSpeedLaneChange(0.10);
 
 console.log(JSON.stringify({
   scenario: '200 km/h smooth double lane change on flat dry surface',
@@ -172,6 +170,7 @@ console.log(JSON.stringify({
   moderateNoBars,
   nearLimitBars,
   nearLimitNoBars,
+  tireLimitBars,
   moderateRollReductionFraction: moderateNoBars.peakRollDeg > 1e-6
     ? 1 - moderateBars.peakRollDeg / moderateNoBars.peakRollDeg
     : 0,
@@ -195,3 +194,12 @@ assert(nearLimitBars.minimumInsideSideLoadN > 1500, `inside side unloaded implau
 assert(nearLimitBars.loadTransferRatioToRigidGeometry < 1.55, `lateral load transfer is too large for configured CG: ${nearLimitBars.loadTransferRatioToRigidGeometry.toFixed(2)}x geometric`);
 assert(nearLimitBars.peakArbNetBiasN < 1e-6, `near-limit ARB created net vertical force: ${nearLimitBars.peakArbNetBiasN} N`);
 assert(nearLimitBars.finalSpeedKmh > 130, `lane-change test lost implausible speed: ${nearLimitBars.finalSpeedKmh.toFixed(1)} km/h`);
+
+assert(tireLimitBars.peakLatG > 0.85, `tire-limit maneuver did not reach the intended high-g range: ${tireLimitBars.peakLatG.toFixed(2)} g`);
+assert(tireLimitBars.peakLatG < 1.25, `tire-limit maneuver exceeded plausible calibrated grip: ${tireLimitBars.peakLatG.toFixed(2)} g`);
+assert(tireLimitBars.peakRollDeg < 3.5, `tire-limit body roll is excessive: ${tireLimitBars.peakRollDeg.toFixed(2)} deg`);
+assert(tireLimitBars.airborneSamples === 0, `tire-limit lane change created ${tireLimitBars.airborneSamples} airborne samples`);
+assert(tireLimitBars.minimumInsideSideLoadN > 2500, `tire-limit inside side unloaded too far: ${tireLimitBars.minimumInsideSideLoadN.toFixed(0)} N`);
+assert(tireLimitBars.loadTransferRatioToRigidGeometry > 0.70, `tire-limit load transfer is too weak: ${tireLimitBars.loadTransferRatioToRigidGeometry.toFixed(2)}x geometric`);
+assert(tireLimitBars.loadTransferRatioToRigidGeometry < 1.35, `tire-limit load transfer is excessive: ${tireLimitBars.loadTransferRatioToRigidGeometry.toFixed(2)}x geometric`);
+assert(tireLimitBars.peakArbNetBiasN < 1e-6, `tire-limit ARB created net vertical force: ${tireLimitBars.peakArbNetBiasN} N`);
