@@ -1,6 +1,7 @@
 import React from 'react';
 import { CameraMode } from '../types';
 import { VEHICLE_PRESETS } from '../physics/vehiclePresets';
+import { mapMobileSteeringDirection } from './mobileControls';
 import {
   Activity,
   Camera,
@@ -110,8 +111,8 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
 
   return (
     <>
-      {/* Compact utility bar. Secondary controls are one click away instead of permanently occupying the view. */}
       <div
+        id="driving-utility-bar"
         className="absolute left-1/2 top-3 z-20 -translate-x-1/2"
         style={mobileMode ? { top: 'max(0.75rem, env(safe-area-inset-top))' } : undefined}
       >
@@ -147,7 +148,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         </div>
 
         {toolbarExpanded && (
-          <div className="mt-1.5 flex items-center justify-center gap-1 rounded-2xl border border-slate-800/75 bg-slate-950/88 p-1 shadow-2xl backdrop-blur-xl">
+          <div id="driving-utility-menu" className="mt-1.5 flex items-center justify-center gap-1 rounded-2xl border border-slate-800/75 bg-slate-950/88 p-1 shadow-2xl backdrop-blur-xl">
             <button
               id="tuning-btn"
               onClick={onOpenTuning}
@@ -253,7 +254,6 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         </div>
       )}
 
-      {/* Keyboard visualizer follows the expanded utility state and never appears in mobile mode. */}
       {toolbarExpanded && !mobileMode && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-10 hidden items-end gap-1.5 sm:flex">
           <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-800/70 bg-slate-950/70 p-1.5 backdrop-blur-md">
@@ -306,29 +306,29 @@ const MobileDrivingControls: React.FC<{
         paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
       }}
     >
-      <div className="pointer-events-auto flex flex-col items-start gap-1.5">
-        <span className="pl-1 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400/90">Steer</span>
+      <div id="mobile-steering-pad" className="pointer-events-auto flex flex-col items-start gap-1.5">
+        <span className="pl-1 text-[8px] font-black uppercase tracking-[0.2em] text-slate-300/90">Steer</span>
         <div className="flex gap-2">
           <MobileTouchButton
             label="←"
             ariaLabel="Steer left"
-            className="h-[4.75rem] w-[4.75rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
-            onActiveChange={(active) => onTouchInput('steerLeft', active)}
+            className="mobile-steer-button h-[5.25rem] w-[5.25rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
+            onActiveChange={(active) => onTouchInput(mapMobileSteeringDirection('left'), active)}
           />
           <MobileTouchButton
             label="→"
             ariaLabel="Steer right"
-            className="h-[4.75rem] w-[4.75rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
-            onActiveChange={(active) => onTouchInput('steerRight', active)}
+            className="mobile-steer-button h-[5.25rem] w-[5.25rem] text-3xl active:border-sky-300 active:bg-sky-400 active:text-slate-950"
+            onActiveChange={(active) => onTouchInput(mapMobileSteeringDirection('right'), active)}
           />
         </div>
       </div>
 
-      <div className="pointer-events-auto absolute bottom-0 left-1/2 flex -translate-x-1/2 gap-1.5" style={{ marginBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+      <div id="mobile-quick-actions" className="pointer-events-auto absolute bottom-0 left-1/2 flex -translate-x-1/2 gap-1.5" style={{ marginBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <button
           type="button"
           onClick={onNextCamera}
-          className="flex h-9 items-center gap-1 rounded-full border border-slate-700 bg-slate-950/82 px-3 text-[9px] font-bold text-slate-200 shadow-lg backdrop-blur-lg active:bg-slate-800"
+          className="flex h-9 items-center gap-1 rounded-full border border-slate-600/90 bg-slate-950/72 px-3 text-[9px] font-bold text-slate-100 shadow-lg backdrop-blur-lg active:bg-slate-800"
           aria-label="Change camera"
         >
           <Camera size={13} /> CAM
@@ -336,30 +336,30 @@ const MobileDrivingControls: React.FC<{
         <button
           type="button"
           onClick={onReset}
-          className="flex h-9 items-center gap-1 rounded-full border border-slate-700 bg-slate-950/82 px-3 text-[9px] font-bold text-slate-200 shadow-lg backdrop-blur-lg active:bg-amber-300 active:text-slate-950"
+          className="flex h-9 items-center gap-1 rounded-full border border-slate-600/90 bg-slate-950/72 px-3 text-[9px] font-bold text-slate-100 shadow-lg backdrop-blur-lg active:bg-amber-300 active:text-slate-950"
           aria-label="Reset car"
         >
           <RotateCcw size={13} /> RESET
         </button>
       </div>
 
-      <div className="pointer-events-auto flex items-end gap-2">
+      <div id="mobile-pedal-pad" className="pointer-events-auto flex items-end gap-2">
         <MobileTouchButton
           label="HB"
           ariaLabel="Handbrake"
-          className="h-14 w-14 text-[11px] active:border-amber-300 active:bg-amber-300 active:text-slate-950"
+          className="mobile-handbrake h-14 w-14 text-[11px] active:border-amber-300 active:bg-amber-300 active:text-slate-950"
           onActiveChange={(active) => onTouchInput('handbrake', active)}
         />
         <MobileTouchButton
           label="BRAKE"
           ariaLabel="Brake"
-          className="h-[5.75rem] w-[4.5rem] text-[10px] active:border-rose-300 active:bg-rose-400 active:text-slate-950"
+          className="mobile-brake h-[6.25rem] w-[4.75rem] text-[10px] active:border-rose-300 active:bg-rose-400 active:text-slate-950"
           onActiveChange={(active) => onTouchInput('brake', active)}
         />
         <MobileTouchButton
           label="GAS"
           ariaLabel="Throttle"
-          className="h-[6.75rem] w-[4.75rem] text-xs active:border-emerald-300 active:bg-emerald-400 active:text-slate-950"
+          className="mobile-throttle h-[7.25rem] w-[5rem] text-xs active:border-emerald-300 active:bg-emerald-400 active:text-slate-950"
           onActiveChange={(active) => onTouchInput('throttle', active)}
         />
       </div>
@@ -396,7 +396,7 @@ const MobileTouchButton: React.FC<{
       onPointerCancel={deactivate}
       onLostPointerCapture={deactivate}
       onContextMenu={(event) => event.preventDefault()}
-      className={`${className} flex touch-none select-none items-center justify-center rounded-[1.35rem] border border-slate-500/70 bg-slate-950/68 font-black text-slate-100 shadow-2xl backdrop-blur-md transition-[transform,background-color,border-color] duration-75 active:scale-[0.97]`}
+      className={`${className} flex touch-none select-none items-center justify-center rounded-[1.5rem] border border-white/25 bg-slate-950/54 font-black text-white shadow-2xl backdrop-blur-sm transition-[transform,background-color,border-color] duration-75 active:scale-[0.96]`}
     >
       {label}
     </button>
