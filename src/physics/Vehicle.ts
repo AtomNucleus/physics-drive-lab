@@ -127,6 +127,8 @@ export class Vehicle {
       lowSpeedTorqueFillNm: (this.config as any).lowSpeedTorqueFillNm,
       torqueFillFadeRpm: (this.config as any).torqueFillFadeRpm,
       automaticTorqueConverter: (this.config as any).automaticTorqueConverter,
+      shiftDurationSec: (this.config as any).shiftDurationSec,
+      shiftTorqueMultiplier: (this.config as any).shiftTorqueMultiplier,
       autoBlipDownshift: this.config.autoBlipDownshift,
     });
 
@@ -157,6 +159,12 @@ export class Vehicle {
       maxSteerAngle: this.config.maxSteerAngle,
       steerSpeed: this.config.steerSpeed,
       steerSpeedReduction: this.config.steerSpeedReduction,
+      tcsSportSlipThreshold: (this.config as any).tcsSportSlipThreshold,
+      tcsFullSlipThreshold: (this.config as any).tcsFullSlipThreshold,
+      tcsSportResponse: (this.config as any).tcsSportResponse,
+      tcsFullResponse: (this.config as any).tcsFullResponse,
+      tcsSportGain: (this.config as any).tcsSportGain,
+      tcsFullGain: (this.config as any).tcsFullGain,
     });
 
     // 7. Aerodynamics
@@ -201,8 +209,14 @@ export class Vehicle {
       lowSpeedTorqueFillNm: (newConfig as any).lowSpeedTorqueFillNm,
       torqueFillFadeRpm: (newConfig as any).torqueFillFadeRpm,
       automaticTorqueConverter: (newConfig as any).automaticTorqueConverter,
+      shiftDurationSec: (newConfig as any).shiftDurationSec,
+      shiftTorqueMultiplier: (newConfig as any).shiftTorqueMultiplier,
       autoBlipDownshift: newConfig.autoBlipDownshift,
     };
+    this.powertrain.forwardGearRatios = [...newConfig.forwardGearRatios];
+    this.powertrain.reverseRatio = newConfig.reverseRatio;
+    this.powertrain.finalDriveRatio = newConfig.finalDriveRatio;
+
     this.differential.config = {
       type: newConfig.differentialType,
       powerRamp: newConfig.diffPowerRamp,
@@ -225,6 +239,12 @@ export class Vehicle {
       maxSteerAngle: newConfig.maxSteerAngle,
       steerSpeed: newConfig.steerSpeed,
       steerSpeedReduction: newConfig.steerSpeedReduction,
+      tcsSportSlipThreshold: (newConfig as any).tcsSportSlipThreshold,
+      tcsFullSlipThreshold: (newConfig as any).tcsFullSlipThreshold,
+      tcsSportResponse: (newConfig as any).tcsSportResponse,
+      tcsFullResponse: (newConfig as any).tcsFullResponse,
+      tcsSportGain: (newConfig as any).tcsSportGain,
+      tcsFullGain: (newConfig as any).tcsFullGain,
     };
     this.aero.config = {
       downforceFront100Kmh: newConfig.aeroDownforceFront,
