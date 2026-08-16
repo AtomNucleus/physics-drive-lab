@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit",
     "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
     "test:kinematics": "tsx src/physics/tests/SuspensionKinematicsTests.ts",
+    "test:kinematics-arb": "tsx src/physics/tests/SuspensionKinematicsAntiRollIntegrationTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
     "test:tire": "tsx src/physics/tests/TireModelTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
