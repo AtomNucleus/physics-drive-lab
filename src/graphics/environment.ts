@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { WheelState } from '../types';
+import { ProvingGroundSurfaceProvider } from '../physics/SurfaceProvider';
 
 export class EnvironmentManager {
   public scene: THREE.Scene;
@@ -20,6 +21,7 @@ export class EnvironmentManager {
 
   private smokeGeo: THREE.SphereGeometry;
   private smokeMat: THREE.MeshBasicMaterial;
+  private readonly surfaceProvider = new ProvingGroundSurfaceProvider();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -51,8 +53,20 @@ export class EnvironmentManager {
 
   private buildGround(): THREE.Mesh {
     // 2500m x 2500m Proving Ground
-    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 32, 32);
+    // Use enough longitudinal tessellation to visibly match the physics crest/dip.
+    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 160, 260);
     groundGeo.rotateX(-Math.PI / 2);
+
+    // Graphics and physics must sample the same road-height function. Otherwise the
+    // rigid body climbs an invisible hill while the rendered road remains flat.
+    const positions = groundGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getZ(i);
+      positions.setY(i, this.surfaceProvider.sampleSurface(x, z).elevation);
+    }
+    positions.needsUpdate = true;
+    groundGeo.computeVertexNormals();
 
     // Procedural Asphalt Texture using Canvas
     const canvas = document.createElement('canvas');
@@ -139,17 +153,23 @@ export class EnvironmentManager {
       const dashGeo = new THREE.PlaneGeometry(0.45, 8.5);
       dashGeo.rotateX(-Math.PI / 2);
       const dash = new THREE.Mesh(dashGeo, whiteMat);
-      dash.position.set(0, 0.016, z);
+      const road = this.surfaceProvider.sampleSurface(0, z);
+      dash.position.set(0, road.elevation + 0.016, z);
+      dash.rotation.x = -road.slopePitch;
       markingsGroup.add(dash);
     }
 
-    // Runway boundary lines
+    // Runway boundary lines are segmented so they can follow the same crest/dip.
     for (const x of [-18, 18]) {
-      const lineGeo = new THREE.PlaneGeometry(0.55, 1000);
-      lineGeo.rotateX(-Math.PI / 2);
-      const line = new THREE.Mesh(lineGeo, whiteMat);
-      line.position.set(x, 0.016, 0);
-      markingsGroup.add(line);
+      for (let z = -496; z <= 496; z += 8) {
+        const lineGeo = new THREE.PlaneGeometry(0.55, 8.2);
+        lineGeo.rotateX(-Math.PI / 2);
+        const line = new THREE.Mesh(lineGeo, whiteMat);
+        const road = this.surfaceProvider.sampleSurface(x, z);
+        line.position.set(x, road.elevation + 0.016, z);
+        line.rotation.x = -road.slopePitch;
+        markingsGroup.add(line);
+      }
     }
 
     // Drag Strip Staging Line & 1/4 Mile Finish Lines (at 0m, 100m, 200m, 402.3m)
@@ -157,7 +177,9 @@ export class EnvironmentManager {
       const trapGeo = new THREE.PlaneGeometry(36, 1.8);
       trapGeo.rotateX(-Math.PI / 2);
       const trap = new THREE.Mesh(trapGeo, labelColor);
-      trap.position.set(0, 0.018, zPos);
+      const road = this.surfaceProvider.sampleSurface(0, zPos);
+      trap.position.set(0, road.elevation + 0.018, zPos);
+      trap.rotation.x = -road.slopePitch;
       markingsGroup.add(trap);
     };
 
@@ -296,7 +318,7 @@ export class EnvironmentManager {
       stripe.position.y = 0.36;
       group.add(stripe);
 
-      group.position.set(x, 0, z);
+      group.position.set(x, this.surfaceProvider.sampleSurface(x, z).elevation, z);
       this.conesGroup.add(group);
 
       this.cones.push({
