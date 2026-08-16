@@ -39,6 +39,9 @@ jobs:
       - name: Suspension kinematics regression
         run: npm run test:kinematics
 
+      - name: PR18 anti-roll + suspension kinematics integration
+        run: npm run test:kinematics-arb
+
       - name: Steering direction regression
         run: npm run test:steering-direction
 
@@ -50,6 +53,12 @@ jobs:
 
       - name: Automatic transmission and low-speed propulsion regression
         run: npm run test:automatic
+
+      - name: Wheel visual pose regression
+        run: npm run test:wheel-visual
+
+      - name: M5 drive-mode regression
+        run: npm run test:m5-rwd
 
       # PR #18 permanent coverage must remain green with geometry-derived wheel
       # orientation active. It verifies signed equal/opposite ARB reactions, no
