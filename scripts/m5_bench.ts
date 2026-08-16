@@ -20,10 +20,21 @@ function prepAtSpeed(mph: number) {
   return sim;
 }
 
-function acceleration() {
+function acceleration(useLaunchPreload: boolean) {
   const sim = new Simulation(cfg);
   sim.reset(0, 0, 0);
   sim.vehicle.powertrain.isAutomatic = true;
+
+  if (useLaunchPreload) {
+    // Instrumented M5 acceleration uses launch control: brake held, powertrain
+    // loaded, then brake released. Do not count staging time in the run.
+    for (let i = 0; i < 120 * 1.5; i++) {
+      sim.stepExplicit({ ...zero, throttle: 1, brake: 1 }, 1);
+    }
+  }
+
+  const launchRpm = sim.vehicle.getState().rpm;
+  const launchBoostPsi = sim.vehicle.getState().turboBoostPsi;
   let t60: number | null = null;
   let t100: number | null = null;
   let qTime: number | null = null;
@@ -40,29 +51,40 @@ function acceleration() {
     if (st.rpm > 6800 && sim.vehicle.powertrain.gear < 8) sim.vehicle.powertrain.shiftUp();
     if (qTime !== null && t100 !== null) break;
   }
-  return { zeroTo60: t60, zeroTo100: t100, quarterMile: qTime, quarterTrapMph: qTrap };
+  return { useLaunchPreload, launchRpm, launchBoostPsi, zeroTo60: t60, zeroTo100: t100, quarterMile: qTime, quarterTrapMph: qTrap };
 }
 
-function braking(startMph: number) {
+function braking(startMph: number, mode: 'OFF'|'SPORT'|'FULL', pedal: number) {
   const sim = prepAtSpeed(startMph);
-  sim.vehicle.driverAids.config.absMode = 'SPORT' as any;
+  sim.vehicle.driverAids.config.absMode = mode as any;
   const z0 = sim.vehicle.getState().z;
   const samples: number[] = [];
+  const slips: number[] = [];
+  const pressures: number[] = [];
   let peakG = 0;
   for (let i = 0; i < 120 * 12; i++) {
-    const st = sim.stepExplicit({ ...zero, brake: 1 }, 1);
+    const st = sim.stepExplicit({ ...zero, brake: pedal }, 1);
     const decel = Math.abs(sim.vehicle.rigidBody.acceleration.z / G);
     peakG = Math.max(peakG, decel);
-    if (st.speedMs > 2) samples.push(decel);
+    if (st.speedMs > 2) {
+      samples.push(decel);
+      slips.push(...st.wheels.map((w: any) => Math.abs(w.slipRatio)));
+      pressures.push(...sim.vehicle.brakes.pressureModulators);
+    }
     if (st.speedMs < 0.8) break;
   }
   const distanceM = Math.abs(sim.vehicle.getState().z - z0);
+  const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
   return {
-    startMph,
+    startMph, mode, pedal,
     distanceM,
     distanceFt: distanceM / 0.3048,
-    meanG: samples.reduce((a, b) => a + b, 0) / samples.length,
+    meanG: avg(samples),
     peakG,
+    meanAbsSlip: avg(slips),
+    peakAbsSlip: Math.max(...slips),
+    meanPressure: avg(pressures),
+    minPressure: Math.min(...pressures),
   };
 }
 
@@ -105,6 +127,15 @@ function staticLoads() {
   return { loads, frontFraction: front / total, bodyY: s.y };
 }
 
+const brakeSweep70 = [
+  braking(70,'SPORT',1.0), braking(70,'SPORT',0.8), braking(70,'SPORT',0.65),
+  braking(70,'FULL',1.0), braking(70,'OFF',0.55), braking(70,'OFF',0.70),
+];
+const brakeSweep100 = [
+  braking(100,'SPORT',1.0), braking(100,'SPORT',0.8), braking(100,'SPORT',0.65),
+  braking(100,'FULL',1.0), braking(100,'OFF',0.55), braking(100,'OFF',0.70),
+];
+
 const result = {
   targets: BMW_M5_2025_TARGETS,
   config: {
@@ -117,9 +148,10 @@ const result = {
     finalDrive: cfg.finalDriveRatio,
   },
   staticLoads: staticLoads(),
-  acceleration: acceleration(),
-  braking70: braking(70),
-  braking100: braking(100),
+  accelerationLaunchControl: acceleration(true),
+  accelerationIdle: acceleration(false),
+  brakeSweep70,
+  brakeSweep100,
   skidpad: skidpad(),
 };
 
