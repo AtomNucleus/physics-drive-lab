@@ -22,6 +22,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Physics coordinate/sign convention guardrails
+        run: npm run test:conventions
+
       - name: Mobile steering regression
         run: npm run test:mobile
 
