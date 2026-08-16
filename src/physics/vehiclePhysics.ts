@@ -6,15 +6,15 @@
 import { VehicleConfig, VehicleState, ControlInputs } from '../types';
 import { Simulation } from './Simulation';
 import { Vehicle } from './Vehicle';
-import { ProvingGroundSurfaceProvider, SurfaceSample } from './SurfaceProvider';
+import { ISurfaceProvider, ProvingGroundSurfaceProvider, SurfaceSample } from './SurfaceProvider';
 import { HeadlessTestRunner, TestResult } from './tests/HeadlessTestRunner';
 
 export class VehiclePhysicsEngine {
   public simulation: Simulation;
-  public surfaceProvider: ProvingGroundSurfaceProvider;
+  public surfaceProvider: ISurfaceProvider;
 
-  constructor(config: VehicleConfig) {
-    this.surfaceProvider = new ProvingGroundSurfaceProvider();
+  constructor(config: VehicleConfig, surfaceProvider: ISurfaceProvider = new ProvingGroundSurfaceProvider()) {
+    this.surfaceProvider = surfaceProvider;
     this.simulation = new Simulation(config, this.surfaceProvider);
   }
 
@@ -36,8 +36,40 @@ export class VehiclePhysicsEngine {
     this.simulation.setConfig(newConfig);
   }
 
+  /**
+   * Swap the world surface without reconstructing the vehicle. The proving
+   * ground remains the default; imported tracks can install a mesh-backed
+   * provider after their package has loaded.
+   */
+  public setSurfaceProvider(surfaceProvider: ISurfaceProvider) {
+    this.surfaceProvider = surfaceProvider;
+    this.simulation.vehicle.surfaceProvider = surfaceProvider;
+  }
+
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
     this.simulation.reset(x, z, yaw);
+
+    // Vehicle.reset uses a ground-relative ride-height convention. Move that
+    // baseline onto the actual imported road so a mountain spawn does not begin
+    // hundreds of metres below or above the local surface.
+    const surface = this.surfaceProvider.sampleSurface(x, z, this.simulation.vehicle.rigidBody.position.y);
+    if (Number.isFinite(surface.elevation) && surface.elevation > -1000) {
+      this.simulation.vehicle.rigidBody.position.y += surface.elevation;
+
+      // Refresh Simulation's interpolation snapshots after changing Y without
+      // advancing physics time.
+      this.simulation.stepExplicit(
+        {
+          throttle: 0,
+          brake: 0,
+          steer: 0,
+          handbrake: false,
+          shiftUp: false,
+          shiftDown: false,
+        },
+        0
+      );
+    }
   }
 
   public triggerClutchKick() {
@@ -48,8 +80,8 @@ export class VehiclePhysicsEngine {
     this.simulation.vehicle.toggleDrs();
   }
 
-  public sampleTerrainAndSurface(x: number, z: number): SurfaceSample {
-    return this.surfaceProvider.sampleSurface(x, z);
+  public sampleTerrainAndSurface(x: number, z: number, referenceY?: number): SurfaceSample {
+    return this.surfaceProvider.sampleSurface(x, z, referenceY);
   }
 
   /** Advance the 120 Hz fixed accumulator physics with state interpolation. */
