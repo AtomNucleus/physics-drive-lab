@@ -1,5 +1,5 @@
 name: Apply hub attachment and rollover fix
-# final rerun after wheel visual test script was restored
+# Source-only finalization: workflow cleanup is handled separately.
 
 on:
   push:
@@ -50,6 +50,7 @@ jobs:
           text = renderer.read_text()
           marker = "import { VehicleConfig, VehicleState } from '../types';\n"
           if "from './wheelVisualPose'" not in text:
+              if marker not in text: raise SystemExit('missing renderer import marker')
               text = text.replace(marker, marker + "import { computeWheelVisualPose } from './wheelVisualPose';\n", 1)
           old = """      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;\n      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);\n      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);\n\n      // Steer rotation (Y axis)\n      wheelGroup.rotation.y = wheel.steerAngle;\n\n      // Camber rotation (Z axis) dynamically driven by suspension kinematics\n      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;\n"""
           new = """      const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;\n      const crashPose = computeWheelVisualPose({\n        chassisHeaveM: state.heave, chassisPitchRad: state.pitch, chassisRollRad: state.roll,\n        mountX: wheel.localPos.x, mountZ: wheel.localPos.z, suspensionTravelM: wheel.verticalTravelM,\n        tireSquishM: wheel.tireSquishM, sidewallDeflectionM: wheel.sidewallDeflection,\n        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: 0.33,\n      });\n      const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;\n      if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {\n        const dx = hub.x - state.x;\n        const dz = hub.z - state.z;\n        const c = Math.cos(state.yaw);\n        const s = Math.sin(state.yaw);\n        wheelGroup.position.set(c * dx - s * dz, hub.y - state.elevationHeight, s * dx + c * dz);\n      } else {\n        wheelGroup.position.set(crashPose.x, crashPose.y, crashPose.z);\n      }\n      wheelGroup.rotation.set(crashPose.rotationX, wheel.steerAngle, crashPose.rotationZ, 'YXZ');\n"""
@@ -64,21 +65,13 @@ jobs:
           if 'testRenderedWheelTracksPhysicalHubDuringWipeout' not in text:
               marker = "const tests: Array<[string, () => void]> = [\n"
               extra = """function testWheelAuthorityHandsOffBeforeSidewaysJacking() {\n  const a20 = wheelContactAuthorityForUprightness(Math.cos(20 * Math.PI / 180));\n  const a45 = wheelContactAuthorityForUprightness(Math.cos(45 * Math.PI / 180));\n  const a60 = wheelContactAuthorityForUprightness(Math.cos(60 * Math.PI / 180));\n  assert(a20 > 0.999, `20deg authority changed: ${a20}`);\n  assert(a45 > 0.35 && a45 < 0.70, `45deg authority did not fade correctly: ${a45}`);\n  assert(a60 < 1e-6, `60deg retained jacking authority: ${a60}`);\n}\n\nfunction testRenderedWheelTracksPhysicalHubDuringWipeout() {\n  const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;\n  const renderer = new CarRenderer('#2563eb');\n  const state: any = {\n    x: 12, z: -7, elevationHeight: 1.4, heave: 0.18, yaw: 0.73,\n    pitch: 38 * Math.PI / 180, roll: 57 * Math.PI / 180, airbrakeActive: false, drsActive: false,\n    exhaustFlameIntensity: 0, showForceVectors3D: false,\n    wheels: [{ id: 'FL', isFront: true, isLeft: true, localPos: { x: -0.84, y: 0, z: 1.36 },\n      hubWorldPos: { x: 11.28, y: 1.92, z: -5.74 }, steerAngle: 0.18, camberAngleDeg: -2,\n      rotationAngle: 1.2, verticalTravelM: 0.10, tireSquishM: 0.025, sidewallDeflection: 0.01,\n      brakeRotorTemp: 80, forceVectorLong: 0, forceVectorLat: 0, forceVectorNorm: 0, gripUtilization: 0,\n      isSkidding: false, bumpStopEngaged: false }],\n  };\n  renderer.update(state, config);\n  renderer.rootGroup.updateMatrixWorld(true);\n  const actual = new THREE.Vector3();\n  renderer.wheelMeshes[0].getWorldPosition(actual);\n  const expected = new THREE.Vector3(11.28, 1.92, -5.74);\n  assert(actual.distanceTo(expected) < 1e-6, `wheel separated ${actual.distanceTo(expected)} m from physical hub`);\n}\n\n"""
+              if marker not in text: raise SystemExit('missing crash test marker')
               text = text.replace(marker, extra + marker, 1)
               tail = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n];\n"""
               replacement = """  ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],\n  ['wheel authority hands off before sideways jacking', testWheelAuthorityHandsOffBeforeSidewaysJacking],\n  ['rendered wheel tracks physical hub during wipeout', testRenderedWheelTracksPhysicalHubDuringWipeout],\n];\n"""
               if tail not in text: raise SystemExit('missing crash test tail')
               text = text.replace(tail, replacement, 1)
           test.write_text(text)
-
-          ci = Path('.github/workflows/low-speed-tire-regression.yml')
-          text = ci.read_text()
-          if 'Wheel visual pose regression' not in text:
-              marker = """      - name: Crash recovery and CG-pivot regression\n        run: npm run test:crash-recovery\n\n      - name: Production build\n"""
-              repl = """      - name: Crash recovery, CG-pivot, and hub attachment regression\n        run: npm run test:crash-recovery\n\n      - name: Wheel visual pose regression\n        run: npm run test:wheel-visual\n\n      - name: Production build\n"""
-              if marker not in text: raise SystemExit('missing CI crash marker')
-              text = text.replace(marker, repl, 1)
-          ci.write_text(text)
           PY
 
       - run: npm install --no-audit --no-fund
@@ -97,12 +90,11 @@ jobs:
           npm run test:mobile
       - run: npm run build
 
-      - name: Commit tested fix
+      - name: Commit tested source fix
         shell: bash
         run: |
-          rm .github/workflows/agent-hub-attachment-rollover-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/physics/Vehicle.ts src/graphics/carRenderer.ts src/physics/tests/CrashRecoveryTests.ts .github/workflows/low-speed-tire-regression.yml .github/workflows/agent-hub-attachment-rollover-fix.yml
+          git add src/physics/Vehicle.ts src/graphics/carRenderer.ts src/physics/tests/CrashRecoveryTests.ts
           git commit -m "Keep body attached to wheels during wipeouts"
           git push origin HEAD:agent/full-tire-combined-slip
