@@ -1,4 +1,3 @@
-
 import { Simulation } from '../Simulation';
 import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
@@ -11,11 +10,44 @@ const assert = (condition: boolean, message: string) => {
 const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;
 const neutral = { throttle: 0, brake: 0, steer: 0, handbrake: false, shiftUp: false, shiftDown: false };
 
-function runTurn(steer: number) {
+function assertAckermannAtLowSpeed() {
+  const sim = new Simulation(config);
+  const steering = sim.vehicle.driverAids;
+  const speedMs = 6.0; // 21.6 km/h: the reported parking/urban-speed problem range.
+
+  steering.reset();
+  const left = steering.updateSteering(0.75, speedMs, 1.0);
+  assert(left.steerFL > 0 && left.steerFR > 0, `LEFT Ackermann signs invalid: FL=${left.steerFL} FR=${left.steerFR}`);
+  assert(
+    Math.abs(left.steerFL) > Math.abs(left.steerFR),
+    `LEFT turn requires inside FL angle > outside FR angle: FL=${left.steerFL} FR=${left.steerFR}`
+  );
+
+  steering.reset();
+  const right = steering.updateSteering(-0.75, speedMs, 1.0);
+  assert(right.steerFL < 0 && right.steerFR < 0, `RIGHT Ackermann signs invalid: FL=${right.steerFL} FR=${right.steerFR}`);
+  assert(
+    Math.abs(right.steerFR) > Math.abs(right.steerFL),
+    `RIGHT turn requires inside FR angle > outside FL angle: FL=${right.steerFL} FR=${right.steerFR}`
+  );
+
+  // Ackermann must be mirror-symmetric: reversing steering swaps the inner/outer magnitudes.
+  assert(
+    Math.abs(Math.abs(left.steerFL) - Math.abs(right.steerFR)) < 1e-10,
+    `inside steer magnitude lost left/right symmetry: left FL=${left.steerFL} right FR=${right.steerFR}`
+  );
+  assert(
+    Math.abs(Math.abs(left.steerFR) - Math.abs(right.steerFL)) < 1e-10,
+    `outside steer magnitude lost left/right symmetry: left FR=${left.steerFR} right FL=${right.steerFL}`
+  );
+
+  return { left, right, speedMs };
+}
+
+function runTurn(steer: number, speedMs: number = 18) {
   const sim = new Simulation(config);
   sim.reset(0, 0, 0);
   for (let i = 0; i < 240; i++) sim.stepExplicit(neutral, 1);
-  const speedMs = 18;
   sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, speedMs);
   sim.vehicle.wheels.forEach((wheel) => wheel.reset(speedMs));
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
@@ -26,6 +58,8 @@ function runTurn(steer: number) {
   const rightLoadN = state.wheels[1].suspensionForce + state.wheels[3].suspensionForce;
   return { state, leftLoadN, rightLoadN };
 }
+
+const ackermann = assertAckermannAtLowSpeed();
 
 const left = runTurn(0.18);
 assert(left.state.x > 0.5, `LEFT command must move toward vehicle-left (+X), got x=${left.state.x}`);
@@ -40,6 +74,17 @@ assert(right.state.actualSteerAngle < 0, `RIGHT command must produce negative ra
 assert(right.leftLoadN > right.rightLoadN, `RIGHT turn must load LEFT/outside tires: left=${right.leftLoadN} right=${right.rightLoadN}`);
 
 console.log(JSON.stringify({
+  lowSpeedAckermann: {
+    speedKmh: ackermann.speedMs * 3.6,
+    left: {
+      insideFLDeg: ackermann.left.steerFL * 180 / Math.PI,
+      outsideFRDeg: ackermann.left.steerFR * 180 / Math.PI,
+    },
+    right: {
+      outsideFLDeg: ackermann.right.steerFL * 180 / Math.PI,
+      insideFRDeg: ackermann.right.steerFR * 180 / Math.PI,
+    },
+  },
   left: { x: left.state.x, yawDeg: left.state.yaw * 180 / Math.PI, leftLoadN: left.leftLoadN, rightLoadN: left.rightLoadN },
   right: { x: right.state.x, yawDeg: right.state.yaw * 180 / Math.PI, leftLoadN: right.leftLoadN, rightLoadN: right.rightLoadN },
   status: 'passed',
