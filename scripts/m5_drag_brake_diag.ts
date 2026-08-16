@@ -6,8 +6,14 @@ const MPH=2.2369362921, G=9.81;
 const base:any={...DEFAULT_VEHICLE_CONFIG,...BMW_M5_2025_OVERRIDES};
 const zero:any={throttle:0,brake:0,steer:0,handbrake:false,shiftUp:false,shiftDown:false};
 
-function brake(startMph:number,brakeForce:number,dragCoeff:number){
-  const cfg:any={...base,brakeForce,aeroDragCoeff:dragCoeff};
+function brake(startMph:number,brakeForce:number,dragCoeff:number,downforceScale:number){
+  const cfg:any={
+    ...base,
+    brakeForce,
+    aeroDragCoeff:dragCoeff,
+    aeroDownforceFront:base.aeroDownforceFront*downforceScale,
+    aeroDownforceRear:base.aeroDownforceRear*downforceScale,
+  };
   const sim=new Simulation(cfg); sim.reset(0,0,0);
   const v=startMph/MPH;
   sim.vehicle.rigidBody.velocity={x:0,y:0,z:v};
@@ -32,13 +38,15 @@ function brake(startMph:number,brakeForce:number,dragCoeff:number){
 }
 
 const out:any[]=[];
-for(const brakeForce of [10000,10250,10500,10750,11000]){
-  for(const dragCoeff of [0,0.10,0.20,0.25,0.30,0.35]){
-    const b70=brake(70,brakeForce,dragCoeff);
-    const b100=brake(100,brakeForce,dragCoeff);
-    const score=Math.abs(b70.distanceFt-157)+Math.abs(b100.distanceFt-324);
-    out.push({brakeForce,dragCoeff,b70,b100,score});
+for(const brakeForce of [10750,11000,11250,11500,11750,12000]){
+  for(const dragCoeff of [0,0.10,0.20,0.30,0.35]){
+    for(const downforceScale of [0,0.10,0.25,0.50,1]){
+      const b70=brake(70,brakeForce,dragCoeff,downforceScale);
+      const b100=brake(100,brakeForce,dragCoeff,downforceScale);
+      const score=Math.abs(b70.distanceFt-157)+Math.abs(b100.distanceFt-324);
+      out.push({brakeForce,dragCoeff,downforceScale,b70,b100,score});
+    }
   }
 }
 out.sort((a,b)=>a.score-b.score);
-console.log(JSON.stringify(out.slice(0,15),null,2));
+console.log(JSON.stringify(out.slice(0,24),null,2));
