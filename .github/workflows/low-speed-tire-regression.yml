@@ -35,6 +35,9 @@ jobs:
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
 
+      - name: Full tire and combined-slip regression
+        run: npm run test:tire
+
       - name: Production build
         run: npm run build
 
