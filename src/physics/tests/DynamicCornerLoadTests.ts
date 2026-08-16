@@ -46,9 +46,9 @@ let peakLoadDeltaN = -Infinity;
 let peakRollDeg = 0;
 let peakYawRateDegS = 0;
 
-// In the UI, LEFT steering is positive input. DriverAids converts that to the
-// simulation's negative steering angle convention. Run a moderate 18% steering
-// step, long enough for tire relaxation + suspension load transfer to establish.
+// LEFT steering is positive input. In the canonical right-handed vehicle frame,
+// +X is vehicle-left and +Z is forward. Run a moderate 18% steering step long
+// enough for tire relaxation + suspension load transfer to establish.
 for (let step = 0; step < 120; step++) {
   const state = sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
   const leftLoad = state.wheels[0].suspensionForce + state.wheels[2].suspensionForce;

@@ -13,6 +13,7 @@
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
     "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
+    "test:steering-direction": "tsx src/physics/tests/SteeringDirectionTests.ts",
     "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts"
   },
   "dependencies": {

@@ -50,7 +50,9 @@ export class DriverAidsSystem {
   ): { steerFL: number; steerFR: number; centerAngle: number } {
     const speedRatio = Math.min(1.0, Math.abs(forwardSpeedMs) / 38.0);
     const maxAllowedAngle = this.config.maxSteerAngle * (1.0 - speedRatio * this.config.steerSpeedReduction);
-    const targetCenterAngle = -steerInput * maxAllowedAngle;
+    // Canonical vehicle coordinates are right-handed: +X is vehicle-left, +Y is up, +Z is forward.
+    // UI/control convention: positive steer means LEFT, negative steer means RIGHT.
+    const targetCenterAngle = steerInput * maxAllowedAngle;
 
     const steerStep = this.config.steerSpeed * dt;
     if (Math.abs(targetCenterAngle - this.currentCenterSteerAngle) <= steerStep) {

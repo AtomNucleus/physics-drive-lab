@@ -317,11 +317,12 @@ export class Vehicle {
     const frontDist = L * (1.0 - this.config.weightDistributionFront);
     const rearDist = L * this.config.weightDistributionFront;
 
+    // +X is vehicle-left in the right-handed (+X left, +Y up, +Z forward) body frame.
     return [
-      PhysicsMath.vec3(-W, 0, frontDist), // FL
-      PhysicsMath.vec3(W, 0, frontDist),  // FR
-      PhysicsMath.vec3(-W, 0, -rearDist), // RL
-      PhysicsMath.vec3(W, 0, -rearDist),  // RR
+      PhysicsMath.vec3(W, 0, frontDist),  // FL
+      PhysicsMath.vec3(-W, 0, frontDist), // FR
+      PhysicsMath.vec3(W, 0, -rearDist),  // RL
+      PhysicsMath.vec3(-W, 0, -rearDist), // RR
     ];
   }
 
