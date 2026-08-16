@@ -2,6 +2,7 @@ import { VehicleConfig, VehicleState, ControlInputs } from '../types';
 import { Vehicle } from './Vehicle';
 import { ISurfaceProvider } from './SurfaceProvider';
 import { PhysicsMath } from './math/PhysicsMath';
+import { stabilizeVehicleAfterImpact } from './CrashStability';
 
 export class Simulation {
   public vehicle: Vehicle;
@@ -102,6 +103,7 @@ export class Simulation {
     while (this.accumulatedTime + timeEpsilon >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
       this.previousState = this.currentState;
       this.vehicle.step(inputs, this.fixedDt);
+      stabilizeVehicleAfterImpact(this.vehicle, this.fixedDt);
       this.currentState = this.vehicle.getState();
 
       this.accumulatedTime -= this.fixedDt;
@@ -122,6 +124,7 @@ export class Simulation {
   public stepExplicit(inputs: ControlInputs, steps: number = 1): VehicleState {
     for (let i = 0; i < steps; i++) {
       this.vehicle.step(inputs, this.fixedDt);
+      stabilizeVehicleAfterImpact(this.vehicle, this.fixedDt);
       this.totalSimTime += this.fixedDt;
       this.stepCount++;
     }

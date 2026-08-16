@@ -11,8 +11,13 @@
     "lint": "tsc --noEmit",
     "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
+    "test:tire": "tsx src/physics/tests/TireModelTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
     "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
+    "test:smoke": "tsx src/physics/tests/TireSmokeRegressionTests.ts",
+    "test:crash": "tsx src/physics/tests/CrashStabilityTests.ts",
+    "test:crash-recovery": "tsx src/physics/tests/CrashRecoveryTests.ts",
+    "test:wheel-visual": "tsx src/physics/tests/WheelVisualPoseTests.ts",
     "test:steering-direction": "tsx src/physics/tests/SteeringDirectionTests.ts",
     "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts"
   },

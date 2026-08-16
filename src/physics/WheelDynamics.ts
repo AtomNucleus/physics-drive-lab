@@ -1,6 +1,38 @@
 import { PhysicsMath } from './math/PhysicsMath';
 import { TireModel, TireModelConfig, TireForceOutput } from './TireModel';
 
+export interface GrossTireSlideEstimate {
+  longitudinalSlipSpeed: number;
+  lateralSlipSpeed: number;
+  totalSlipSpeed: number;
+}
+
+/**
+ * Estimate only the portion of contact-patch motion that represents gross
+ * sliding across the road. Normal force-generating tire slip is mostly
+ * carcass/contact-patch deformation and must not automatically create smoke.
+ */
+export function estimateGrossTireSlide(
+  longitudinalVelocity: number,
+  lateralVelocity: number,
+  wheelSurfaceSpeed: number
+): GrossTireSlideEstimate {
+  const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+  const longitudinalPatchSpeed = Math.abs(wheelSurfaceSpeed - longitudinalVelocity);
+  const longitudinalAdhesionSpeed = Math.max(0.8, rollingSpeed * 0.15);
+  const longitudinalSlipSpeed = Math.max(0, longitudinalPatchSpeed - longitudinalAdhesionSpeed);
+  const lateralAdhesionSpeed = Math.max(
+    0.45,
+    Math.tan(0.16) * Math.max(0.5, Math.abs(longitudinalVelocity))
+  );
+  const lateralSlipSpeed = Math.max(0, Math.abs(lateralVelocity) - lateralAdhesionSpeed);
+  return {
+    longitudinalSlipSpeed,
+    lateralSlipSpeed,
+    totalSlipSpeed: Math.hypot(longitudinalSlipSpeed, lateralSlipSpeed),
+  };
+}
+
 export interface WheelDynamicsConfig {
   id: string;
   isFront: boolean;
@@ -251,6 +283,22 @@ export class WheelDynamics {
     let staticFy = this.lowSpeedLatDeflection * bristleStiffness + latPatchSlipSpeed * bristleDamping;
 
     const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);
+
+    // Rubber shear from a completed spin relaxes over time once there is no longer
+    // meaningful contact-patch motion or applied axle torque. This prevents old
+    // bristle deflection from becoming a persistent low-speed oscillation source.
+    const patchNearlySettled =
+      fz >= 20 &&
+      rollingSpeed < 0.55 &&
+      patchSlipSpeed < 0.28 &&
+      Math.abs(driveTorque) < 15 &&
+      brakeRequest < 15;
+    if (patchNearlySettled) {
+      const creepDecay = Math.exp(-dt / 0.35);
+      this.lowSpeedLongDeflection *= creepDecay;
+      this.lowSpeedLatDeflection *= creepDecay;
+    }
+
     const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);
     const lowSpeedMuMultiplier = PhysicsMath.lerp(
       1.08,
@@ -344,6 +392,25 @@ export class WheelDynamics {
       this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
     }
 
+    // A freely rolling loaded wheel at essentially zero chassis speed is a static
+    // no-slip constraint. Letting a several-kN residual tire force integrate through
+    // the tiny wheel inertia can kick omega by multiple rad/s every 120 Hz step,
+    // creating a numerical reaction-torque chatter after a spin. Project only this
+    // quiescent, unpowered/unbraked case to the road speed; genuine acceleration,
+    // braking, wheelspin and rolling behavior are unaffected.
+    const quiescentFreeRolling =
+      fz >= 20 &&
+      Math.abs(longitudinalVelocity) < 0.35 &&
+      Math.abs(lateralVelocity) < 0.25 &&
+      Math.abs(driveTorque) < 15 &&
+      brakeRequest < 15;
+    if (quiescentFreeRolling) {
+      this.angularVelocity = roadOmega;
+      const slipStateDecay = Math.exp(-dt / 0.10);
+      this.rawSlipRatio *= slipStateDecay;
+      this.relaxationSlipRatio *= slipStateDecay;
+    }
+
     this.rotationAngle += this.angularVelocity * dt;
     if (Math.abs(this.rotationAngle) > Math.PI * 1000) this.rotationAngle %= Math.PI * 2;
 
@@ -363,15 +430,23 @@ export class WheelDynamics {
 
     const transientResultant = Math.hypot(fx, fy);
     const gripUtilization = limit > 0 ? PhysicsMath.clamp(transientResultant / limit, 0, 1.5) : 0;
-    const skidSpeedGate = PhysicsMath.clamp((patchSlipSpeed - 0.45) / 1.75, 0, 1);
-    const skidPowerGate = PhysicsMath.clamp((slipEnergy - 600) / 6000, 0, 1);
+    // Visible smoke/skid marks require gross road sliding, not ordinary
+    // force-generating slip near the tire's cornering peak.
+    const grossSlide = estimateGrossTireSlide(
+      longitudinalVelocity,
+      lateralVelocity,
+      wheelSurfaceSpeed
+    );
+    const grossSlipEnergy =
+      Math.abs(contactFxForWheelTorque) * grossSlide.longitudinalSlipSpeed +
+      Math.abs(fy) * grossSlide.lateralSlipSpeed;
+    const skidSpeedGate = PhysicsMath.clamp((grossSlide.totalSlipSpeed - 0.35) / 2.4, 0, 1);
+    const skidPowerGate = PhysicsMath.clamp((grossSlipEnergy - 1200) / 9000, 0, 1);
     const dissipativeSkidGate = Math.min(skidSpeedGate, skidPowerGate);
-    const isDissipativeSkid =
-      dissipativeSkidGate > 0 &&
-      (target.isSkidding || gripUtilization > 0.99 || patchSlipSpeed > 1.2);
+    const isDissipativeSkid = dissipativeSkidGate > 0;
     const skidIntensity = isDissipativeSkid
       ? PhysicsMath.clamp(
-          Math.max(target.skidIntensity * dynamicBlend, gripUtilization - 0.82, dissipativeSkidGate) *
+          Math.max(dissipativeSkidGate, target.skidIntensity * 0.35 * dynamicBlend) *
             dissipativeSkidGate,
           0,
           1

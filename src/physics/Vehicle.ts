@@ -11,6 +11,20 @@ import { AerodynamicsSystem } from './Aero';
 import { TelemetrySystem } from './Telemetry';
 import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';
 
+export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {
+  const normal = PhysicsMath.vec3Normalize(surfaceNormal);
+  if (PhysicsMath.vec3Length(normal) < 1e-7) return forceWorld;
+  const normalForce = PhysicsMath.vec3Dot(forceWorld, normal);
+  return PhysicsMath.vec3Sub(forceWorld, PhysicsMath.vec3Scale(normal, normalForce));
+}
+
+export function wheelContactAuthorityForUprightness(uprightness: number): number {
+  const fullAuthority = Math.cos(25 * Math.PI / 180);
+  const zeroAuthority = Math.cos(60 * Math.PI / 180);
+  const t = PhysicsMath.clamp((uprightness - zeroAuthority) / (fullAuthority - zeroAuthority), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export class Vehicle {
   public config: VehicleConfig;
   public rigidBody: RigidBody;
@@ -544,27 +558,37 @@ export class Vehicle {
 
       totalAligningTorque += tireOut.aligningTorque;
 
-      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {
-        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.
+      const roadNormal = PhysicsMath.vec3Normalize(surface.normal);
+      const bodyUpWorld = PhysicsMath.quatRotateVec3(
+        this.rigidBody.orientation,
+        PhysicsMath.vec3(0, 1, 0)
+      );
+      const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);
+      const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);
+
+      if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
         const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
-
-        // Tire shear follows the chassis/wheel heading, but suspension support is
-        // an external ground-normal reaction. Rotating support with chassis pitch/roll
-        // can invent propulsion on a flat road; apply it along the actual road normal.
-        const tirePlanarWorld = PhysicsMath.quatRotateVec3(
+        const rawTireShearWorld = PhysicsMath.quatRotateVec3(
           this.rigidBody.orientation,
           PhysicsMath.vec3(fxBody, 0, fzBody)
         );
+        const tirePlanarWorld = PhysicsMath.vec3Scale(
+          projectTireShearOntoSurface(rawTireShearWorld, roadNormal),
+          wheelContactAuthority
+        );
+
+        // RigidBody.mass is the complete vehicle mass. The external support on it
+        // is therefore the road/tire normal reaction, not the internal spring force.
         const suspensionSupportWorld = PhysicsMath.vec3Scale(
-          surface.normal,
-          suspState.chassisForceN
+          roadNormal,
+          suspState.tireNormalForceN * wheelContactAuthority
         );
         const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
         this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
-
-        // Apply self-aligning torque Mz to chassis
-        this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));
+        this.rigidBody.addBodyTorque(
+          PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
+        );
       }
     }
 
@@ -656,6 +680,11 @@ export class Vehicle {
         groundContactPos: {
           x: susp.contactPointWorld.x,
           y: susp.contactPointWorld.y,
+          z: susp.contactPointWorld.z,
+        },
+        hubWorldPos: {
+          x: susp.contactPointWorld.x,
+          y: susp.hubPositionWorldY,
           z: susp.contactPointWorld.z,
         },
         temperature: w.temperature,
