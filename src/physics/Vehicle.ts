@@ -544,13 +544,23 @@ export class Vehicle {
       totalAligningTorque += tireOut.aligningTorque;
 
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {
-        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame
+        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
         const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
-        const fyBody = suspState.chassisForceN; // Delayed spring/damper reaction transmitted into the sprung chassis
 
-        const forceBody = PhysicsMath.vec3(fxBody, fyBody, fzBody);
-        this.rigidBody.addBodyForceAtPoint(forceBody, contactPointBody);
+        // Tire shear follows the chassis/wheel heading, but suspension support is
+        // an external ground-normal reaction. Rotating support with chassis pitch/roll
+        // can invent propulsion on a flat road; apply it along the actual road normal.
+        const tirePlanarWorld = PhysicsMath.quatRotateVec3(
+          this.rigidBody.orientation,
+          PhysicsMath.vec3(fxBody, 0, fzBody)
+        );
+        const suspensionSupportWorld = PhysicsMath.vec3Scale(
+          surface.normal,
+          suspState.chassisForceN
+        );
+        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
 
         // Apply self-aligning torque Mz to chassis
         this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));
