@@ -46,27 +46,15 @@ export class EnvironmentManager {
     this.groundMesh = this.buildGround();
     this.setupLighting();
     this.buildTrackMarkings();
-    this.build3DKerbs();
+    // Flat test map: no raised decorative kerbs.
     this.buildDragStripGantry();
     this.buildTestSlalomCones();
   }
 
   private buildGround(): THREE.Mesh {
-    // 2500m x 2500m Proving Ground
-    // Use enough longitudinal tessellation to visibly match the physics crest/dip.
-    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 160, 260);
+    // 2500m x 2500m literal flat plane. No hidden terrain geometry.
+    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 1, 1);
     groundGeo.rotateX(-Math.PI / 2);
-
-    // Graphics and physics must sample the same road-height function. Otherwise the
-    // rigid body climbs an invisible hill while the rendered road remains flat.
-    const positions = groundGeo.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const z = positions.getZ(i);
-      positions.setY(i, this.surfaceProvider.sampleSurface(x, z).elevation);
-    }
-    positions.needsUpdate = true;
-    groundGeo.computeVertexNormals();
 
     // Procedural Asphalt Texture using Canvas
     const canvas = document.createElement('canvas');
