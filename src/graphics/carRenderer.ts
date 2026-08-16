@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { VehicleConfig, VehicleState } from '../types';
+import { computeWheelVisualPose } from './wheelVisualPose';
 
 export class CarRenderer {
   public rootGroup: THREE.Group;
+  public chassisPivotGroup: THREE.Group;
   public chassisGroup: THREE.Group;
   public rearWingBlade: THREE.Mesh | null = null;
   public wheelMeshes: THREE.Group[] = [];
@@ -26,8 +28,11 @@ export class CarRenderer {
 
   constructor(bodyColor: string = '#2563eb') {
     this.rootGroup = new THREE.Group();
+    this.chassisPivotGroup = new THREE.Group();
+    this.chassisPivotGroup.rotation.order = 'YXZ';
     this.chassisGroup = new THREE.Group();
-    this.rootGroup.add(this.chassisGroup);
+    this.chassisPivotGroup.add(this.chassisGroup);
+    this.rootGroup.add(this.chassisPivotGroup);
 
     this.buildCarBody(bodyColor);
     this.buildWheels();
@@ -457,16 +462,16 @@ export class CarRenderer {
   }
 
   public update(state: VehicleState, config: VehicleConfig) {
-    // 1. Root Group tracks World Position and Heading Yaw
-    // Root follows local road elevation. Chassis heave below is terrain-relative,
-    // preventing world altitude from being applied twice on hills/crests.
     this.rootGroup.position.set(state.x, state.elevationHeight, state.z);
     this.rootGroup.rotation.y = state.yaw;
 
-    // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave
-    this.chassisGroup.position.y = state.heave;
-    this.chassisGroup.rotation.z = state.roll;
-    this.chassisGroup.rotation.x = state.pitch;
+    // The visual shell rotates around the same CG used by the rigid body instead of
+    // orbiting around road level during a wipeout.
+    const chassisCgOffset = config.centerOfGravityHeight + 0.35;
+    this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);
+    this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');
+    this.chassisGroup.position.set(0, -chassisCgOffset, 0);
+    this.chassisGroup.rotation.set(0, 0, 0);
 
     // 3. Active Aerodynamic Wing Rotation (DRS vs High Downforce vs Airbrake Pitch)
     if (this.rearWingBlade) {
@@ -487,16 +492,24 @@ export class CarRenderer {
       const wheelGroup = this.wheelMeshes[idx];
       if (!wheelGroup) return;
 
-      const wheelY = 0.33 + wheel.verticalTravelM - wheel.tireSquishM;
-      const wheelX = wheel.localPos.x + (wheel.isLeft ? -wheel.sidewallDeflection : wheel.sidewallDeflection);
-      wheelGroup.position.set(wheelX, wheelY, wheel.localPos.z);
-
-      // Steer rotation (Y axis)
-      wheelGroup.rotation.y = wheel.steerAngle;
-
-      // Camber rotation (Z axis) dynamically driven by suspension kinematics
       const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;
-      wheelGroup.rotation.z = wheel.isLeft ? camberRad : -camberRad;
+      const crashPose = computeWheelVisualPose({
+        chassisHeaveM: state.heave, chassisPitchRad: state.pitch, chassisRollRad: state.roll,
+        mountX: wheel.localPos.x, mountZ: wheel.localPos.z, suspensionTravelM: wheel.verticalTravelM,
+        tireSquishM: wheel.tireSquishM, sidewallDeflectionM: wheel.sidewallDeflection,
+        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: 0.33,
+      });
+      const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;
+      if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {
+        const dx = hub.x - state.x;
+        const dz = hub.z - state.z;
+        const c = Math.cos(state.yaw);
+        const s = Math.sin(state.yaw);
+        wheelGroup.position.set(c * dx - s * dz, hub.y - state.elevationHeight, s * dx + c * dz);
+      } else {
+        wheelGroup.position.set(crashPose.x, crashPose.y, crashPose.z);
+      }
+      wheelGroup.rotation.set(crashPose.rotationX, wheel.steerAngle, crashPose.rotationZ, 'YXZ');
 
       // Spinning wheel hub (child index 4 in wheelGroup)
       const hubGroup = wheelGroup.children[4] as THREE.Group;

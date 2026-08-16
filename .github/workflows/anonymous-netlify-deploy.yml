@@ -1,9 +1,11 @@
 name: Anonymous Netlify Deploy
+# preview: physical hub attachment + rollover handoff fix
 
 on:
   push:
     branches:
       - main
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
