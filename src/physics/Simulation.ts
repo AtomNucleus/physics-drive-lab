@@ -3,9 +3,11 @@ import { Vehicle } from './Vehicle';
 import { ISurfaceProvider } from './SurfaceProvider';
 import { PhysicsMath } from './math/PhysicsMath';
 import { stabilizeVehicleAfterImpact } from './CrashStability';
+import { SuspensionKinematicsAdapter } from './SuspensionKinematicsAdapter';
 
 export class Simulation {
   public vehicle: Vehicle;
+  public suspensionKinematics: SuspensionKinematicsAdapter;
   public fixedDt: number = 1.0 / 120.0;
   public maxSubSteps: number = 8;
   public accumulatedTime: number = 0;
@@ -17,6 +19,7 @@ export class Simulation {
 
   constructor(config: VehicleConfig, surfaceProvider?: ISurfaceProvider) {
     this.vehicle = new Vehicle(config, surfaceProvider);
+    this.suspensionKinematics = new SuspensionKinematicsAdapter(this.vehicle);
     this.configureSuspensionDynamics(config);
     this.previousState = this.vehicle.getState();
     this.currentState = this.vehicle.getState();
@@ -43,6 +46,7 @@ export class Simulation {
     // together with the chassis so a restart cannot carry old suspension energy.
     this.vehicle.suspension.reset();
     this.configureSuspensionDynamics(this.vehicle.config);
+    this.suspensionKinematics.reset();
     this.accumulatedTime = 0;
     this.totalSimTime = 0;
     this.stepCount = 0;
@@ -54,6 +58,7 @@ export class Simulation {
     const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
     this.vehicle.setConfig(newConfig);
     this.configureSuspensionDynamics(newConfig);
+    this.suspensionKinematics.rebuild();
 
     // Rebuild rigid-body properties from the selected vehicle's actual mass and
     // geometry. Presets are merged onto DEFAULT_VEHICLE_CONFIG in the UI, so using
