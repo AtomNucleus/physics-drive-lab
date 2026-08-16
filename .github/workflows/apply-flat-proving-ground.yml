@@ -1,0 +1,175 @@
+name: Apply flat proving ground
+
+on:
+  push:
+    branches:
+      - fix/flat-proving-ground
+
+permissions:
+  contents: write
+
+jobs:
+  flatten-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Flatten physics and visual ground
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          surface = Path('src/physics/SurfaceProvider.ts')
+          surface.write_text("""import { SurfaceType } from '../types';
+import { Vec3, PhysicsMath } from './math/PhysicsMath';
+
+export interface SurfaceSample {
+  elevation: number;
+  normal: Vec3;
+  slopePitch: number;
+  slopeRoll: number;
+  type: SurfaceType;
+  friction: number;
+  rollingResistance: number;
+  wetness: number;
+  isKerbRumble: boolean;
+}
+
+export interface ISurfaceProvider {
+  sampleSurface(x: number, z: number): SurfaceSample;
+}
+
+/**
+ * Flat proving-ground surface.
+ *
+ * Geometry is intentionally planar everywhere so suspension and tire testing is
+ * not contaminated by hidden crests, dips, banking, bumps, kerbs, or grades.
+ * Surface material/grip zones remain available for wet/dry/off-line testing.
+ */
+export class ProvingGroundSurfaceProvider implements ISurfaceProvider {
+  public sampleSurface(x: number, z: number): SurfaceSample {
+    const elevation = 0;
+    const slopePitch = 0;
+    const slopeRoll = 0;
+
+    let type: SurfaceType = 'asphalt';
+    let friction = 1.0;
+    let rollingResistance = 0.015;
+    let wetness = 0.0;
+
+    // Wet / polished-concrete skidpad arena.
+    const distToWet = Math.hypot(x - 85, z + 60);
+    if (distToWet <= 76) {
+      type = 'wet';
+      friction = 0.42;
+      rollingResistance = 0.012;
+      wetness = 0.85;
+    } else {
+      // Dry high-grip rubbered skidpad arena.
+      const distToDry = Math.hypot(x + 85, z - 60);
+      if (distToDry <= 76) {
+        type = 'racing_line';
+        friction = 1.14;
+        rollingResistance = 0.018;
+      } else if (Math.abs(z) <= 510) {
+        // Main runway keeps lateral grip zones but all are at exactly Y=0.
+        const absX = Math.abs(x);
+        if (absX <= 6.5) {
+          type = 'racing_line';
+          friction = 1.10;
+          rollingResistance = 0.016;
+        } else if (absX <= 17.5) {
+          type = 'asphalt';
+          friction = 1.0;
+          rollingResistance = 0.015;
+        } else if (absX <= 20.0) {
+          type = 'kerb';
+          friction = 0.88;
+          rollingResistance = 0.024;
+        } else if (absX <= 24.5) {
+          type = 'marbles';
+          friction = 0.72;
+          rollingResistance = 0.035;
+        } else {
+          type = 'gravel';
+          friction = 0.55;
+          rollingResistance = 0.075;
+        }
+      }
+    }
+
+    return {
+      elevation,
+      normal: PhysicsMath.vec3(0, 1, 0),
+      slopePitch,
+      slopeRoll,
+      type,
+      friction,
+      rollingResistance,
+      wetness,
+      isKerbRumble: false,
+    };
+  }
+}
+""")
+
+          env = Path('src/graphics/environment.ts')
+          text = env.read_text()
+          old = """    this.buildTrackMarkings();
+    this.build3DKerbs();
+    this.buildDragStripGantry();"""
+          new = """    this.buildTrackMarkings();
+    // Keep this test map completely planar: no raised decorative kerbs.
+    this.buildDragStripGantry();"""
+          assert old in text, 'constructor kerb block not found'
+          text = text.replace(old, new, 1)
+
+          start = """    // 2500m x 2500m Proving Ground
+    // Use enough longitudinal tessellation to visibly match the physics crest/dip.
+    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 160, 260);
+    groundGeo.rotateX(-Math.PI / 2);
+
+    // Graphics and physics must sample the same road-height function. Otherwise the
+    // rigid body climbs an invisible hill while the rendered road remains flat.
+    const positions = groundGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getZ(i);
+      positions.setY(i, this.surfaceProvider.sampleSurface(x, z).elevation);
+    }
+    positions.needsUpdate = true;
+    groundGeo.computeVertexNormals();"""
+          replacement = """    // 2500m x 2500m genuinely flat proving ground. No hidden terrain mesh.
+    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 1, 1);
+    groundGeo.rotateX(-Math.PI / 2);"""
+          assert start in text, 'terrain mesh block not found'
+          text = text.replace(start, replacement, 1)
+          env.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify the entire physics map is flat
+        run: |
+          npx tsx -e "import { ProvingGroundSurfaceProvider } from './src/physics/SurfaceProvider.ts'; const s=new ProvingGroundSurfaceProvider(); for(let x=-1300;x<=1300;x+=25){for(let z=-1300;z<=1300;z+=25){const p=s.sampleSurface(x,z); if(p.elevation!==0||p.slopePitch!==0||p.slopeRoll!==0||Math.abs(p.normal.x)>1e-12||Math.abs(p.normal.y-1)>1e-12||Math.abs(p.normal.z)>1e-12) throw new Error('Non-flat sample at '+x+','+z+': '+JSON.stringify(p));}} console.log('Flat surface grid: PASS');"
+
+      - name: Run suspension regression
+        run: npm run test:suspension
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit tested flat-map fix
+        run: |
+          rm .github/workflows/apply-flat-proving-ground.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/SurfaceProvider.ts src/graphics/environment.ts .github/workflows/apply-flat-proving-ground.yml
+          git commit -m "Make proving ground completely flat"
+          git push origin HEAD:fix/flat-proving-ground
