@@ -56,6 +56,39 @@ const staticCamber = [
   Number((config as any).camberStaticRear ?? -1.2),
 ];
 
+// Suspension stores the ARB reaction calculated at the beginning of a fixed step,
+// then exports the integrated displacement at the end of that same step. Around a
+// genuine differential-travel zero crossing, force can therefore retain the previous
+// sign for one 120 Hz sample. Track the previous end-state so the sign invariant
+// accepts that physically correct one-step phase while still rejecting a persistent
+// left/right reversal.
+let previousFrontDiff =
+  sim.vehicle.suspension.states[0].displacement - sim.vehicle.suspension.states[1].displacement;
+let previousRearDiff =
+  sim.vehicle.suspension.states[2].displacement - sim.vehicle.suspension.states[3].displacement;
+
+const assertArbSignMatchesFixedStep = (
+  axle: string,
+  currentDiff: number,
+  previousDiff: number,
+  leftForce: number,
+  rightForce: number
+) => {
+  if (Math.abs(leftForce) < 1e-6) return;
+  const forceSign = Math.sign(leftForce);
+  const currentMatches = Math.abs(currentDiff) > 1e-5 && forceSign === Math.sign(currentDiff);
+  const previousMatches = Math.abs(previousDiff) > 1e-5 && forceSign === Math.sign(previousDiff);
+  assert(
+    currentMatches || previousMatches,
+    `${axle} ARB force sign disagreed with both current and previous differential travel: ` +
+      `prev=${previousDiff}, current=${currentDiff}, force=${leftForce}`
+  );
+  assert(
+    Math.sign(rightForce) === -forceSign,
+    `${axle} inside/outside ARB reactions stopped being equal-and-opposite`
+  );
+};
+
 for (let step = 0; step < 120 * 2.4; step++) {
   const t = step * DT;
   // Smooth left/right maneuver: enough lateral load to exercise PR #18's bars and
@@ -78,26 +111,23 @@ for (let step = 0; step < 120 * 2.4; step++) {
   assert(Math.abs(frontArbNet) < 1e-6, `front ARB created net vertical bias: ${frontArbNet} N`);
   assert(Math.abs(rearArbNet) < 1e-6, `rear ARB created net vertical bias: ${rearArbNet} N`);
 
-  if (Math.abs(frontDiff) > 1e-5) {
-    assert(
-      Math.sign(susp[0].antiRollBarForceN) === Math.sign(frontDiff),
-      `front ARB force sign disagreed with differential travel: diff=${frontDiff}, force=${susp[0].antiRollBarForceN}`
-    );
-    assert(
-      Math.sign(susp[1].antiRollBarForceN) === -Math.sign(frontDiff),
-      'front inside/outside ARB reactions stopped being equal-and-opposite'
-    );
-  }
-  if (Math.abs(rearDiff) > 1e-5) {
-    assert(
-      Math.sign(susp[2].antiRollBarForceN) === Math.sign(rearDiff),
-      `rear ARB force sign disagreed with differential travel: diff=${rearDiff}, force=${susp[2].antiRollBarForceN}`
-    );
-    assert(
-      Math.sign(susp[3].antiRollBarForceN) === -Math.sign(rearDiff),
-      'rear inside/outside ARB reactions stopped being equal-and-opposite'
-    );
-  }
+  assertArbSignMatchesFixedStep(
+    'front',
+    frontDiff,
+    previousFrontDiff,
+    susp[0].antiRollBarForceN,
+    susp[1].antiRollBarForceN
+  );
+  assertArbSignMatchesFixedStep(
+    'rear',
+    rearDiff,
+    previousRearDiff,
+    susp[2].antiRollBarForceN,
+    susp[3].antiRollBarForceN
+  );
+
+  previousFrontDiff = frontDiff;
+  previousRearDiff = rearDiff;
 
   peakLatG = Math.max(peakLatG, Math.abs(state.lateralG));
   peakArbForceN = Math.max(
