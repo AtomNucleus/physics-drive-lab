@@ -100,9 +100,12 @@ function testRealWheelspinStillProducesSkid() {
 }
 
 type StationaryScenarioResult = {
+  startPlanarSpeed: number;
   maxPlanarSpeed: number;
   maxYawRate: number;
   horizontalDisplacement: number;
+  dx: number;
+  dz: number;
   maxTempRise: number;
   maxSkidIntensity: number;
   skidFrames: number;
@@ -129,6 +132,7 @@ function runStationaryVehicleScenario(steer: number, label: string): StationaryS
   for (let i = 0; i < 480; i++) sim.stepExplicit(neutral, 1);
 
   const start = sim.vehicle.getState();
+  const startPlanarSpeed = Math.hypot(start.vx, start.vz);
   const startTemp = start.wheels.map((w) => w.temperature);
   const steering: ControlInputs = { ...neutral, steer };
 
@@ -162,11 +166,14 @@ function runStationaryVehicleScenario(steer: number, label: string): StationaryS
   }
 
   const end = sim.vehicle.getState();
-  const horizontalDisplacement = Math.hypot(end.x - start.x, end.z - start.z);
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const horizontalDisplacement = Math.hypot(dx, dz);
   const maxTempRise = Math.max(...end.wheels.map((w, i) => w.temperature - startTemp[i]));
 
   console.log(
-    `  ${label}: vmax=${maxPlanarSpeed.toFixed(4)} m/s, yaw=${maxYawRate.toFixed(4)} rad/s, ` +
+    `  ${label}: vstart=${startPlanarSpeed.toFixed(4)}, vmax=${maxPlanarSpeed.toFixed(4)} m/s, ` +
+      `yaw=${maxYawRate.toFixed(4)} rad/s, dx=${dx.toFixed(4)}, dz=${dz.toFixed(4)}, ` +
       `migration=${horizontalDisplacement.toFixed(4)} m, dT=${maxTempRise.toFixed(4)} C, ` +
       `skidFrames=${skidFrames}, skidI=${maxSkidIntensity.toFixed(3)}, ` +
       `alpha=${maxSlipAngle.toFixed(3)} rad, kappa=${maxSlipRatio.toFixed(3)}, ` +
@@ -174,9 +181,12 @@ function runStationaryVehicleScenario(steer: number, label: string): StationaryS
   );
 
   return {
+    startPlanarSpeed,
     maxPlanarSpeed,
     maxYawRate,
     horizontalDisplacement,
+    dx,
+    dz,
     maxTempRise,
     maxSkidIntensity,
     skidFrames,
@@ -188,16 +198,17 @@ function runStationaryVehicleScenario(steer: number, label: string): StationaryS
 }
 
 function testStationaryFullLockVehicle() {
+  const straight = runStationaryVehicleScenario(0, 'straight');
   const left = runStationaryVehicleScenario(1, 'full-left');
   const right = runStationaryVehicleScenario(-1, 'full-right');
 
-  for (const [label, result] of [['full-left', left], ['full-right', right]] as const) {
-    assert(result.skidFrames === 0, `${label}: stationary full-lock steering reported ${result.skidFrames} skid/smoke wheel-frames`);
-    assert(result.maxSkidIntensity === 0, `${label}: stationary full-lock steering reached skid intensity ${result.maxSkidIntensity}`);
+  for (const [label, result] of [['straight', straight], ['full-left', left], ['full-right', right]] as const) {
+    assert(result.skidFrames === 0, `${label}: parked vehicle reported ${result.skidFrames} skid/smoke wheel-frames`);
+    assert(result.maxSkidIntensity === 0, `${label}: parked vehicle reached skid intensity ${result.maxSkidIntensity}`);
     assert(result.maxPlanarSpeed < 0.12, `${label}: chassis shook/moved at ${result.maxPlanarSpeed.toFixed(3)} m/s while parked`);
     assert(result.maxYawRate < 0.12, `${label}: chassis yaw oscillation reached ${result.maxYawRate.toFixed(3)} rad/s while parked`);
-    assert(result.horizontalDisplacement < 0.08, `${label}: parked car migrated ${result.horizontalDisplacement.toFixed(3)} m under steering alone`);
-    assert(result.maxTempRise < 0.10, `${label}: stationary steering heated a tire by ${result.maxTempRise.toFixed(3)} C`);
+    assert(result.horizontalDisplacement < 0.08, `${label}: parked car migrated ${result.horizontalDisplacement.toFixed(3)} m`);
+    assert(result.maxTempRise < 0.10, `${label}: parked state heated a tire by ${result.maxTempRise.toFixed(3)} C`);
   }
 
   const speedAsymmetry = Math.abs(left.maxPlanarSpeed - right.maxPlanarSpeed);
@@ -211,7 +222,7 @@ function main() {
     ['stationary camber creates no planar force', testStationaryCamberDoesNotCreatePlanarForce],
     ['parking-speed brush force is bounded and non-smoking', testCreepBrushForceIsBoundedAndDissipative],
     ['real wheelspin still produces skid', testRealWheelspinStillProducesSkid],
-    ['full-lock parked M5 remains stable left and right', testStationaryFullLockVehicle],
+    ['parked M5 remains stable straight and at full lock', testStationaryFullLockVehicle],
   ];
 
   for (const [name, test] of tests) {
