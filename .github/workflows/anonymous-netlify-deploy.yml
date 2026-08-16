@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - agent/m5-rwd-mode
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
