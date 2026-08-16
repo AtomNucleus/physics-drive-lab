@@ -12,7 +12,8 @@
     "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
-    "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts"
+    "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
+    "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
