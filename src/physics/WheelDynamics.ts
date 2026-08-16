@@ -294,10 +294,14 @@ export class WheelDynamics {
     this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
 
-    let rrForce = 0;
-    if (Math.abs(longitudinalVelocity) > 0.15) {
-      rrForce = -Math.sign(longitudinalVelocity) * Math.max(0, rollingResistance) * fz;
-    }
+    // Rolling resistance must not disappear below an arbitrary speed threshold.
+    // A tanh regularization preserves the normal near-constant rolling force once
+    // moving while smoothly tending to zero at exactly zero speed. This lets tiny
+    // suspension-settle impulses decay instead of leaving the car creeping forever,
+    // and avoids the sign-flip chatter of a hard sign(v) force at 120 Hz.
+    const rrMagnitude = Math.max(0, rollingResistance) * fz;
+    const rrForce = -Math.tanh(longitudinalVelocity / 0.08) * rrMagnitude;
+
     let fx = this.transientFx + rrForce;
     let fy = this.transientFy;
 
