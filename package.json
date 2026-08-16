@@ -17,7 +17,9 @@
     "test:smoke": "tsx src/physics/tests/TireSmokeRegressionTests.ts",
     "test:crash": "tsx src/physics/tests/CrashStabilityTests.ts",
     "test:crash-recovery": "tsx src/physics/tests/CrashRecoveryTests.ts",
-    "test:wheel-visual": "tsx src/physics/tests/WheelVisualPoseTests.ts"
+    "test:wheel-visual": "tsx src/physics/tests/WheelVisualPoseTests.ts",
+    "test:steering-direction": "tsx src/physics/tests/SteeringDirectionTests.ts",
+    "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -72,9 +72,9 @@ export class CameraController {
     const sinYaw = Math.sin(state.yaw);
     const cosYaw = Math.cos(state.yaw);
 
-    // Forward and Right vectors of the vehicle
+    // Right-handed vehicle frame: +Z forward, +X left, so vehicle-right is -X at zero yaw.
     const forward = new THREE.Vector3(sinYaw, 0, cosYaw);
-    const right = new THREE.Vector3(cosYaw, 0, -sinYaw);
+    const right = new THREE.Vector3(-cosYaw, 0, sinYaw);
 
     let targetPos = new THREE.Vector3();
     let targetLookAt = new THREE.Vector3();

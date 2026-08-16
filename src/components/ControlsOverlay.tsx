@@ -33,6 +33,8 @@ interface ControlsOverlayProps {
   onSelectPreset: (key: string) => void;
   activeKeys: { [key: string]: boolean };
   onTouchInput: (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => void;
+  isAutomatic: boolean;
+  onSetAutomatic: (automatic: boolean) => void;
 }
 
 type TouchAction = 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake';
@@ -56,11 +58,6 @@ const detectMobileDrivingMode = () => {
   return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
 };
 
-const readAutomaticTransmissionMode = () => {
-  if (typeof document === 'undefined') return true;
-  return document.getElementById('toggle-auto-btn')?.textContent?.includes('AUTO') ?? true;
-};
-
 export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   cameraMode,
   onNextCamera,
@@ -75,12 +72,13 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   activePresetKey,
   activeKeys,
   onTouchInput,
+  isAutomatic,
+  onSetAutomatic,
 }) => {
   const [toolbarExpanded, setToolbarExpanded] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
   const [mobileMode, setMobileMode] = React.useState(false);
-  const [showMobileSettings, setShowMobileSettings] = React.useState(false);
-  const [mobileAutomatic, setMobileAutomatic] = React.useState(true);
+  const [showDrivingSettings, setShowDrivingSettings] = React.useState(false);
   const activePreset = VEHICLE_PRESETS[activePresetKey] || VEHICLE_PRESETS.sportGT;
 
   const isW = activeKeys['KeyW'] || activeKeys['ArrowUp'];
@@ -117,16 +115,8 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
     return undefined;
   }, [mobileMode]);
 
-  const toggleMobileSettings = () => {
-    setMobileAutomatic(readAutomaticTransmissionMode());
-    setShowMobileSettings((open) => !open);
-  };
-
   const toggleTransmissionMode = () => {
-    const transmissionButton = document.getElementById('toggle-auto-btn') as HTMLButtonElement | null;
-    if (!transmissionButton) return;
-    transmissionButton.click();
-    setMobileAutomatic((automatic) => !automatic);
+    onSetAutomatic(!isAutomatic);
   };
 
   return (
@@ -157,17 +147,16 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             <span className={mobileMode ? 'capitalize' : 'hidden capitalize sm:inline'}>{cameraMode}</span>
           </button>
 
-          {mobileMode && (
-            <button
-              id="mobile-settings-btn"
-              onClick={toggleMobileSettings}
-              className={`flex h-8 w-8 items-center justify-center rounded-xl ${showMobileSettings ? 'bg-sky-500/15 text-sky-300' : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'}`}
-              title="Driving settings"
-              aria-label="Driving settings"
-            >
-              <Settings2 size={14} />
-            </button>
-          )}
+          <button
+            id="driving-settings-btn"
+            onClick={() => setShowDrivingSettings((open) => !open)}
+            className={`flex h-8 items-center gap-1 rounded-xl px-2 text-[10px] font-bold ${showDrivingSettings ? 'bg-sky-500/15 text-sky-300' : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'}`}
+            title="Driving settings"
+            aria-label="Driving settings"
+          >
+            <Settings2 size={14} />
+            <span className="hidden sm:inline">{isAutomatic ? 'AUTO' : 'MANUAL'}</span>
+          </button>
 
           <button
             id="toolbar-expand-btn"
@@ -179,9 +168,9 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
           </button>
         </div>
 
-        {mobileMode && showMobileSettings && (
+        {showDrivingSettings && (
           <div
-            id="mobile-settings-panel"
+            id="driving-settings-panel"
             className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
           >
             <div className="mb-2 flex items-center gap-2 border-b border-slate-800 pb-2">
@@ -195,24 +184,25 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
                 <div className="mt-0.5 text-[8px] text-slate-500">Automatic shifting</div>
               </div>
               <button
-                id="mobile-transmission-toggle"
+                id="transmission-mode-toggle"
                 type="button"
                 role="switch"
-                aria-checked={mobileAutomatic}
+                aria-checked={isAutomatic}
                 onClick={toggleTransmissionMode}
-                className={`relative h-7 w-12 rounded-full border transition-colors ${mobileAutomatic ? 'border-emerald-400/50 bg-emerald-400/25' : 'border-slate-600 bg-slate-800'}`}
+                className={`relative h-7 w-12 rounded-full border transition-colors ${isAutomatic ? 'border-emerald-400/50 bg-emerald-400/25' : 'border-slate-600 bg-slate-800'}`}
                 aria-label="Toggle automatic transmission"
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${mobileAutomatic ? 'translate-x-6' : 'translate-x-0.5'}`}
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isAutomatic ? 'translate-x-6' : 'translate-x-0.5'}`}
                 />
               </button>
             </div>
 
             <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">
               <span>Mode</span>
-              <span className={mobileAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{mobileAutomatic ? 'Automatic' : 'Manual'}</span>
+              <span className={isAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{isAutomatic ? 'Automatic' : 'Manual'}</span>
             </div>
+            <div className="mt-2 px-1 text-[8px] text-slate-500">Keyboard shortcut: M</div>
           </div>
         )}
 
@@ -317,7 +307,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">A / D</span><br />Steer</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-amber-300">SPACE</span><br />Handbrake</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">C / R</span><br />Camera / reset</div>
-              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">H / T</span><br />HUD / telemetry</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">M</span><br />Auto / manual</div>
             </div>
           )}
         </div>

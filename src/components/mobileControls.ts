@@ -2,10 +2,10 @@ export type MobileSteeringDirection = 'left' | 'right';
 export type MobileSteeringAction = 'steerLeft' | 'steerRight';
 
 /**
- * VehiclePhysicsEngine uses the opposite steering sign from the touch arrow labels.
- * Keep that coordinate-system conversion in one place so the visible arrow always
- * matches the direction the car actually turns.
+ * Touch arrow labels use the same steering-action convention as the keyboard:
+ * left means steerLeft and right means steerRight. Keep this mapping explicit so
+ * a UI refactor cannot silently reverse the mobile controls again.
  */
 export function mapMobileSteeringDirection(direction: MobileSteeringDirection): MobileSteeringAction {
-  return direction === 'left' ? 'steerRight' : 'steerLeft';
+  return direction === 'left' ? 'steerLeft' : 'steerRight';
 }
