@@ -19,6 +19,8 @@ jobs:
       - run: npm install
       - name: Suspension and unsprung behavior tests
         run: npm run test:suspension
+      - name: Full-vehicle outside corner load test
+        run: npm run test:corner-load
       - name: Verify rendered roll sign matches physics
         run: |
           grep -F "this.chassisGroup.rotation.z = state.roll;" src/graphics/carRenderer.ts
