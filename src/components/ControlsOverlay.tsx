@@ -11,6 +11,7 @@ import {
   Cpu,
   HelpCircle,
   RotateCcw,
+  Settings2,
   Sliders,
   Sparkles,
   Volume2,
@@ -55,6 +56,11 @@ const detectMobileDrivingMode = () => {
   return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
 };
 
+const readAutomaticTransmissionMode = () => {
+  if (typeof document === 'undefined') return true;
+  return document.getElementById('toggle-auto-btn')?.textContent?.includes('AUTO') ?? true;
+};
+
 export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   cameraMode,
   onNextCamera,
@@ -73,6 +79,8 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   const [toolbarExpanded, setToolbarExpanded] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
   const [mobileMode, setMobileMode] = React.useState(false);
+  const [showMobileSettings, setShowMobileSettings] = React.useState(false);
+  const [mobileAutomatic, setMobileAutomatic] = React.useState(true);
   const activePreset = VEHICLE_PRESETS[activePresetKey] || VEHICLE_PRESETS.sportGT;
 
   const isW = activeKeys['KeyW'] || activeKeys['ArrowUp'];
@@ -109,6 +117,18 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
     return undefined;
   }, [mobileMode]);
 
+  const toggleMobileSettings = () => {
+    setMobileAutomatic(readAutomaticTransmissionMode());
+    setShowMobileSettings((open) => !open);
+  };
+
+  const toggleTransmissionMode = () => {
+    const transmissionButton = document.getElementById('toggle-auto-btn') as HTMLButtonElement | null;
+    if (!transmissionButton) return;
+    transmissionButton.click();
+    setMobileAutomatic((automatic) => !automatic);
+  };
+
   return (
     <>
       <div
@@ -137,6 +157,18 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             <span className={mobileMode ? 'capitalize' : 'hidden capitalize sm:inline'}>{cameraMode}</span>
           </button>
 
+          {mobileMode && (
+            <button
+              id="mobile-settings-btn"
+              onClick={toggleMobileSettings}
+              className={`flex h-8 w-8 items-center justify-center rounded-xl ${showMobileSettings ? 'bg-sky-500/15 text-sky-300' : 'text-slate-400 hover:bg-slate-800/80 hover:text-white'}`}
+              title="Driving settings"
+              aria-label="Driving settings"
+            >
+              <Settings2 size={14} />
+            </button>
+          )}
+
           <button
             id="toolbar-expand-btn"
             onClick={() => setToolbarExpanded((open) => !open)}
@@ -146,6 +178,43 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             {toolbarExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </button>
         </div>
+
+        {mobileMode && showMobileSettings && (
+          <div
+            id="mobile-settings-panel"
+            className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="mb-2 flex items-center gap-2 border-b border-slate-800 pb-2">
+              <Settings2 size={14} className="text-sky-300" />
+              <span className="text-[10px] font-black uppercase tracking-[0.16em]">Settings</span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-900/65 p-2.5">
+              <div>
+                <div className="text-[10px] font-bold text-white">Transmission</div>
+                <div className="mt-0.5 text-[8px] text-slate-500">Automatic shifting</div>
+              </div>
+              <button
+                id="mobile-transmission-toggle"
+                type="button"
+                role="switch"
+                aria-checked={mobileAutomatic}
+                onClick={toggleTransmissionMode}
+                className={`relative h-7 w-12 rounded-full border transition-colors ${mobileAutomatic ? 'border-emerald-400/50 bg-emerald-400/25' : 'border-slate-600 bg-slate-800'}`}
+                aria-label="Toggle automatic transmission"
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${mobileAutomatic ? 'translate-x-6' : 'translate-x-0.5'}`}
+                />
+              </button>
+            </div>
+
+            <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">
+              <span>Mode</span>
+              <span className={mobileAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{mobileAutomatic ? 'Automatic' : 'Manual'}</span>
+            </div>
+          </div>
+        )}
 
         {toolbarExpanded && (
           <div id="driving-utility-menu" className="mt-1.5 flex items-center justify-center gap-1 rounded-2xl border border-slate-800/75 bg-slate-950/88 p-1 shadow-2xl backdrop-blur-xl">
