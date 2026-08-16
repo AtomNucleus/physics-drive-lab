@@ -1,0 +1,46 @@
+name: Correct tire force roll moment arm
+
+on:
+  push:
+    branches:
+      - agent/anti-roll-bars
+    paths:
+      - .github/workflows/apply-contact-moment-arm-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/anti-roll-bars
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply physical tire-force moment arm
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/physics/Vehicle.ts')
+          text = p.read_text()
+          old = """        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);"""
+          new = """        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n\n        // The rigid-body translation reference is the suspension-pickup plane,\n        // 0.35 m above the configured physical CG. Apply the same linear contact\n        // force, but evaluate its roll/pitch moment about a point shifted upward by\n        // that reference-to-CG offset. This gives tire shear the configured 0.52 m\n        // ground-to-CG lever arm instead of the accidental ~0.87 m lever arm that\n        // previously exaggerated high-speed load transfer and body roll.\n        const contactMomentPointWorld = PhysicsMath.vec3(\n          contactWorld.x,\n          contactWorld.y + 0.35,\n          contactWorld.z\n        );\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactMomentPointWorld);"""
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one tire contact force application, found {text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+          Path('.github/workflows/apply-contact-moment-arm-fix.yml').unlink()
+          PY
+      - run: npm install --no-audit --no-fund
+      - name: Protect established low-speed behavior
+        run: npm run test:stationary
+      - name: Commit moment-arm correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/Vehicle.ts .github/workflows/apply-contact-moment-arm-fix.yml
+          git commit -m "Use physical CG lever arm for tire contact moments"
+          git push origin HEAD:agent/anti-roll-bars
