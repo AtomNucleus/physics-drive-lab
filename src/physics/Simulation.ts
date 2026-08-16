@@ -5,13 +5,12 @@ import { PhysicsMath } from './math/PhysicsMath';
 
 export class Simulation {
   public vehicle: Vehicle;
-  public fixedDt: number = 1.0 / 120.0; // 120 Hz deterministic physics rate
+  public fixedDt: number = 1.0 / 120.0;
   public maxSubSteps: number = 8;
   public accumulatedTime: number = 0;
   public totalSimTime: number = 0;
   public stepCount: number = 0;
 
-  // State interpolation buffers for frame-rate invariant smooth rendering
   private previousState: VehicleState;
   private currentState: VehicleState;
 
@@ -31,25 +30,56 @@ export class Simulation {
   }
 
   public setConfig(newConfig: VehicleConfig) {
+    const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
     this.vehicle.setConfig(newConfig);
+
+    // Vehicle.setConfig updates the subsystem tuning, but the rigid-body mass and
+    // principal inertias also have to change. Without this, selecting a 2050 kg
+    // preset still physically simulated the original 1540 kg chassis.
+    const m = newConfig.mass;
+    const L = newConfig.wheelbase;
+    const W = newConfig.trackWidth;
+    const H = newConfig.centerOfGravityHeight;
+
+    const geometricPitch = (m / 12) * (L * L + H * H) * 1.5;
+    const geometricYaw = (m / 12) * (L * L + W * W) * 1.1;
+    const geometricRoll = (m / 12) * (W * W + H * H) * 1.6;
+
+    const configuredPitch = Number((newConfig as any).chassisPitchInertia);
+    const configuredRoll = Number((newConfig as any).chassisRollInertia);
+
+    this.vehicle.rigidBody.config = {
+      mass: Math.max(1, m),
+      inertia: PhysicsMath.vec3(
+        Number.isFinite(configuredPitch) && configuredPitch > 0 ? configuredPitch : geometricPitch,
+        geometricYaw,
+        Number.isFinite(configuredRoll) && configuredRoll > 0 ? configuredRoll : geometricRoll
+      ),
+      centerOfGravityHeight: H,
+    };
+
+    // Preserve the current ground-relative ride height when CG height is changed
+    // from the tuning UI or a preset swap.
+    if (Number.isFinite(oldCgHeight) && Number.isFinite(H)) {
+      this.vehicle.rigidBody.position.y += H - oldCgHeight;
+    }
+
+    this.currentState = this.vehicle.getState();
+    this.previousState = this.currentState;
   }
 
   /**
-   * Advance simulation by variable render frame deltaTime (e.g. 16.6ms at 60fps, 8.3ms at 120fps, 33ms at 30fps)
+   * Advance simulation by variable render frame deltaTime.
    * Uses fixed 120 Hz accumulator with state interpolation.
    */
   public advance(deltaTime: number, inputs: ControlInputs): VehicleState {
-    // Clamp incoming deltaTime to prevent spiral of death on tab unfocus
     const clampedDelta = Math.min(deltaTime, 0.1);
     this.accumulatedTime += clampedDelta;
 
     let subStepsTaken = 0;
 
     while (this.accumulatedTime >= this.fixedDt && subStepsTaken < this.maxSubSteps) {
-      // Store previous state before step
       this.previousState = this.currentState;
-
-      // Step vehicle with fixed dt
       this.vehicle.step(inputs, this.fixedDt);
       this.currentState = this.vehicle.getState();
 
@@ -59,20 +89,14 @@ export class Simulation {
       subStepsTaken++;
     }
 
-    // Discard excessive accumulated time if frame dropped
     if (this.accumulatedTime > this.fixedDt * 2) {
       this.accumulatedTime = 0;
     }
 
-    // Alpha blend factor for visual interpolation: alpha in [0, 1)
     const alpha = Math.min(1.0, Math.max(0, this.accumulatedTime / this.fixedDt));
-
     return this.interpolateState(this.previousState, this.currentState, alpha);
   }
 
-  /**
-   * Deterministic step for headless test runner (exact single step or multiple steps)
-   */
   public stepExplicit(inputs: ControlInputs, steps: number = 1): VehicleState {
     for (let i = 0; i < steps; i++) {
       this.vehicle.step(inputs, this.fixedDt);
@@ -84,9 +108,6 @@ export class Simulation {
     return this.currentState;
   }
 
-  /**
-   * Smoothly interpolate between two vehicle states for high refresh rate rendering
-   */
   private interpolateState(prev: VehicleState, curr: VehicleState, alpha: number): VehicleState {
     if (alpha <= 0.001) return prev;
     if (alpha >= 0.999) return curr;
