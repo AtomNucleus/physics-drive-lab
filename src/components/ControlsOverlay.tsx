@@ -33,6 +33,11 @@ interface ControlsOverlayProps {
   onSelectPreset: (key: string) => void;
   activeKeys: { [key: string]: boolean };
   onTouchInput: (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => void;
+  isAutomatic: boolean;
+  onSetAutomatic: (automatic: boolean) => void;
+  showM5XDriveSetting?: boolean;
+  isM5RwdMode?: boolean;
+  onSetM5RwdMode?: (enabled: boolean) => void;
 }
 
 type TouchAction = 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake';
@@ -56,11 +61,6 @@ const detectMobileDrivingMode = () => {
   return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
 };
 
-const readAutomaticTransmissionMode = () => {
-  if (typeof document === 'undefined') return true;
-  return document.getElementById('toggle-auto-btn')?.textContent?.includes('AUTO') ?? true;
-};
-
 export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   cameraMode,
   onNextCamera,
@@ -75,12 +75,16 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   activePresetKey,
   activeKeys,
   onTouchInput,
+  isAutomatic,
+  onSetAutomatic,
+  showM5XDriveSetting = false,
+  isM5RwdMode = false,
+  onSetM5RwdMode,
 }) => {
   const [toolbarExpanded, setToolbarExpanded] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
   const [mobileMode, setMobileMode] = React.useState(false);
   const [showMobileSettings, setShowMobileSettings] = React.useState(false);
-  const [mobileAutomatic, setMobileAutomatic] = React.useState(true);
   const activePreset = VEHICLE_PRESETS[activePresetKey] || VEHICLE_PRESETS.sportGT;
 
   const isW = activeKeys['KeyW'] || activeKeys['ArrowUp'];
@@ -118,15 +122,11 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   }, [mobileMode]);
 
   const toggleMobileSettings = () => {
-    setMobileAutomatic(readAutomaticTransmissionMode());
     setShowMobileSettings((open) => !open);
   };
 
   const toggleTransmissionMode = () => {
-    const transmissionButton = document.getElementById('toggle-auto-btn') as HTMLButtonElement | null;
-    if (!transmissionButton) return;
-    transmissionButton.click();
-    setMobileAutomatic((automatic) => !automatic);
+    onSetAutomatic(!isAutomatic);
   };
 
   return (
@@ -182,7 +182,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
         {mobileMode && showMobileSettings && (
           <div
             id="mobile-settings-panel"
-            className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
+            className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-700/80 bg-slate-950/94 p-3 text-slate-200 shadow-2xl backdrop-blur-xl"
           >
             <div className="mb-2 flex items-center gap-2 border-b border-slate-800 pb-2">
               <Settings2 size={14} className="text-sky-300" />
@@ -198,21 +198,52 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
                 id="mobile-transmission-toggle"
                 type="button"
                 role="switch"
-                aria-checked={mobileAutomatic}
+                aria-checked={isAutomatic}
                 onClick={toggleTransmissionMode}
-                className={`relative h-7 w-12 rounded-full border transition-colors ${mobileAutomatic ? 'border-emerald-400/50 bg-emerald-400/25' : 'border-slate-600 bg-slate-800'}`}
+                className={`relative h-7 w-12 rounded-full border transition-colors ${isAutomatic ? 'border-emerald-400/50 bg-emerald-400/25' : 'border-slate-600 bg-slate-800'}`}
                 aria-label="Toggle automatic transmission"
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${mobileAutomatic ? 'translate-x-6' : 'translate-x-0.5'}`}
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isAutomatic ? 'translate-x-6' : 'translate-x-0.5'}`}
                 />
               </button>
             </div>
 
             <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">
               <span>Mode</span>
-              <span className={mobileAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{mobileAutomatic ? 'Automatic' : 'Manual'}</span>
+              <span className={isAutomatic ? 'text-emerald-300' : 'text-sky-300'}>{isAutomatic ? 'Automatic' : 'Manual'}</span>
             </div>
+
+            {showM5XDriveSetting && onSetM5RwdMode && (
+              <>
+                <div className="mt-3 border-t border-slate-800 pt-3">
+                  <div className={`flex items-center justify-between gap-3 rounded-xl border p-2.5 ${isM5RwdMode ? 'border-amber-400/35 bg-amber-400/10' : 'border-slate-800 bg-slate-900/65'}`}>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold text-white">M xDrive 2WD</div>
+                      <div className="mt-0.5 text-[8px] leading-relaxed text-slate-500">Rear axle only • TCS off • Launch Control off</div>
+                    </div>
+                    <button
+                      id="mobile-m5-rwd-toggle"
+                      type="button"
+                      role="switch"
+                      aria-checked={isM5RwdMode}
+                      onClick={() => onSetM5RwdMode(!isM5RwdMode)}
+                      className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${isM5RwdMode ? 'border-amber-300/70 bg-amber-400/30' : 'border-slate-600 bg-slate-800'}`}
+                      aria-label="Toggle BMW M5 M xDrive 2WD mode"
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${isM5RwdMode ? 'translate-x-6' : 'translate-x-0.5'}`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between px-1 text-[8px] font-bold uppercase tracking-wider text-slate-500">
+                  <span>M xDrive</span>
+                  <span className={isM5RwdMode ? 'text-amber-300' : 'text-emerald-300'}>{isM5RwdMode ? '2WD · TRACK' : '4WD · ACTIVE'}</span>
+                </div>
+              </>
+            )}
           </div>
         )}
 
