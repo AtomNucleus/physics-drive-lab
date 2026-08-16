@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+html[data-driving-mobile='true'],
+html[data-driving-mobile='true'] body,
+html[data-driving-mobile='true'] #root,
+html[data-driving-mobile='true'] #driving-simulator-app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html[data-driving-mobile='true'] #driving-simulator-app canvas {
+  touch-action: none;
+}
+
+html[data-driving-mobile='true'] #assetto-corsa-import-btn {
+  display: none;
+}
+
+html[data-driving-mobile='true'] #drs-toggle-btn,
+html[data-driving-mobile='true'] #clutch-kick-btn {
+  display: none;
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  html[data-driving-mobile='true'] #mobile-landscape-hint {
+    display: block;
+  }
+}
