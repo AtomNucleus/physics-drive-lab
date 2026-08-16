@@ -33,20 +33,14 @@ export class DifferentialSystem {
     const torques: [number, number, number, number] = [0, 0, 0, 0];
 
     if (this.config.drivetrain === 'FWD') {
-      // Front-wheel drive
       const diffOut = this.solveAxleDifferential(inputTorque, omegaFL, omegaFR);
       torques[0] = diffOut.torqueLeft;
       torques[1] = diffOut.torqueRight;
-      torques[2] = 0;
-      torques[3] = 0;
       return { wheelTorques: torques, pinionSpeed: diffOut.carrierSpeed };
     }
 
     if (this.config.drivetrain === 'RWD') {
-      // Rear-wheel drive
       const diffOut = this.solveAxleDifferential(inputTorque, omegaRL, omegaRR);
-      torques[0] = 0;
-      torques[1] = 0;
       torques[2] = diffOut.torqueLeft;
       torques[3] = diffOut.torqueRight;
       return { wheelTorques: torques, pinionSpeed: diffOut.carrierSpeed };
@@ -56,11 +50,8 @@ export class DifferentialSystem {
     const frontRatio = 0.40;
     const rearRatio = 0.60;
 
-    const torqueFrontAxle = inputTorque * frontRatio;
-    const torqueRearAxle = inputTorque * rearRatio;
-
-    const frontDiff = this.solveAxleDifferential(torqueFrontAxle, omegaFL, omegaFR);
-    const rearDiff = this.solveAxleDifferential(torqueRearAxle, omegaRL, omegaRR);
+    const frontDiff = this.solveAxleDifferential(inputTorque * frontRatio, omegaFL, omegaFR);
+    const rearDiff = this.solveAxleDifferential(inputTorque * rearRatio, omegaRL, omegaRR);
 
     torques[0] = frontDiff.torqueLeft;
     torques[1] = frontDiff.torqueRight;
@@ -72,7 +63,14 @@ export class DifferentialSystem {
   }
 
   /**
-   * Solve torque split across a single axle differential
+   * Solve torque split across a single axle differential.
+   *
+   * Clutch-ramp numbers are treated as engagement strength, not as a literal
+   * fraction of driveshaft torque. The previous implementation could generate
+   * more locking torque than one wheel's 50% share and reverse that wheel's
+   * torque under power, creating a left/right oscillation. Real plate LSDs bias
+   * torque strongly, but a normal 1.5-way does not chatter between +drive and
+   * -drive on a straight launch.
    */
   private solveAxleDifferential(
     inputTorque: number,
@@ -84,10 +82,9 @@ export class DifferentialSystem {
     carrierSpeed: number;
   } {
     const carrierSpeed = (omegaLeft + omegaRight) * 0.5;
-    const deltaOmega = omegaLeft - omegaRight; // Positive if left wheel is spinning faster
+    const deltaOmega = omegaLeft - omegaRight;
 
     if (this.config.type === 'OPEN') {
-      // True open differential: 50/50 torque split regardless of wheel speed difference
       return {
         torqueLeft: inputTorque * 0.5,
         torqueRight: inputTorque * 0.5,
@@ -96,7 +93,6 @@ export class DifferentialSystem {
     }
 
     if (this.config.type === 'SPOOL') {
-      // Fully locked spool axle: equal speed, torque biases heavily to slower wheel
       const lockTorque = deltaOmega * 800.0;
       return {
         torqueLeft: inputTorque * 0.5 - lockTorque,
@@ -105,25 +101,31 @@ export class DifferentialSystem {
       };
     }
 
-    // Clutch-Type LSD (1.5-way / 2-way)
     const isPowerOn = inputTorque >= 0;
-    const rampCoeff = isPowerOn ? this.config.powerRamp : this.config.coastRamp;
+    const rampCoeff = PhysicsMath.clamp(isPowerOn ? this.config.powerRamp : this.config.coastRamp, 0, 1);
 
-    // Locking torque capacity = Preload + Ramp * |Input Torque|
-    const maxLockingTorque = this.config.preloadTorque + rampCoeff * Math.abs(inputTorque);
+    // Plate ramp strength is scaled to a realistic axle torque-biasing range.
+    // At the default 0.70 power ramp this produces roughly a 70/30 split at
+    // strong lock instead of allowing one wheel to receive reverse torque.
+    const preload = Math.max(0, this.config.preloadTorque);
+    const rampLockCapacity = Math.abs(inputTorque) * rampCoeff * 0.25;
+    const maxLockingTorque = preload + rampLockCapacity;
 
-    // Dynamic friction engagement curve as a function of speed difference
-    // Uses tanh for smooth, non-oscillating transition through zero delta-speed
-    const lockActivation = Math.tanh(deltaOmega * 1.5);
-    const actualLockTorque = maxLockingTorque * lockActivation;
+    // Smooth engagement with wheel-speed difference. A gentler slope avoids
+    // instant full-lock response to tiny numerical speed differences.
+    const lockActivation = Math.tanh(deltaOmega * 0.35);
+    let actualLockTorque = maxLockingTorque * lockActivation;
 
-    // Faster wheel receives less torque, slower wheel receives more torque
-    const torqueLeft = inputTorque * 0.5 - actualLockTorque;
-    const torqueRight = inputTorque * 0.5 + actualLockTorque;
+    // Under meaningful drive/coast torque, keep both axle torques in the same
+    // direction. Preload is still allowed to cross-couple around zero torque.
+    if (Math.abs(inputTorque) > preload * 2) {
+      const sameSignCap = Math.abs(inputTorque) * 0.48;
+      actualLockTorque = PhysicsMath.clamp(actualLockTorque, -sameSignCap, sameSignCap);
+    }
 
     return {
-      torqueLeft,
-      torqueRight,
+      torqueLeft: inputTorque * 0.5 - actualLockTorque,
+      torqueRight: inputTorque * 0.5 + actualLockTorque,
       carrierSpeed,
     };
   }
