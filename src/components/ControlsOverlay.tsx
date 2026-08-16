@@ -8,10 +8,10 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
-  Eraser,
   HelpCircle,
   RotateCcw,
   Sliders,
+  Sparkles,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -154,7 +154,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
               className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-800 hover:text-slate-200"
               title="Clear skid marks"
             >
-              <Eraser size={14} />
+              <Sparkles size={14} />
             </button>
 
             <button
