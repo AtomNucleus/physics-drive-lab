@@ -33,28 +33,23 @@ export class Simulation {
     const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
     this.vehicle.setConfig(newConfig);
 
-    // Vehicle.setConfig updates the subsystem tuning, but the rigid-body mass and
-    // principal inertias also have to change. Without this, selecting a 2050 kg
-    // preset still physically simulated the original 1540 kg chassis.
-    const m = newConfig.mass;
+    // Rebuild rigid-body properties from the selected vehicle's actual mass and
+    // geometry. Presets are merged onto DEFAULT_VEHICLE_CONFIG in the UI, so using
+    // inherited explicit inertia numbers would make a 2050 kg luxury sedan retain
+    // the 1540 kg GT's rotational inertia. Geometry-derived values keep every preset
+    // dynamically consistent with its own physical dimensions and mass.
+    const m = Math.max(1, newConfig.mass);
     const L = newConfig.wheelbase;
     const W = newConfig.trackWidth;
     const H = newConfig.centerOfGravityHeight;
 
-    const geometricPitch = (m / 12) * (L * L + H * H) * 1.5;
-    const geometricYaw = (m / 12) * (L * L + W * W) * 1.1;
-    const geometricRoll = (m / 12) * (W * W + H * H) * 1.6;
-
-    const configuredPitch = Number((newConfig as any).chassisPitchInertia);
-    const configuredRoll = Number((newConfig as any).chassisRollInertia);
+    const pitchInertia = (m / 12) * (L * L + H * H) * 1.5;
+    const yawInertia = (m / 12) * (L * L + W * W) * 1.1;
+    const rollInertia = (m / 12) * (W * W + H * H) * 1.6;
 
     this.vehicle.rigidBody.config = {
-      mass: Math.max(1, m),
-      inertia: PhysicsMath.vec3(
-        Number.isFinite(configuredPitch) && configuredPitch > 0 ? configuredPitch : geometricPitch,
-        geometricYaw,
-        Number.isFinite(configuredRoll) && configuredRoll > 0 ? configuredRoll : geometricRoll
-      ),
+      mass: m,
+      inertia: PhysicsMath.vec3(pitchInertia, yawInertia, rollInertia),
       centerOfGravityHeight: H,
     };
 
