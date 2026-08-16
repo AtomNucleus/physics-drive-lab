@@ -42,6 +42,9 @@ jobs:
       - name: Full tire and combined-slip regression
         run: npm run test:tire
 
+      - name: Automatic transmission and low-speed propulsion regression
+        run: npm run test:automatic
+
       - name: Tire smoke regression
         run: npm run test:smoke
 
