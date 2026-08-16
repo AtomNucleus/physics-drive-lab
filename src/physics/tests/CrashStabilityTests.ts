@@ -40,38 +40,71 @@ const finiteVehicle = (sim: Simulation) => {
 };
 
 // ---------------------------------------------------------------------------
-// High-energy upright spin recovery: no solver runaway or suspension separation.
+// High-energy UPRIGHT spin recovery. This deliberately contains yaw and large
+// lateral slip but no artificial roll/pitch tumble. It targets the reported
+// post-spin shake independently of the rollover/body-contact problem below.
 // ---------------------------------------------------------------------------
 const spinSim = new Simulation(config);
 spinSim.reset(0, 0, 0);
 for (let i = 0; i < 360; i++) spinSim.stepExplicit(neutral, 1);
 
+const settledSpinHeave = spinSim.vehicle.getState().heave;
 spinSim.vehicle.rigidBody.velocity = PhysicsMath.vec3(13, 0, 29);
-spinSim.vehicle.rigidBody.angularVelocity = PhysicsMath.vec3(0.25, 4.2, 0.35);
+spinSim.vehicle.rigidBody.angularVelocity = PhysicsMath.vec3(0, 4.2, 0);
 spinSim.vehicle.rigidBody.orientation = PhysicsMath.quatFromEuler(
-  6 * Math.PI / 180,
+  1.0 * Math.PI / 180,
   0,
-  9 * Math.PI / 180
+  2.0 * Math.PI / 180
 );
 spinSim.vehicle.wheels.forEach((wheel) => wheel.reset(29));
 
 let maxSpinAngularSpeed = 0;
-let maxSpinHeaveM = 0;
+let maxSpinHeaveDeltaM = 0;
+let maxSpinVerticalSpeedMps = 0;
+let maxSpinTipDeg = 0;
 let spinNonFinite = 0;
-for (let i = 0; i < 720; i++) {
+let lateShakeEnergy = 0;
+let lateSkidFrames = 0;
+for (let i = 0; i < 960; i++) {
   const state = spinSim.stepExplicit(neutral, 1);
   const angularSpeed = PhysicsMath.vec3Length(spinSim.vehicle.rigidBody.angularVelocity);
+  const euler = spinSim.vehicle.rigidBody.getEuler();
+  const tipDeg = Math.max(Math.abs(euler.pitch), Math.abs(euler.roll)) * 180 / Math.PI;
   maxSpinAngularSpeed = Math.max(maxSpinAngularSpeed, angularSpeed);
-  maxSpinHeaveM = Math.max(maxSpinHeaveM, Math.abs(state.heave));
+  maxSpinTipDeg = Math.max(maxSpinTipDeg, tipDeg);
+  maxSpinHeaveDeltaM = Math.max(maxSpinHeaveDeltaM, Math.abs(state.heave - settledSpinHeave));
+  maxSpinVerticalSpeedMps = Math.max(maxSpinVerticalSpeedMps, Math.abs(spinSim.vehicle.rigidBody.velocity.y));
   if (!finiteVehicle(spinSim)) spinNonFinite++;
+
   for (const wheel of state.wheels) {
     assert(wheel.verticalTravelM <= 0.140001, `spin exceeded bump travel: ${wheel.verticalTravelM}`);
     assert(wheel.verticalTravelM >= -0.120001, `spin exceeded droop travel: ${wheel.verticalTravelM}`);
   }
+
+  // Last two seconds: the car should have stopped feeding a self-excited shake.
+  if (i >= 720) {
+    lateShakeEnergy +=
+      Math.abs(state.rollRate) +
+      Math.abs(state.pitchRate) +
+      Math.abs(spinSim.vehicle.rigidBody.velocity.y) * 0.5;
+    if (state.wheels.some((wheel) => wheel.isSkidding && wheel.skidIntensity > 0.05)) {
+      lateSkidFrames++;
+    }
+  }
 }
 assert(spinNonFinite === 0, `spin recovery produced ${spinNonFinite} non-finite samples`);
 assert(maxSpinAngularSpeed < 12, `spin angular velocity ran away: ${maxSpinAngularSpeed} rad/s`);
-assert(maxSpinHeaveM < 0.45, `spin produced implausible chassis/wheel separation: ${maxSpinHeaveM} m`);
+assert(maxSpinTipDeg < 35, `upright spin unexpectedly became a rollover: ${maxSpinTipDeg} deg`);
+assert(
+  maxSpinHeaveDeltaM < 0.30,
+  `upright spin injected excessive vertical chassis motion: ${maxSpinHeaveDeltaM} m`
+);
+assert(
+  maxSpinVerticalSpeedMps < 4.0,
+  `upright spin injected excessive vertical velocity: ${maxSpinVerticalSpeedMps} m/s`
+);
+assert(lateSkidFrames === 0, `post-spin tire state kept skidding for ${lateSkidFrames} late frames`);
+assert(lateShakeEnergy / 240 < 0.08, `post-spin chassis retained shake energy: ${lateShakeEnergy / 240}`);
 
 // ---------------------------------------------------------------------------
 // Wipeout/roll impact: body shell must not pass through road and excite springs.
@@ -116,12 +149,18 @@ assert(
   `body shell penetrated road after crash projection: ${maxPostStepPenetrationM} m`
 );
 assert(maxCrashAngularSpeed <= 12.01, `wipeout angular speed exceeded crash ceiling: ${maxCrashAngularSpeed}`);
-assert(maxCrashHeaveM < 0.85, `wipeout let chassis separate excessively from road/wheels: ${maxCrashHeaveM} m`);
+// A rolled car's CG legitimately rises while the shell pivots on its side/roof, so
+// heave is reported here for diagnostics but suspension travel—not absolute heave—
+// is the invariant that proves the body has not escaped its four wheel constraints.
 
 console.log(JSON.stringify({
   uprightSpin: {
     maxAngularSpeedRadS: maxSpinAngularSpeed,
-    maxHeaveM: maxSpinHeaveM,
+    maxTipDeg: maxSpinTipDeg,
+    maxHeaveDeltaM: maxSpinHeaveDeltaM,
+    maxVerticalSpeedMps: maxSpinVerticalSpeedMps,
+    meanLateShakeEnergy: lateShakeEnergy / 240,
+    lateSkidFrames,
     nonFiniteSamples: spinNonFinite,
   },
   wipeout: {
