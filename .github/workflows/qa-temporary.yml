@@ -1,0 +1,166 @@
+name: Temporary Physics QA
+
+on:
+  push:
+    branches:
+      - agent/dynamic-tire-load-transfer
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: TypeScript check
+        id: typecheck
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Production build
+        id: build
+        run: npm run build
+
+      - name: Run physics acceptance suite
+        id: physics
+        continue-on-error: true
+        run: |
+          cat > /tmp/run-physics-qa.ts <<'TS'
+          import fs from 'node:fs';
+          import { DEFAULT_VEHICLE_CONFIG } from '${{ github.workspace }}/src/physics/vehiclePresets.ts';
+          import { HeadlessTestRunner } from '${{ github.workspace }}/src/physics/tests/HeadlessTestRunner.ts';
+
+          try {
+            const results = HeadlessTestRunner.runAllTests(DEFAULT_VEHICLE_CONFIG);
+            const passed = results.filter(r => r.passed).length;
+            const failed = results.filter(r => !r.passed).length;
+            const payload = { passed, failed, total: results.length, results };
+            fs.writeFileSync('physics-qa-results.json', JSON.stringify(payload, null, 2));
+            console.log(`PHYSICS_QA ${passed}/${results.length} passed`);
+            for (const r of results) console.log(`${r.passed ? 'PASS' : 'FAIL'} | ${r.name} | ${r.summary}`);
+            if (failed > 0) process.exitCode = 2;
+          } catch (error) {
+            fs.writeFileSync('physics-qa-results.json', JSON.stringify({ fatal: String(error), stack: (error as Error)?.stack }, null, 2));
+            console.error(error);
+            process.exitCode = 3;
+          }
+          TS
+          npx tsx /tmp/run-physics-qa.ts
+
+      - name: Install Chromium smoke-test dependency
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Browser smoke test production bundle
+        id: browser
+        continue-on-error: true
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:4173/ >/dev/null && break
+            sleep 1
+          done
+          cat > /tmp/browser-smoke.mjs <<'JS'
+          import fs from 'node:fs';
+          import { chromium } from 'playwright';
+
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+          const pageErrors = [];
+          const consoleErrors = [];
+          page.on('pageerror', e => pageErrors.push(String(e)));
+          page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+
+          const response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle', timeout: 30000 });
+          await page.locator('canvas').first().waitFor({ state: 'visible', timeout: 15000 });
+          const canvasBox = await page.locator('canvas').first().boundingBox();
+          const title = await page.title();
+          const bodyText = (await page.locator('body').innerText()).slice(0, 3000);
+
+          // Exercise the main animation/input loop for a moment.
+          await page.keyboard.down('KeyW');
+          await page.waitForTimeout(700);
+          await page.keyboard.up('KeyW');
+          await page.keyboard.down('ArrowLeft');
+          await page.waitForTimeout(350);
+          await page.keyboard.up('ArrowLeft');
+          await page.waitForTimeout(500);
+
+          await page.screenshot({ path: 'browser-smoke.png', fullPage: true });
+          const result = {
+            httpStatus: response?.status() ?? null,
+            title,
+            canvasVisible: !!canvasBox && canvasBox.width > 0 && canvasBox.height > 0,
+            canvasBox,
+            pageErrors,
+            consoleErrors,
+            bodyTextSample: bodyText
+          };
+          fs.writeFileSync('browser-smoke-results.json', JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result, null, 2));
+          await browser.close();
+          if (!result.canvasVisible || pageErrors.length || consoleErrors.length) process.exitCode = 4;
+          JS
+          node /tmp/browser-smoke.mjs
+
+      - name: Probe live Netlify deployment
+        id: live
+        continue-on-error: true
+        env:
+          LIVE_URL: https://fanciful-sherbet-1d0b46.netlify.app/
+          SITE_PASSWORD: My-Drop-Site
+        run: |
+          set +e
+          : > live-probe.txt
+          for mode in plain blankuser adminuser; do
+            case "$mode" in
+              plain) AUTH=() ;;
+              blankuser) AUTH=(-u ":${SITE_PASSWORD}") ;;
+              adminuser) AUTH=(-u "admin:${SITE_PASSWORD}") ;;
+            esac
+            CODE=$(curl -L -sS -o "live-${mode}.html" -w '%{http_code}' "${AUTH[@]}" "$LIVE_URL")
+            TITLE=$(grep -io '<title>[^<]*' "live-${mode}.html" | head -1 | sed 's/<title>//I')
+            BYTES=$(wc -c < "live-${mode}.html")
+            echo "$mode status=$CODE bytes=$BYTES title=$TITLE" | tee -a live-probe.txt
+          done
+
+      - name: Write QA summary
+        if: always()
+        run: |
+          cat > qa-step-summary.txt <<EOF
+          typecheck=${{ steps.typecheck.outcome }}
+          build=${{ steps.build.outcome }}
+          physics=${{ steps.physics.outcome }}
+          browser=${{ steps.browser.outcome }}
+          live=${{ steps.live.outcome }}
+          EOF
+          cat qa-step-summary.txt
+
+      - name: Upload QA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-drive-qa
+          path: |
+            physics-qa-results.json
+            browser-smoke-results.json
+            browser-smoke.png
+            live-probe.txt
+            live-plain.html
+            live-blankuser.html
+            live-adminuser.html
+            qa-step-summary.txt
+          if-no-files-found: ignore
+          retention-days: 1
