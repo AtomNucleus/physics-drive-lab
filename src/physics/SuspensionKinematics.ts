@@ -188,20 +188,54 @@ function findUpperInnerDrop(
     upperRest.y - drop,
     upperRest.z
   );
+  const gainAt = (drop: number) => derivedCamberGain(
+    sideSign,
+    lowerInner,
+    build(drop),
+    lowerRest,
+    upperRest
+  );
 
-  let low = 0;
-  let high = 0.04;
-  for (let i = 0; i < 48; i++) {
-    const mid = (low + high) * 0.5;
-    const upperInner = build(mid);
-    const gain = derivedCamberGain(sideSign, lowerInner, upperInner, lowerRest, upperRest);
-    if (gain > target) low = mid;
-    else high = mid;
+  // A zero lower bound cannot represent mild camber-gain targets. For example,
+  // the small-wheel default geometry already produces about -3 deg/m at zero drop.
+  // Allow the virtual inner pivot to sit slightly above the outer joint as well as
+  // below it, then solve the target from a true sign-changing bracket. This is only
+  // virtual compatibility geometry; real imported pickup points bypass this fitting.
+  const searchExtent = Math.max(0.08, upperArmSpanM * 0.35);
+  let low = -searchExtent;
+  let high = searchExtent;
+  let lowError = gainAt(low) - target;
+  let highError = gainAt(high) - target;
+
+  if (lowError * highError > 0) {
+    // If an extreme user target is outside the representable range, select the
+    // closest physical endpoint rather than silently biasing toward one side.
+    const chosen = Math.abs(lowError) <= Math.abs(highError) ? low : high;
+    const upperInner = build(chosen);
+    return { upperInner, derivedGain: gainAt(chosen) };
   }
-  const upperInner = build((low + high) * 0.5);
+
+  for (let i = 0; i < 56; i++) {
+    const mid = (low + high) * 0.5;
+    const midError = gainAt(mid) - target;
+    if (Math.abs(midError) < 1e-8) {
+      low = high = mid;
+      break;
+    }
+    if (lowError * midError <= 0) {
+      high = mid;
+      highError = midError;
+    } else {
+      low = mid;
+      lowError = midError;
+    }
+  }
+
+  const fittedDrop = (low + high) * 0.5;
+  const upperInner = build(fittedDrop);
   return {
     upperInner,
-    derivedGain: derivedCamberGain(sideSign, lowerInner, upperInner, lowerRest, upperRest),
+    derivedGain: gainAt(fittedDrop),
   };
 }
 
