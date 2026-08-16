@@ -9,9 +9,6 @@ concurrency:
   group: m5-calibration
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 jobs:
   calibrate:
     runs-on: ubuntu-latest
@@ -21,7 +18,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: agent/dynamic-tire-load-transfer
-          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -30,24 +26,6 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-
-      - name: Apply M5 mechanical/control calibration
-        run: |
-          git pull --rebase origin agent/dynamic-tire-load-transfer
-          python3 scripts/m5_finalize_patch.py
-          python3 scripts/m5_sensor_patch.py
-          python3 scripts/m5_launch_control_patch.py
-          python3 scripts/m5_driveline_inertia_patch.py
-          python3 scripts/m5_longitudinal_relaxation_patch.py
-          python3 scripts/m5_tcs_patch.py
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/physics/Vehicle.ts src/physics/Powertrain.ts src/physics/DriverAids.ts src/physics/WheelDynamics.ts src/physics/TireModel.ts src/physics/m5G90.ts
-            git commit -m "Add configurable near-actuator M5 TCS"
-            git pull --rebase origin agent/dynamic-tire-load-transfer
-            git push origin HEAD:agent/dynamic-tire-load-transfer
-          fi
 
       - name: Production build
         run: npm run build
@@ -61,8 +39,14 @@ jobs:
       - name: Run M5 parameter sweep
         run: npx tsx scripts/m5_parameter_sweep.ts | tee m5-parameter-sweep.log
 
-      - name: Run brake and aero diagnostic
+      - name: Run brake torque diagnostic
         run: npx tsx scripts/m5_brake_diag.ts | tee m5-brake-diag.log
+
+      - name: Run drag/brake diagnostic
+        run: npx tsx scripts/m5_drag_brake_diag.ts | tee m5-drag-brake-diag.log
+
+      - name: Run speed-controlled skidpad
+        run: npx tsx scripts/m5_skidpad_speed_control.ts | tee m5-skidpad-speed-control.log
 
       - name: Upload calibration results
         uses: actions/upload-artifact@v4
@@ -74,4 +58,6 @@ jobs:
             m5-launch-diag.log
             m5-parameter-sweep.log
             m5-brake-diag.log
+            m5-drag-brake-diag.log
+            m5-skidpad-speed-control.log
           retention-days: 1
