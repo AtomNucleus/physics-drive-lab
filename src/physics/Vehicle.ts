@@ -38,16 +38,20 @@ export class Vehicle {
     this.config = { ...config };
     this.surfaceProvider = surfaceProvider || new ProvingGroundSurfaceProvider();
 
-    // 1. Calculate Moments of Inertia from mass, wheelbase, track width, and CG height
+    // 1. Calculate Moments of Inertia from mass, wheelbase, track width, and CG height.
+    // Body axes in this simulation are X=lateral (pitch axis), Y=vertical (yaw axis),
+    // Z=longitudinal (roll axis). Keep the principal inertias aligned to those axes.
     const m = this.config.mass;
     const L = this.config.wheelbase;
     const W = this.config.trackWidth;
     const H = this.config.centerOfGravityHeight;
 
-    // Approximate chassis as solid cuboid: Ixx = m/12*(W^2 + H^2), Iyy = m/12*(L^2 + W^2), Izz = m/12*(L^2 + H^2)
-    const Ixx = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
+    // Approximate sprung chassis as a cuboid with empirical multipliers for the fact
+    // that a real automobile is not a homogeneous box. Pitch inertia belongs on X;
+    // roll inertia belongs on Z. This was previously reversed.
+    const Ixx = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
     const Iyy = (m / 12) * (L * L + W * W) * 1.1; // Yaw inertia
-    const Izz = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
+    const Izz = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
 
     this.rigidBody = new RigidBody(
       {
