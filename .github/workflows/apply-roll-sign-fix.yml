@@ -1,0 +1,41 @@
+name: Apply roll sign fix
+
+on:
+  push:
+    branches:
+      - agent/unsprung-mass-dynamics
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Fix chassis roll render sign') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Align rendered roll with physics roll convention
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/graphics/carRenderer.ts')
+          text = path.read_text()
+          old = 'this.chassisGroup.rotation.z = -state.roll;'
+          new = 'this.chassisGroup.rotation.z = state.roll;'
+          if old not in text:
+              if new in text:
+                  print('Roll sign already corrected')
+                  raise SystemExit(0)
+              raise SystemExit('Expected chassis roll assignment not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit renderer sign correction
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/graphics/carRenderer.ts
+          git commit -m "Fix chassis roll render sign"
+          git push
