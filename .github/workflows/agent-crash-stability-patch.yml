@@ -1,4 +1,5 @@
 name: Apply crash stability patch
+# rerun: separated upright spin from rollover
 
 on:
   push:
@@ -30,16 +31,6 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'Expected source block not found in {path}')
-              p.write_text(text.replace(old, new, 1))
-
-          # Tire forces are contact-patch forces and must remain tangent to the road.
-          # Rotating them with chassis roll/pitch without projection injects vertical
-          # force during a spin and can launch the chassis away from its wheel hubs.
           vehicle = Path('src/physics/Vehicle.ts')
           text = vehicle.read_text()
           import_marker = "import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';\n\n"
@@ -50,26 +41,19 @@ jobs:
               text = text.replace(import_marker, helper, 1)
 
           old_force = """      if (!suspState.isAirborne && suspState.tireNormalForceN > 0) {\n        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.\n        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;\n        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;\n\n        // Tire shear follows the chassis/wheel heading, but suspension support is\n        // an external ground-normal reaction. Rotating support with chassis pitch/roll\n        // can invent propulsion on a flat road; apply it along the actual road normal.\n        const tirePlanarWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          surface.normal,\n          suspState.chassisForceN\n        );\n        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);\n\n        // Apply self-aligning torque Mz to chassis\n        this.rigidBody.addBodyTorque(PhysicsMath.vec3(0, tireOut.aligningTorque, 0));\n      }\n"""
-          new_force = """      // The vertical unsprung/suspension solver assumes a mostly upright chassis.\n      // At extreme tip angles the body/roof/sill contact must take over from the tires.\n      // This leaves normal handling untouched while preventing a sideways car from\n      // storing enormous spring energy against the road.\n      const bodyUpWorld = PhysicsMath.quatRotateVec3(\n        this.rigidBody.orientation,\n        PhysicsMath.vec3(0, 1, 0)\n      );\n      const contactUprightness = PhysicsMath.vec3Dot(\n        bodyUpWorld,\n        PhysicsMath.vec3Normalize(surface.normal)\n      );\n      const wheelContactAuthority = PhysicsMath.clamp(\n        (contactUprightness - 0.20) / 0.45,\n        0,\n        1\n      );\n\n      if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {\n        // Convert tire planar forces (Fx along wheel heading, Fy lateral to wheel) back into body frame.\n        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;\n        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;\n\n        // Tire shear may inherit chassis pitch/roll from the body transform, but a\n        // contact-patch shear force cannot push into or pull away from the road.\n        // Project it onto the actual local road tangent plane before application.\n        const rawTireShearWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const tirePlanarWorld = PhysicsMath.vec3Scale(\n          projectTireShearOntoSurface(rawTireShearWorld, surface.normal),\n          wheelContactAuthority\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          PhysicsMath.vec3Normalize(surface.normal),\n          suspState.chassisForceN * wheelContactAuthority\n        );\n        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);\n\n        // Apply self-aligning torque Mz with the same physical contact authority.\n        this.rigidBody.addBodyTorque(\n          PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)\n        );\n      }\n"""
+          new_force = """      // Wheel/suspension authority fades only at extreme tip angles where the\n      // body shell, roof or sill is the physical road-contact structure.\n      const bodyUpWorld = PhysicsMath.quatRotateVec3(\n        this.rigidBody.orientation,\n        PhysicsMath.vec3(0, 1, 0)\n      );\n      const contactUprightness = PhysicsMath.vec3Dot(\n        bodyUpWorld,\n        PhysicsMath.vec3Normalize(surface.normal)\n      );\n      const wheelContactAuthority = PhysicsMath.clamp(\n        (contactUprightness - 0.20) / 0.45,\n        0,\n        1\n      );\n\n      if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {\n        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;\n        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;\n\n        // Contact-patch shear must remain tangent to the road. Without this\n        // projection chassis roll/pitch converts lateral force into artificial\n        // vertical force during a spin and can launch the body off its wheels.\n        const rawTireShearWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const tirePlanarWorld = PhysicsMath.vec3Scale(\n          projectTireShearOntoSurface(rawTireShearWorld, surface.normal),\n          wheelContactAuthority\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          PhysicsMath.vec3Normalize(surface.normal),\n          suspState.chassisForceN * wheelContactAuthority\n        );\n        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);\n        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);\n        this.rigidBody.addBodyTorque(\n          PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)\n        );\n      }\n"""
           if old_force not in text:
               raise SystemExit('Vehicle tire-force target block not found')
           vehicle.write_text(text.replace(old_force, new_force, 1))
 
-          # Once a spin has almost settled, viscoelastic tread shear should creep back
-          # toward zero instead of preserving a saturated brush state that can ring the
-          # vehicle into a low-speed shake/smoke loop.
           wheel = Path('src/physics/WheelDynamics.ts')
           text = wheel.read_text()
           old_patch = """    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);\n    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);\n"""
-          new_patch = """    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);\n\n    const patchNearlySettled =\n      fz >= 20 &&\n      rollingSpeed < 0.55 &&\n      patchSlipSpeed < 0.28 &&\n      Math.abs(driveTorque) < 15 &&\n      brakeRequest < 15;\n    if (patchNearlySettled) {\n      const creepDecay = Math.exp(-dt / 0.35);\n      this.lowSpeedLongDeflection *= creepDecay;\n      this.lowSpeedLatDeflection *= creepDecay;\n    }\n\n    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);\n"""
+          new_patch = """    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);\n\n    // Viscoelastic tread creep clears stored brush shear as a spin finishes.\n    // Otherwise saturated low-speed deflection can ring back and forth after the\n    // car is essentially stopped, producing the reported shake/smoke loop.\n    const patchNearlySettled =\n      fz >= 20 &&\n      rollingSpeed < 0.55 &&\n      patchSlipSpeed < 0.28 &&\n      Math.abs(driveTorque) < 15 &&\n      brakeRequest < 15;\n    if (patchNearlySettled) {\n      const creepDecay = Math.exp(-dt / 0.35);\n      this.lowSpeedLongDeflection *= creepDecay;\n      this.lowSpeedLatDeflection *= creepDecay;\n    }\n\n    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);\n"""
           if old_patch not in text:
               raise SystemExit('WheelDynamics contact-patch marker not found')
           wheel.write_text(text.replace(old_patch, new_patch, 1))
 
-          # Rotate the visual body around the same physical CG the rigid body uses.
-          # Previously the chassis rotated around the road-level root, making it orbit
-          # away from the wheels/springs during a wipeout even when suspension travel
-          # was still bounded.
           renderer = Path('src/graphics/carRenderer.ts')
           text = renderer.read_text()
           old_prop = "  public rootGroup: THREE.Group;\n  public chassisGroup: THREE.Group;"
@@ -85,7 +69,7 @@ jobs:
           text = text.replace(old_ctor, new_ctor, 1)
 
           old_update = """    // 1. Root Group tracks World Position and Heading Yaw\n    // Root follows local road elevation. Chassis heave below is terrain-relative,\n    // preventing world altitude from being applied twice on hills/crests.\n    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);\n    this.rootGroup.rotation.y = state.yaw;\n\n    // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave\n    this.chassisGroup.position.y = state.heave;\n    this.chassisGroup.rotation.z = state.roll;\n    this.chassisGroup.rotation.x = state.pitch;\n"""
-          new_update = """    // 1. Root Group tracks road-relative world position and heading yaw.\n    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);\n    this.rootGroup.rotation.y = state.yaw;\n\n    // 2. Rotate the suspended body around the rigid body's physical center of gravity.\n    // This prevents a high-roll body from orbiting around road level and visually\n    // tearing away from the suspension/wheels.\n    const chassisCgOffset = config.centerOfGravityHeight + 0.35;\n    this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);\n    this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');\n    this.chassisGroup.position.set(0, -chassisCgOffset, 0);\n    this.chassisGroup.rotation.set(0, 0, 0);\n"""
+          new_update = """    // Root tracks road-relative translation/yaw; the body rotates about its CG.\n    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);\n    this.rootGroup.rotation.y = state.yaw;\n\n    const chassisCgOffset = config.centerOfGravityHeight + 0.35;\n    this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);\n    this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');\n    this.chassisGroup.position.set(0, -chassisCgOffset, 0);\n    this.chassisGroup.rotation.set(0, 0, 0);\n"""
           if old_update not in text:
               raise SystemExit('carRenderer update marker not found')
           renderer.write_text(text.replace(old_update, new_update, 1))
