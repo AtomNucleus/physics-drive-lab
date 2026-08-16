@@ -1,4 +1,4 @@
-name: Fix tire smoke and deploy preview
+name: Persist validated tire smoke fix
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  fix-test-deploy:
+  persist-fix:
     if: ${{ !contains(github.event.head_commit.message, 'fix tire smoke detection') }}
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +35,6 @@ jobs:
 
           wheel_path = Path('src/physics/WheelDynamics.ts')
           text = wheel_path.read_text()
-
           helper_marker = "export interface WheelDynamicsConfig {"
           helper = r'''export interface GrossTireSlideEstimate {
             longitudinalSlipSpeed: number;
@@ -55,21 +54,13 @@ jobs:
           ): GrossTireSlideEstimate {
             const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
             const longitudinalPatchSpeed = Math.abs(wheelSurfaceSpeed - longitudinalVelocity);
-
-            // The longitudinal curve peaks around 12% slip and only enters its
-            // post-peak sliding region beyond roughly 15%. Do not call peak traction
-            // a burnout or lock-up.
             const longitudinalAdhesionSpeed = Math.max(0.8, rollingSpeed * 0.15);
             const longitudinalSlipSpeed = Math.max(0, longitudinalPatchSpeed - longitudinalAdhesionSpeed);
-
-            // The lateral curve peaks around 7.7 degrees. Gross lateral sliding begins
-            // beyond the post-peak region (~9.2 degrees), not at ordinary cornering slip.
             const lateralAdhesionSpeed = Math.max(
               0.45,
               Math.tan(0.16) * Math.max(0.5, Math.abs(longitudinalVelocity))
             );
             const lateralSlipSpeed = Math.max(0, Math.abs(lateralVelocity) - lateralAdhesionSpeed);
-
             return {
               longitudinalSlipSpeed,
               lateralSlipSpeed,
@@ -79,8 +70,6 @@ jobs:
 
           '''
           if 'estimateGrossTireSlide' not in text:
-              if helper_marker not in text:
-                  raise SystemExit('WheelDynamics helper insertion marker not found')
               text = text.replace(helper_marker, helper + helper_marker, 1)
 
           old = r'''    const skidSpeedGate = PhysicsMath.clamp((patchSlipSpeed - 0.45) / 1.75, 0, 1);
@@ -98,10 +87,8 @@ jobs:
                   )
                 : 0;'''
 
-          new = r'''    // Visible smoke/skid marks require *gross* road sliding. The previous
-              // calculation used the full lateral wheel velocity, so a tire near its normal
-              // cornering peak could generate many kW of apparent "slip power" and smoke
-              // even though the contact patch was still in the force-generating regime.
+          new = r'''    // Visible smoke/skid marks require gross road sliding, not ordinary
+              // force-generating slip near the tire's cornering peak.
               const grossSlide = estimateGrossTireSlide(
                 longitudinalVelocity,
                 lateralVelocity,
@@ -124,50 +111,26 @@ jobs:
                 : 0;'''
 
           if old not in text:
-              raise SystemExit('Existing skid detection block not found; refusing blind patch')
-          text = text.replace(old, new, 1)
-          wheel_path.write_text(text)
+              raise SystemExit('Existing skid block not found')
+          wheel_path.write_text(text.replace(old, new, 1))
 
-          test_path = Path('src/physics/tests/TireSmokeRegressionTests.ts')
-          test_path.write_text(r'''import { estimateGrossTireSlide } from '../WheelDynamics';
+          Path('src/physics/tests/TireSmokeRegressionTests.ts').write_text(r'''import { estimateGrossTireSlide } from '../WheelDynamics';
 
           const assert = (condition: boolean, message: string) => {
             if (!condition) throw new Error(message);
           };
-
           const deg = (value: number) => value * Math.PI / 180;
-
-          // Peak-ish road-car cornering: ~7.7 degrees at 25 m/s should be force-generating
-          // tire slip, not gross sliding and therefore not a smoke source.
           const cornerSpeed = 25;
-          const normalCorner = estimateGrossTireSlide(
-            cornerSpeed,
-            Math.tan(deg(7.7)) * cornerSpeed,
-            cornerSpeed
-          );
-          assert(normalCorner.lateralSlipSpeed < 1e-9, 'normal peak cornering must not count as gross lateral slide');
+          const normalCorner = estimateGrossTireSlide(cornerSpeed, Math.tan(deg(7.7)) * cornerSpeed, cornerSpeed);
           assert(normalCorner.totalSlipSpeed < 1e-9, 'normal peak cornering must not trigger smoke');
-
-          // A genuine drift well past the lateral peak must register substantial road slide.
-          const drift = estimateGrossTireSlide(
-            cornerSpeed,
-            Math.tan(deg(18)) * cornerSpeed,
-            cornerSpeed
-          );
+          const drift = estimateGrossTireSlide(cornerSpeed, Math.tan(deg(18)) * cornerSpeed, cornerSpeed);
           assert(drift.lateralSlipSpeed > 2.5, '18 degree drift should register gross lateral slide');
-
-          // Peak-ish longitudinal traction should not be misclassified as wheelspin.
-          const traction = estimateGrossTireSlide(30, 0, 33.6); // ~12% wheel-speed excess
-          assert(traction.longitudinalSlipSpeed < 1e-9, 'peak longitudinal traction must not count as burnout slide');
-
-          // Real wheelspin must remain visible.
+          const traction = estimateGrossTireSlide(30, 0, 33.6);
+          assert(traction.longitudinalSlipSpeed < 1e-9, 'peak traction must not count as burnout slide');
           const burnout = estimateGrossTireSlide(5, 0, 15);
-          assert(burnout.longitudinalSlipSpeed > 5, 'large wheel-speed excess should register gross longitudinal slide');
-
-          // Locked-wheel braking must remain visible too.
+          assert(burnout.longitudinalSlipSpeed > 5, 'wheelspin should register gross longitudinal slide');
           const locked = estimateGrossTireSlide(20, 0, 0);
           assert(locked.longitudinalSlipSpeed > 10, 'locked wheel should register gross longitudinal slide');
-
           console.log('Tire smoke regression checks passed.');
           ''')
 
@@ -176,42 +139,18 @@ jobs:
           package.setdefault('scripts', {})['test:smoke'] = 'tsx src/physics/tests/TireSmokeRegressionTests.ts'
           package_path.write_text(json.dumps(package, indent=2) + '\n')
 
-          build_path = Path('.github/workflows/build.yml')
-          build = build_path.read_text()
-          if 'Tire smoke regression' not in build:
-              marker = '      - name: Production build\n        run: npm run build\n'
-              insert = '      - name: Tire smoke regression\n        run: npm run test:smoke\n\n' + marker
-              if marker not in build:
-                  raise SystemExit('build workflow insertion marker not found')
-              build = build.replace(marker, insert, 1)
-              build_path.write_text(build)
-
-      - name: Tire model regression
-        run: npm run test:tire
-
-      - name: Tire smoke regression
-        run: npm run test:smoke
-
-      - name: Stationary steering regression
-        run: npm run test:stationary
-
-      - name: Dynamic corner-load regression
-        run: npm run test:corner-load
-
-      - name: Production build
-        run: npm run build
-
-      - name: Anonymous Netlify deploy
+      - name: Regression checks
         run: |
-          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json | tee /tmp/netlify-deploy.json
-          echo '--- NETLIFY DEPLOY RESULT ---'
-          cat /tmp/netlify-deploy.json
+          npm run test:tire
+          npm run test:smoke
+          npm run test:stationary
+          npm run test:corner-load
+          npm run build
 
-      - name: Commit validated fix and remove temporary workflow
+      - name: Commit source fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/physics/WheelDynamics.ts src/physics/tests/TireSmokeRegressionTests.ts package.json .github/workflows/build.yml
-          git rm .github/workflows/fix-smoke-and-netlify.yml
+          git add src/physics/WheelDynamics.ts src/physics/tests/TireSmokeRegressionTests.ts package.json
           git commit -m "fix tire smoke detection"
           git push origin HEAD:agent/full-tire-combined-slip
