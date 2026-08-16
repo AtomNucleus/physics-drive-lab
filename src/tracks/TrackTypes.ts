@@ -59,11 +59,15 @@ export interface TrackPackageManifest {
   source: {
     type: 'assetto-corsa-kn5';
     model: string;
+    models?: string[];
+    collisionModel?: string;
     kn5Version: number;
   };
   visualBinary: string;
   collisionBinary: string;
   collisionTriangleCount: number;
+  rejectedSteepTriangleCount?: number;
+  rejectedObstacleTriangleCount?: number;
   meshes: PackedTrackMesh[];
   materials: PackedTrackMaterial[];
   surfaces: TrackSurfaceMaterial[];
