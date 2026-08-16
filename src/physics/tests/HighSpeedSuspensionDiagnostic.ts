@@ -4,6 +4,7 @@ import { ProvingGroundSurfaceProvider, type ISurfaceProvider } from '../SurfaceP
 import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
 
+// Diagnostic-only branch: compare flat-road stability with the proving-ground crest.
 const config: any = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES };
 const dt = 1 / 120;
 const idleInputs: any = { throttle: 0, brake: 0, steer: 0, handbrake: false, shiftUp: false, shiftDown: false };
@@ -62,7 +63,6 @@ function run(name: string, surface: ISurfaceProvider, startZ: number, speedMs: n
       maxDamperForce = Math.max(maxDamperForce, Math.abs(s.damperForceN));
     }
 
-    // Current renderer: root gets state.y, then chassis gets state.heave again.
     const chassisOriginWorldY = state.y + state.heave;
     const wheelCentersWorldY = state.wheels.map((w: any) => state.y + 0.33 + w.verticalTravelM - w.tireSquishM);
     const avgWheelCenterWorldY = wheelCentersWorldY.reduce((a: number, b: number) => a + b, 0) / 4;
