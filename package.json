@@ -13,7 +13,8 @@
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
     "test:tire": "tsx src/physics/tests/TireModelTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
-    "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts"
+    "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
+    "test:smoke": "tsx src/physics/tests/TireSmokeRegressionTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

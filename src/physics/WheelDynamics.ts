@@ -1,6 +1,38 @@
 import { PhysicsMath } from './math/PhysicsMath';
 import { TireModel, TireModelConfig, TireForceOutput } from './TireModel';
 
+export interface GrossTireSlideEstimate {
+  longitudinalSlipSpeed: number;
+  lateralSlipSpeed: number;
+  totalSlipSpeed: number;
+}
+
+/**
+ * Estimate only the portion of contact-patch motion that represents gross
+ * sliding across the road. Normal force-generating tire slip is mostly
+ * carcass/contact-patch deformation and must not automatically create smoke.
+ */
+export function estimateGrossTireSlide(
+  longitudinalVelocity: number,
+  lateralVelocity: number,
+  wheelSurfaceSpeed: number
+): GrossTireSlideEstimate {
+  const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+  const longitudinalPatchSpeed = Math.abs(wheelSurfaceSpeed - longitudinalVelocity);
+  const longitudinalAdhesionSpeed = Math.max(0.8, rollingSpeed * 0.15);
+  const longitudinalSlipSpeed = Math.max(0, longitudinalPatchSpeed - longitudinalAdhesionSpeed);
+  const lateralAdhesionSpeed = Math.max(
+    0.45,
+    Math.tan(0.16) * Math.max(0.5, Math.abs(longitudinalVelocity))
+  );
+  const lateralSlipSpeed = Math.max(0, Math.abs(lateralVelocity) - lateralAdhesionSpeed);
+  return {
+    longitudinalSlipSpeed,
+    lateralSlipSpeed,
+    totalSlipSpeed: Math.hypot(longitudinalSlipSpeed, lateralSlipSpeed),
+  };
+}
+
 export interface WheelDynamicsConfig {
   id: string;
   isFront: boolean;
@@ -363,15 +395,23 @@ export class WheelDynamics {
 
     const transientResultant = Math.hypot(fx, fy);
     const gripUtilization = limit > 0 ? PhysicsMath.clamp(transientResultant / limit, 0, 1.5) : 0;
-    const skidSpeedGate = PhysicsMath.clamp((patchSlipSpeed - 0.45) / 1.75, 0, 1);
-    const skidPowerGate = PhysicsMath.clamp((slipEnergy - 600) / 6000, 0, 1);
+    // Visible smoke/skid marks require gross road sliding, not ordinary
+    // force-generating slip near the tire's cornering peak.
+    const grossSlide = estimateGrossTireSlide(
+      longitudinalVelocity,
+      lateralVelocity,
+      wheelSurfaceSpeed
+    );
+    const grossSlipEnergy =
+      Math.abs(contactFxForWheelTorque) * grossSlide.longitudinalSlipSpeed +
+      Math.abs(fy) * grossSlide.lateralSlipSpeed;
+    const skidSpeedGate = PhysicsMath.clamp((grossSlide.totalSlipSpeed - 0.35) / 2.4, 0, 1);
+    const skidPowerGate = PhysicsMath.clamp((grossSlipEnergy - 1200) / 9000, 0, 1);
     const dissipativeSkidGate = Math.min(skidSpeedGate, skidPowerGate);
-    const isDissipativeSkid =
-      dissipativeSkidGate > 0 &&
-      (target.isSkidding || gripUtilization > 0.99 || patchSlipSpeed > 1.2);
+    const isDissipativeSkid = dissipativeSkidGate > 0;
     const skidIntensity = isDissipativeSkid
       ? PhysicsMath.clamp(
-          Math.max(target.skidIntensity * dynamicBlend, gripUtilization - 0.82, dissipativeSkidGate) *
+          Math.max(dissipativeSkidGate, target.skidIntensity * 0.35 * dynamicBlend) *
             dissipativeSkidGate,
           0,
           1
