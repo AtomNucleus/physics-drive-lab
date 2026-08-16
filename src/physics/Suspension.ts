@@ -469,7 +469,7 @@ export class SuspensionSystem {
       const previous = this.states[i];
 
       let unsprungAcceleration =
-        (tireForces[i] - Math.max(0, chassisForces[i])) / unsprungMassKg;
+        (tireForces[i] - chassisForces[i]) / unsprungMassKg;
       // Safety bound prevents a malformed terrain sample from destabilizing the 120 Hz solver.
       unsprungAcceleration = PhysicsMath.clamp(unsprungAcceleration, -300, 300);
 
@@ -534,10 +534,13 @@ export class SuspensionSystem {
       // Retain the explicit anti-roll contributions evaluated at the beginning of
       // this fixed step. The next 120 Hz step re-evaluates them from the new travel.
       const antiRollContribution = antiRollBarForces[i] + crossCouplingForces[i];
-      let chassisForce = Math.max(
-        0,
-        springForce + damperForce + bumpStopForce + antiRollContribution
-      );
+      // Coil/damper support cannot pull the chassis below zero on its own,
+      // but an anti-roll bar is a torsional member and absolutely can apply a
+      // downward reaction at the inside corner. Preserve that signed reaction so
+      // the opposite ARB forces remain equal-and-opposite instead of clipping one
+      // side and creating artificial heave/jacking.
+      const baseChassisForce = Math.max(0, springForce + damperForce + bumpStopForce);
+      let chassisForce = baseChassisForce + antiRollContribution;
 
       // At a hard jounce stop, any road force that the compliant spring/damper can
       // no longer absorb is transmitted directly into the chassis constraint.
