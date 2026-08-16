@@ -1,0 +1,281 @@
+name: Apply spinout and rollover stability fix
+
+on:
+  push:
+    branches:
+      - agent/fix-spinout-rollover-instability
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-spinout-rollover-instability
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Patch crash recovery physics and rendering
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected source block not found in {path}')
+              p.write_text(text.replace(old, new, 1))
+
+          # Render the suspended body around the rigid body's actual CG rather than
+          # around the road/root origin. At large pitch/roll the old hierarchy swept
+          # the body meters away from the wheels even though the physics chassis had
+          # not detached from its suspension.
+          replace_once(
+              'src/graphics/carRenderer.ts',
+              "  public rootGroup: THREE.Group;\n  public chassisGroup: THREE.Group;",
+              "  public rootGroup: THREE.Group;\n  public chassisPivotGroup: THREE.Group;\n  public chassisGroup: THREE.Group;"
+          )
+          replace_once(
+              'src/graphics/carRenderer.ts',
+              "    this.rootGroup = new THREE.Group();\n    this.chassisGroup = new THREE.Group();\n    this.rootGroup.add(this.chassisGroup);",
+              "    this.rootGroup = new THREE.Group();\n    this.chassisPivotGroup = new THREE.Group();\n    this.chassisPivotGroup.rotation.order = 'YXZ';\n    this.chassisGroup = new THREE.Group();\n    this.chassisPivotGroup.add(this.chassisGroup);\n    this.rootGroup.add(this.chassisPivotGroup);"
+          )
+          replace_once(
+              'src/graphics/carRenderer.ts',
+              "    // 1. Root Group tracks World Position and Heading Yaw\n    // Root follows local road elevation. Chassis heave below is terrain-relative,\n    // preventing world altitude from being applied twice on hills/crests.\n    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);\n    this.rootGroup.rotation.y = state.yaw;\n\n    // 2. Suspended Chassis Group with Dynamic Body Roll, Pitch, and Heave\n    this.chassisGroup.position.y = state.heave;\n    this.chassisGroup.rotation.z = state.roll;\n    this.chassisGroup.rotation.x = state.pitch;",
+              "    // 1. Root Group tracks road-relative world position and heading yaw.\n    // Wheels remain in the road/yaw frame; the suspended body rotates separately.\n    this.rootGroup.position.set(state.x, state.elevationHeight, state.z);\n    this.rootGroup.rotation.y = state.yaw;\n\n    // 2. Rotate the suspended body around the rigid body's actual center of gravity.\n    // The old renderer rotated chassisGroup around the road-level root. During a\n    // spin/rollover that made the body visually orbit away from the springs/wheels.\n    const chassisCgOffset = config.centerOfGravityHeight + 0.35;\n    this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);\n    this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');\n    this.chassisGroup.position.set(0, -chassisCgOffset, 0);\n    this.chassisGroup.rotation.set(0, 0, 0);"
+          )
+
+          # Tire shear belongs in the road tangent plane. Rotating it with the full
+          # chassis roll/pitch injects vertical tire force after a spin/wipeout and can
+          # feed a suspension/body oscillation. Preserve only the tangential component.
+          vehicle = Path('src/physics/Vehicle.ts')
+          text = vehicle.read_text()
+          import_marker = "import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';\n\n"
+          helper = """import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';\n\nexport function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {\n  const normal = PhysicsMath.vec3Normalize(surfaceNormal);\n  if (PhysicsMath.vec3Length(normal) < 1e-7) return forceWorld;\n  const normalForce = PhysicsMath.vec3Dot(forceWorld, normal);\n  return PhysicsMath.vec3Sub(forceWorld, PhysicsMath.vec3Scale(normal, normalForce));\n}\n\n"""
+          if import_marker not in text:
+              raise SystemExit('Vehicle import marker not found')
+          text = text.replace(import_marker, helper, 1)
+          old_force = """        const tirePlanarWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          surface.normal,\n          suspState.chassisForceN\n        );\n"""
+          new_force = """        const rawTireShearWorld = PhysicsMath.quatRotateVec3(\n          this.rigidBody.orientation,\n          PhysicsMath.vec3(fxBody, 0, fzBody)\n        );\n        const tirePlanarWorld = projectTireShearOntoSurface(rawTireShearWorld, surface.normal);\n        const suspensionSupportWorld = PhysicsMath.vec3Scale(\n          PhysicsMath.vec3Normalize(surface.normal),\n          suspState.chassisForceN\n        );\n"""
+          if old_force not in text:
+              raise SystemExit('Vehicle tire force block not found')
+          vehicle.write_text(text.replace(old_force, new_force, 1))
+
+          # Add a small physically plausible contact-patch stress relaxation only once
+          # a slide has almost fully settled. This prevents stored brush deflection from
+          # ringing the car back into a low-speed skid/smoke loop after a spinout.
+          wheel = Path('src/physics/WheelDynamics.ts')
+          text = wheel.read_text()
+          old_patch = """    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);\n    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);\n"""
+          new_patch = """    const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);\n\n    // Real tread rubber relaxes stored shear when the contact patch returns to near\n    // rest. Without this viscoelastic creep, a high-energy spin can leave saturated\n    // brush state that rings through the chassis at walking pace and repeatedly\n    // re-enters the skid/smoke state. Keep the effect below normal driving speeds.\n    const patchNearlySettled =\n      fz >= 20 &&\n      rollingSpeed < 0.55 &&\n      patchSlipSpeed < 0.28 &&\n      Math.abs(driveTorque) < 15 &&\n      brakeRequest < 15;\n    if (patchNearlySettled) {\n      const creepDecay = Math.exp(-dt / 0.35);\n      this.lowSpeedLongDeflection *= creepDecay;\n      this.lowSpeedLatDeflection *= creepDecay;\n    }\n\n    const lowSpeedSlideBlend = PhysicsMath.clamp((patchSlipSpeed - 0.15) / 0.85, 0, 1);\n"""
+          if old_patch not in text:
+              raise SystemExit('WheelDynamics patch marker not found')
+          wheel.write_text(text.replace(old_patch, new_patch, 1))
+
+          # Skid marks/smoke should use the physics contact patch, not reconstruct a
+          # yaw-only wheel position that becomes wrong during large body attitude.
+          env = Path('src/graphics/environment.ts')
+          text = env.read_text()
+          old_env = """    wheels.forEach((wheel) => {\n      const wx = carX + (wheel.localPos.x * cosYaw + wheel.localPos.z * sinYaw);\n      const wz = carZ + (-wheel.localPos.x * sinYaw + wheel.localPos.z * cosYaw);\n      const contactPos = new THREE.Vector3(wx, 0.02, wz);\n      wheel.groundContactPos = { x: wx, y: 0.02, z: wz };\n\n      if (wheel.isSkidding && wheel.skidIntensity > 0.08) {\n"""
+          new_env = """    wheels.forEach((wheel) => {\n      const physicsContact = wheel.groundContactPos;\n      const hasPhysicsContact =\n        physicsContact &&\n        Number.isFinite(physicsContact.x) &&\n        Number.isFinite(physicsContact.y) &&\n        Number.isFinite(physicsContact.z);\n      const wx = hasPhysicsContact\n        ? physicsContact.x\n        : carX + (wheel.localPos.x * cosYaw + wheel.localPos.z * sinYaw);\n      const wz = hasPhysicsContact\n        ? physicsContact.z\n        : carZ + (-wheel.localPos.x * sinYaw + wheel.localPos.z * cosYaw);\n      const wy = hasPhysicsContact ? physicsContact.y + 0.02 : 0.02;\n      const contactPos = new THREE.Vector3(wx, wy, wz);\n\n      if (wheel.isSkidding && wheel.skidIntensity > 0.08) {\n"""
+          if old_env not in text:
+              raise SystemExit('Environment contact block not found')
+          env.write_text(text.replace(old_env, new_env, 1))
+
+          # Regression coverage for both failure modes.
+          crash_test = Path('src/physics/tests/CrashRecoveryTests.ts')
+          crash_test.write_text(r'''import * as THREE from 'three';
+import { CarRenderer } from '../../graphics/carRenderer';
+import { WheelDynamics } from '../WheelDynamics';
+import { projectTireShearOntoSurface } from '../Vehicle';
+import { PhysicsMath } from '../math/PhysicsMath';
+import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
+import { BMW_M5_2025_OVERRIDES } from '../m5G90';
+
+const DT = 1 / 120;
+
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function near(a: number, b: number, eps: number = 1e-7) {
+  return Math.abs(a - b) <= eps;
+}
+
+function makeWheel() {
+  return new WheelDynamics({
+    id: 'FL',
+    isFront: true,
+    isLeft: true,
+    radius: 0.369,
+    inertia: 2.10,
+    tireConfig: {
+      baseGrip: 1.21,
+      stiffnessB: 15.0,
+      loadSensitivity: 0.000030,
+      slideFrictionMultiplier: 0.83,
+      relaxationLength: 0.19,
+      longitudinalRelaxationLength: 0.12,
+      longitudinalForceRelaxationLength: 0.066,
+      pneumaticTrailMax: 0.030,
+      camberStiffness: 85,
+      optimalTemp: 75,
+      basePressurePsi: 35,
+      sidewallStiffness: 230000,
+      verticalStiffness: 280000,
+      referenceLoadN: 6200,
+    },
+  });
+}
+
+function testTireShearStaysInRoadPlane() {
+  const normal = PhysicsMath.vec3Normalize({ x: 0.18, y: 0.96, z: -0.21 });
+  const raw = { x: 4200, y: 3100, z: -5600 };
+  const tangent = projectTireShearOntoSurface(raw, normal);
+  const normalLeak = Math.abs(PhysicsMath.vec3Dot(tangent, normal));
+  assert(normalLeak < 1e-8, `tire shear leaked ${normalLeak} N into the road normal`);
+  assert(PhysicsMath.vec3Length(tangent) <= PhysicsMath.vec3Length(raw) + 1e-8, 'projection must not create force');
+}
+
+function testPostSpinContactPatchSettlesWithoutSmokeLoop() {
+  const wheel = makeWheel();
+  wheel.reset(12);
+
+  let sawRealSkid = false;
+  for (let i = 0; i < 180; i++) {
+    const out = wheel.update(12, 8, 6200, -1.5, 0, 0, 0, 1, 0.015, DT);
+    sawRealSkid ||= out.isSkidding;
+  }
+  assert(sawRealSkid, 'high-energy spin phase should register a real skid');
+
+  // Ramp the contact patch back to rest like the final second of a spinout.
+  for (let i = 0; i < 300; i++) {
+    const t = 1 - (i + 1) / 300;
+    wheel.update(12 * t, 8 * t, 6200, -1.5, 0, 0, 0, 1, 0.015, DT);
+  }
+
+  let latePeakForce = 0;
+  let lateSkidFrames = 0;
+  for (let i = 0; i < 480; i++) {
+    const out = wheel.update(0, 0, 6200, -1.5, 0, 0, 0, 1, 0.015, DT);
+    if (i >= 240) {
+      latePeakForce = Math.max(latePeakForce, Math.hypot(out.fx, out.fy));
+      if (out.isSkidding || out.skidIntensity > 0) lateSkidFrames++;
+    }
+  }
+
+  assert(lateSkidFrames === 0, `settled post-spin tire re-entered skid/smoke for ${lateSkidFrames} frames`);
+  assert(latePeakForce < 80, `settled post-spin tire retained ${latePeakForce.toFixed(1)} N oscillatory force`);
+}
+
+function testChassisVisualPivotsAtPhysicalCg() {
+  const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;
+  const renderer = new CarRenderer('#2563eb');
+  const cgOffset = config.centerOfGravityHeight + 0.35;
+  const state: any = {
+    x: 12,
+    z: -7,
+    elevationHeight: 1.4,
+    heave: 0.16,
+    yaw: 2.2,
+    pitch: 0.92,
+    roll: 1.18,
+    airbrakeActive: false,
+    drsActive: false,
+    exhaustFlameIntensity: 0,
+    wheels: [],
+    showForceVectors3D: false,
+  };
+
+  renderer.update(state, config);
+
+  assert(near(renderer.chassisPivotGroup.position.y, state.heave + cgOffset), 'body pivot is not located at rigid-body CG height');
+  assert(near(renderer.chassisGroup.position.y, -cgOffset), 'body visual is not offset back down from the CG pivot');
+  assert(near(renderer.rootGroup.position.y + renderer.chassisPivotGroup.position.y, state.elevationHeight + state.heave + cgOffset), 'rendered CG does not match physics CG');
+  assert(near(renderer.chassisPivotGroup.rotation.x, state.pitch), 'pitch was not applied to the CG pivot');
+  assert(near(renderer.chassisPivotGroup.rotation.z, state.roll), 'roll was not applied to the CG pivot');
+
+  // With the corrected hierarchy, changing roll/pitch cannot move the pivot itself.
+  const before = new THREE.Vector3();
+  renderer.chassisPivotGroup.getWorldPosition(before);
+  state.pitch = -1.05;
+  state.roll = -1.22;
+  renderer.update(state, config);
+  renderer.rootGroup.updateMatrixWorld(true);
+  const after = new THREE.Vector3();
+  renderer.chassisPivotGroup.getWorldPosition(after);
+  assert(before.distanceTo(after) < 1e-7, `CG pivot moved ${before.distanceTo(after)} m when only attitude changed`);
+}
+
+function main() {
+  const tests: Array<[string, () => void]> = [
+    ['tire shear remains tangent to road', testTireShearStaysInRoadPlane],
+    ['post-spin contact patch settles without smoke loop', testPostSpinContactPatchSettlesWithoutSmokeLoop],
+    ['chassis visual rotates around physical CG', testChassisVisualPivotsAtPhysicalCg],
+  ];
+
+  for (const [name, test] of tests) {
+    test();
+    console.log(`PASS ${name}`);
+  }
+  console.log(`PASS all ${tests.length} crash-recovery regression tests`);
+}
+
+main();
+''')
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text())
+          package.setdefault('scripts', {})['test:crash-recovery'] = 'tsx src/physics/tests/CrashRecoveryTests.ts'
+          package_path.write_text(json.dumps(package, indent=2) + '\n')
+
+          regression = Path('.github/workflows/low-speed-tire-regression.yml')
+          text = regression.read_text()
+          marker = "      - name: Production build\n        run: npm run build\n"
+          insert = "      - name: Spinout and rollover regression\n        run: npm run test:crash-recovery\n\n" + marker
+          if marker not in text:
+              raise SystemExit('Regression workflow build marker not found')
+          regression.write_text(text.replace(marker, insert, 1))
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Stationary and low-speed tire regression
+        run: npm run test:stationary
+
+      - name: Suspension regression
+        run: npm run test:suspension
+
+      - name: Dynamic corner-load regression
+        run: npm run test:corner-load
+
+      - name: Spinout and rollover regression
+        run: npm run test:crash-recovery
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit validated fix and remove temporary patch workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-spinout-rollover-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Fix post-spin shake and rollover body separation"
+          git push origin HEAD:agent/fix-spinout-rollover-instability
