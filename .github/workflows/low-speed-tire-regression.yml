@@ -19,50 +19,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package.json
-
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-
       - name: Physics coordinate/sign convention guardrails
         run: npm run test:conventions
-
       - name: Mobile steering regression
         run: npm run test:mobile
-
       - name: Digital steering shaping regression
         run: npm run test:digital-steering
-
       - name: Mouse steering sign/range regression
         run: npm run test:mouse-steering
-
       - name: 50 kmh full-lock turn-radius diagnostic
         run: npm run test:turn-radius
-
       - name: 6 kmh crawl-speed stability regression
         run: npm run test:crawl
-
       - name: Low-speed cornering regression
         run: npm run test:cornering
-
       - name: Stationary steering and low-speed tire regression
         run: npm run test:stationary
-
       - name: Suspension behavior regression
         run: npm run test:suspension
-
       - name: Suspension kinematics regression
         run: npm run test:kinematics
-
       - name: PR18 anti-roll + suspension kinematics integration
         run: npm run test:kinematics-arb
-
       - name: Surface ARB integration diagnostics
         if: failure()
         shell: bash
@@ -72,49 +58,43 @@ jobs:
           OUTPUT="${OUTPUT//$'\n'/ }"
           echo "::notice title=ARB integration diagnostics::$OUTPUT"
           exit 0
-
       - name: Steering direction regression
         run: npm run test:steering-direction
-
       - name: Physical steering dynamics regression
         run: npm run test:steering-dynamics
-
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
-
       - name: Full tire and combined-slip regression
         run: npm run test:tire
-
       - name: M5 transient response regression
         run: npm run test:m5-transient
-
       - name: M5 driver-controlled oversteer recovery regression
         run: npm run test:m5-oversteer
-
       - name: Automatic transmission and low-speed propulsion regression
         run: npm run test:automatic
-
       - name: Wheel visual pose regression
         run: npm run test:wheel-visual
-
       - name: M5 drive-mode regression
         run: npm run test:m5-rwd
-
       - name: High-speed anti-roll handling regression
         run: npm run test:high-speed
-
+      - name: Surface high-speed anti-roll diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          OUTPUT="$(npm run test:high-speed 2>&1)"
+          OUTPUT="${OUTPUT//$'\n'/ }"
+          echo "::notice title=High-speed handling diagnostics::$OUTPUT"
+          exit 0
       - name: Tire smoke regression
         run: npm run test:smoke
-
       - name: Spinout and wipeout stability regression
         run: npm run test:crash
-
       - name: Crash recovery and CG-pivot regression
         run: npm run test:crash-recovery
-
       - name: Production build
         run: npm run build
-
       - name: TypeScript baseline check
         continue-on-error: true
         run: npm run lint
