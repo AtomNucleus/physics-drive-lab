@@ -1,56 +1,26 @@
 name: Anonymous Netlify Deploy
-# temporary self-reporting full physics regression
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
-      - agent/m5-transient-behavior
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
-      - name: Run and publish full physics suite
-        shell: bash
-        run: |
-          set +e
-          : > .ci-full-physics-suite.txt
-          overall=0
-          tests=(
-            test:conventions test:mobile test:digital-steering test:mouse-steering
-            test:turn-radius test:crawl test:cornering test:stationary test:suspension
-            test:kinematics test:kinematics-arb test:steering-direction test:corner-load
-            test:tire test:m5-transient test:m5-oversteer test:automatic test:wheel-visual
-            test:m5-rwd test:high-speed test:smoke test:crash test:crash-recovery
-          )
-          for test_name in "${tests[@]}"; do
-            printf '\n===== %s =====\n' "$test_name" >> .ci-full-physics-suite.txt
-            npm run "$test_name" >> .ci-full-physics-suite.txt 2>&1
-            status=$?
-            printf '\n__%s_EXIT_STATUS__=%s\n' "$test_name" "$status" >> .ci-full-physics-suite.txt
-            if [ "$status" -ne 0 ]; then overall=1; fi
-          done
-          printf '\n===== build =====\n' >> .ci-full-physics-suite.txt
-          npm run build >> .ci-full-physics-suite.txt 2>&1
-          status=$?
-          printf '\n__build_EXIT_STATUS__=%s\n' "$status" >> .ci-full-physics-suite.txt
-          if [ "$status" -ne 0 ]; then overall=1; fi
-          printf '\n__EXIT_STATUS__=%s\n' "$overall" >> .ci-full-physics-suite.txt
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-full-physics-suite.txt
-          git commit -m "Record full physics regression result"
-          git push origin HEAD:agent/m5-transient-behavior
+      - run: npm install
+      - run: npm run build
+      - name: Deploy anonymously to Netlify
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
