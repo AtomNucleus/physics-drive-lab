@@ -1,11 +1,11 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: PR #30 low-speed braking ABS/driveline limit-cycle fix
 
 on:
   push:
     branches:
       - main
-      - agent/full-tire-combined-slip
+      - agent/low-speed-brake-limit-cycle
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
