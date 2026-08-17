@@ -134,7 +134,7 @@ for (let step = 0; step < 600; step++) {
 assert(nonFiniteSamples === 0, 'high-speed suspension produced non-finite wheel state');
 assert(airborneSamples === 0, `flat road generated ${airborneSamples} false airborne wheel samples`);
 assert(maxTravelM <= 0.140001, `suspension exceeded max bump travel at speed: ${maxTravelM} m`);
-assert(minTravelM >= -0.120001, `suspension exceeded max droop at speed: ${minTravelM} m`);
+assert(minTravelM >= -0.120001, `suspension exceeded max droop travel at speed: ${minTravelM} m`);
 assert(
   maxHeaveDeltaM < 0.02,
   `chassis separated vertically from settled ride height on flat road: ${maxHeaveDeltaM} m`
@@ -142,6 +142,61 @@ assert(
 assert(
   maxYawDeviationDeg < 0.1,
   `straight 250 km/h flat-road run developed spurious yaw: ${maxYawDeviationDeg} deg`
+);
+
+// ---------------------------------------------------------------------------
+// Full-vehicle road -> wheel -> suspension -> chassis force-path regression
+// ---------------------------------------------------------------------------
+let bumpRoadElevation = 0;
+const bumpSurface = {
+  sampleSurface: () => ({
+    elevation: bumpRoadElevation,
+    normal: PhysicsMath.vec3(0, 1, 0),
+    slopePitch: 0,
+    slopeRoll: 0,
+    type: 'asphalt' as const,
+    friction: 1.0,
+    rollingResistance: 0.015,
+    wetness: 0,
+    isKerbRumble: false,
+  }),
+};
+
+const forcePathSim = new Simulation(config, bumpSurface);
+forcePathSim.reset(0, 0, 0);
+for (let i = 0; i < 720; i++) forcePathSim.stepExplicit(neutral, 1);
+
+// A sudden 20 mm road step produces an immediate tire-load spike because the tire
+// deflects against the unsprung wheel. The chassis must NOT receive that same spike
+// directly. It should only receive the spring/damper/ARB/hard-stop reaction that the
+// wheel has transmitted through the suspension during this 120 Hz step.
+bumpRoadElevation = 0.020;
+forcePathSim.vehicle.step(neutral, forcePathSim.fixedDt);
+
+const forcePathTireLoadN = forcePathSim.vehicle.suspension.states.reduce(
+  (sum, state) => sum + state.tireNormalForceN,
+  0
+);
+const forcePathChassisLoadN = forcePathSim.vehicle.suspension.states.reduce(
+  (sum, state) => sum + state.chassisForceN,
+  0
+);
+const actualVerticalAccelerationMps2 = forcePathSim.vehicle.rigidBody.acceleration.y;
+const expectedFromSuspensionMps2 = forcePathChassisLoadN / config.mass - 9.81;
+const legacyDirectTireLoadMps2 = forcePathTireLoadN / config.mass - 9.81;
+const forcePathLoadSeparationN = Math.abs(forcePathTireLoadN - forcePathChassisLoadN);
+
+assert(
+  forcePathLoadSeparationN > 1000,
+  `road step did not create enough tire-vs-chassis load separation to test coupling: ${forcePathLoadSeparationN.toFixed(0)}N`
+);
+assert(
+  Math.abs(actualVerticalAccelerationMps2 - expectedFromSuspensionMps2) < 0.08,
+  `chassis acceleration must follow suspension reaction, not contact-patch load: actual=${actualVerticalAccelerationMps2.toFixed(3)} expected=${expectedFromSuspensionMps2.toFixed(3)} m/s^2`
+);
+assert(
+  Math.abs(actualVerticalAccelerationMps2 - legacyDirectTireLoadMps2) > 0.20,
+  'vehicle still appears to bypass the suspension by applying tire normal load directly to the chassis'
 );
 
 console.log(JSON.stringify({
@@ -162,6 +217,16 @@ console.log(JSON.stringify({
     maxTravelM,
     airborneSamples,
     maxYawDeviationDeg,
+  },
+  suspensionForcePath: {
+    roadStepM: bumpRoadElevation,
+    tireNormalLoadN: forcePathTireLoadN,
+    chassisReactionLoadN: forcePathChassisLoadN,
+    loadSeparationN: forcePathLoadSeparationN,
+    actualVerticalAccelerationMps2,
+    expectedFromSuspensionMps2,
+    legacyDirectTireLoadMps2,
+    expected: 'road -> tire/unsprung -> spring/damper -> chassis',
   },
   status: 'passed',
 }, null, 2));
