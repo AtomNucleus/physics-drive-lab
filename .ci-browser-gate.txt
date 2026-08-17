@@ -1,6 +1,0 @@
-browser_status=0
-startup_error=false
-hud_mounted=true
-
-=== ERROR LINES ===
-[2120:2120:0817/141512.041332:INFO:CONSOLE:53] "THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead.", source: http://127.0.0.1:4173/assets/index-CASStwui.js (53)
