@@ -1,26 +1,54 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# temporary browser boot diagnostic for M5 preview
 
 on:
   push:
     branches:
       - main
-      - agent/full-tire-combined-slip
+      - agent/m5-transient-behavior
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  deploy:
+  diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Deploy anonymously to Netlify
-        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
+      - name: Boot production build in headless browser and publish diagnostics
+        shell: bash
+        run: |
+          set +e
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
+          preview_pid=$!
+          sleep 3
+          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          : > .ci-browser-smoke.txt
+          printf 'chrome=%s\n' "$chrome" >> .ci-browser-smoke.txt
+          if [ -z "$chrome" ]; then
+            printf 'NO_CHROME\n' >> .ci-browser-smoke.txt
+            browser_status=127
+          else
+            "$chrome" --headless=new --no-sandbox --disable-dev-shm-usage --disable-gpu --virtual-time-budget=5000 --enable-logging=stderr --v=1 --dump-dom http://127.0.0.1:4173 > /tmp/dom.html 2> /tmp/chrome.log
+            browser_status=$?
+          fi
+          printf 'browser_status=%s\n\n=== DOM ===\n' "$browser_status" >> .ci-browser-smoke.txt
+          head -c 20000 /tmp/dom.html >> .ci-browser-smoke.txt 2>/dev/null || true
+          printf '\n\n=== CHROME LOG TAIL ===\n' >> .ci-browser-smoke.txt
+          tail -200 /tmp/chrome.log >> .ci-browser-smoke.txt 2>/dev/null || true
+          printf '\n\n=== VITE PREVIEW LOG ===\n' >> .ci-browser-smoke.txt
+          cat /tmp/vite-preview.log >> .ci-browser-smoke.txt 2>/dev/null || true
+          kill "$preview_pid" 2>/dev/null || true
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci-browser-smoke.txt
+          git commit -m "Record browser boot diagnostic"
+          git push origin HEAD:agent/m5-transient-behavior
