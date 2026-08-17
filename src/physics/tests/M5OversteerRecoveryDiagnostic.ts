@@ -26,12 +26,10 @@ function sample(sim: Simulation, t: number) {
     rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio),
     frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat,
     rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat,
-    frontFxN: s.wheels[0].forceVectorLong + s.wheels[1].forceVectorLong,
-    rearFxN: s.wheels[2].forceVectorLong + s.wheels[3].forceVectorLong,
   };
 }
 
-function run(label: string, yawInertia: number, counterDurationSec: number, counterSteer = -0.42) {
+function makeSim(yawInertia: number) {
   const config = {
     ...DEFAULT_VEHICLE_CONFIG,
     ...BMW_M5_2025_OVERRIDES,
@@ -46,7 +44,6 @@ function run(label: string, yawInertia: number, counterDurationSec: number, coun
   sim.vehicle.wheels.forEach((w) => w.reset(speedMs));
   sim.vehicle.rigidBody.config.inertia.y = yawInertia;
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
-
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
 
   let inductionSteps = 0;
@@ -56,7 +53,11 @@ function run(label: string, yawInertia: number, counterDurationSec: number, coun
     const rearSlip = 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle));
     if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
+  return { sim, inductionSteps };
+}
 
+function runTimed(label: string, yawInertia: number, counterDurationSec: number, counterSteer: number) {
+  const { sim, inductionSteps } = makeSim(yawInertia);
   const samples = [sample(sim, 0)];
   const totalRecoverySec = 1.5;
   const totalSteps = Math.round(totalRecoverySec / dt);
@@ -66,23 +67,35 @@ function run(label: string, yawInertia: number, counterDurationSec: number, coun
     sim.stepExplicit({ ...neutral, steer: t <= counterDurationSec ? counterSteer : 0 }, 1);
     if (wanted.has(i)) samples.push(sample(sim, t));
   }
-  for (let i = 0; i < 120; i++) sim.stepExplicit(neutral, 1);
+  return { label, yawInertia, counterDurationSec, counterSteer, inductionSec: inductionSteps * dt, samples };
+}
 
-  return {
-    label,
-    yawInertia,
-    counterDurationSec,
-    counterSteer,
-    inductionSec: inductionSteps * dt,
-    samples,
-    finalAfterExtra1s: sample(sim, totalRecoverySec + 1.0),
-  };
+function runFeedback(label: string, yawInertia: number) {
+  const { sim, inductionSteps } = makeSim(yawInertia);
+  const samples = [sample(sim, 0)];
+  const totalRecoverySec = 1.5;
+  const totalSteps = Math.round(totalRecoverySec / dt);
+  const wanted = new Set([0.10, 0.25, 0.50, 0.75, 1.00, 1.50].map((t) => Math.round(t / dt)));
+  let peakInput = 0;
+  for (let i = 1; i <= totalSteps; i++) {
+    const state = sim.vehicle.getState();
+    const beta = sideslipDeg(sim);
+    const yawDegS = state.yawRate * 180 / Math.PI;
+    // Driver model only: countersteer in the direction of the slide, then unwind
+    // as yaw and body sideslip collapse. No force, torque, grip, or stability aid.
+    const steer = PhysicsMath.clamp(beta * 0.055 - yawDegS * 0.0045, -1, 1);
+    peakInput = Math.max(peakInput, Math.abs(steer));
+    sim.stepExplicit({ ...neutral, steer }, 1);
+    if (wanted.has(i)) samples.push(sample(sim, i * dt));
+  }
+  return { label, yawInertia, inductionSec: inductionSteps * dt, peakInput, samples };
 }
 
 const currentYawInertia = 2582.1142091360184;
 console.log(JSON.stringify([
-  run('current-short-counter', currentYawInertia, 0.30),
-  run('current-medium-counter', currentYawInertia, 0.55),
-  run('current-held-counter', currentYawInertia, 1.50),
-  run('higher-inertia-medium-counter', 4100, 0.55),
+  runTimed('42pct-held', currentYawInertia, 1.50, -0.42),
+  runTimed('full-250ms', currentYawInertia, 0.25, -1.0),
+  runTimed('full-400ms', currentYawInertia, 0.40, -1.0),
+  runTimed('full-600ms', currentYawInertia, 0.60, -1.0),
+  runFeedback('driver-feedback', currentYawInertia),
 ], null, 2));
