@@ -54,9 +54,6 @@ function makeOversteeringM5() {
   sim.vehicle.wheels.forEach((wheel) => wheel.reset(speedMs));
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
 
-  // Establish a genuine loaded corner before provoking rear saturation. The
-  // handbrake is only the repeatable test trigger; it is released before the
-  // recovery phase and no stability system intervenes afterward.
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
 
   let inductionSteps = 0;
@@ -72,10 +69,6 @@ function makeOversteeringM5() {
 
 function runDigitalDriverRecovery() {
   const { sim, inductionSec } = makeOversteeringM5();
-
-  // Match the pre-slide driver command, then use the exact keyboard/touch input
-  // adapter used by App.tsx. The test driver only chooses RIGHT vs RELEASE based
-  // on visible rotation; it never modifies tire forces, yaw torque, grip, or state.
   let digitalInput = 0.18;
   let released = false;
   let releaseTimeSec: number | null = null;
@@ -90,9 +83,6 @@ function runDigitalDriverRecovery() {
   for (let i = 1; i <= totalSteps; i++) {
     const stateBefore = sim.vehicle.getState();
     const yawDegS = stateBefore.yawRate * DEG;
-
-    // Countersteer while the original positive yaw is still substantial. Once
-    // rotation is nearly arrested, unwind. This represents driver timing only.
     if (!released && yawDegS <= 8) {
       released = true;
       releaseTimeSec = i * dt;
@@ -123,34 +113,17 @@ const t500 = at(0.50);
 const t750 = at(0.75);
 const t1000 = at(1.00);
 
-console.log(JSON.stringify({
-  scenario: 'M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF',
-  ...result,
-}, null, 2));
+console.log(JSON.stringify({ scenario: 'M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF', ...result }, null, 2));
 
-// The test must begin well beyond normal cornering slip so a passing result is a
-// real catch, not a gentle transient mislabeled as oversteer.
 assert(start.yawRateDegS > 60, `induced yaw is too mild: ${start.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(start.rearSlipDeg) > 10, `rear tire is not genuinely saturated: ${start.rearSlipDeg.toFixed(1)} deg`);
 assert(Math.abs(start.rearKappa) > 0.5, `rear wheel lock trigger is too mild: kappa=${start.rearKappa.toFixed(3)}`);
-
-// Releasing the handbrake must give the rear axle its normal rolling/lateral
-// authority back. This guards against the original suspicion that the rear tire
-// becomes permanently unrecoverable after saturation.
 assert(Math.abs(t100.rearKappa) < 0.05, `rear longitudinal slip did not recover: ${t100.rearKappa.toFixed(3)}`);
 assert(Math.abs(t100.rearFyN) > 7000, `rear lateral force did not recover: ${t100.rearFyN.toFixed(0)} N`);
-
-// Most importantly, the player input path must expose enough physical opposite
-// lock to catch the slide. There is no automatic countersteer in production code.
 assert(result.peakCounterInput > 0.8, `digital input still withholds opposite lock: ${result.peakCounterInput.toFixed(3)}`);
 assert(result.peakCounterSteerDeg > 16, `physical countersteer authority is too small: ${result.peakCounterSteerDeg.toFixed(1)} deg`);
 assert(result.releaseTimeSec !== null && result.releaseTimeSec < 0.45, `driver could not arrest yaw promptly; release=${result.releaseTimeSec}`);
 assert(Math.abs(t250.yawRateDegS) < start.yawRateDegS, 'countersteer did not reduce yaw by 250 ms');
-
-// The catch is allowed one realistic opposite-direction yaw transient while the
-// chassis/tire states unwind; by one second it must be essentially settled. The
-// 750 ms gate deliberately checks "under control" rather than demanding an
-// artificially instant zero-yaw response from a 2.4-ton car.
 assert(Math.abs(t500.yawRateDegS) < 20, `yaw still excessive at 500 ms: ${t500.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(t750.yawRateDegS) < 10, `yaw not under control by 750 ms: ${t750.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(t750.sideslipDeg) < 5, `body sideslip not caught by 750 ms: ${t750.sideslipDeg.toFixed(1)} deg`);
