@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: M5 oversteer recovery refresh
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - agent/m5-transient-behavior
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
