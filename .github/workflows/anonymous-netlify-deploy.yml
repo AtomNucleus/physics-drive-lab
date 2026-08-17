@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# temporary browser boot diagnostic for M5 preview v2
+# temporary browser boot diagnostic for M5 preview v3
 
 on:
   push:
