@@ -10,6 +10,34 @@ const assert = (condition: boolean, message: string) => {
 const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;
 const neutral = { throttle: 0, brake: 0, steer: 0, handbrake: false, shiftUp: false, shiftDown: false };
 
+function assertFullRackAuthorityAtSpeed() {
+  const sim = new Simulation(config);
+  const steering = sim.vehicle.driverAids;
+
+  steering.reset();
+  const crawl = steering.updateSteering(1, 2, 1.0);
+  steering.reset();
+  const highway = steering.updateSteering(1, 35, 1.0);
+  steering.reset();
+  const veryFast = steering.updateSteering(1, 55, 1.0);
+
+  const epsilon = 1e-12;
+  assert(
+    Math.abs(crawl.centerAngle - config.maxSteerAngle) < epsilon,
+    `crawl full rack did not reach physical stop: ${crawl.centerAngle}`
+  );
+  assert(
+    Math.abs(highway.centerAngle - config.maxSteerAngle) < epsilon,
+    `highway speed silently reduced steering authority: ${highway.centerAngle}`
+  );
+  assert(
+    Math.abs(veryFast.centerAngle - config.maxSteerAngle) < epsilon,
+    `high speed silently reduced steering authority: ${veryFast.centerAngle}`
+  );
+
+  return { crawl, highway, veryFast };
+}
+
 function assertAckermannAtLowSpeed() {
   const sim = new Simulation(config);
   const steering = sim.vehicle.driverAids;
@@ -31,7 +59,6 @@ function assertAckermannAtLowSpeed() {
     `RIGHT turn requires inside FR angle > outside FL angle: FL=${right.steerFL} FR=${right.steerFR}`
   );
 
-  // Ackermann must be mirror-symmetric: reversing steering swaps the inner/outer magnitudes.
   assert(
     Math.abs(Math.abs(left.steerFL) - Math.abs(right.steerFR)) < 1e-10,
     `inside steer magnitude lost left/right symmetry: left FL=${left.steerFL} right FR=${right.steerFR}`
@@ -59,6 +86,7 @@ function runTurn(steer: number, speedMs: number = 18) {
   return { state, leftLoadN, rightLoadN };
 }
 
+const rackAuthority = assertFullRackAuthorityAtSpeed();
 const ackermann = assertAckermannAtLowSpeed();
 
 const left = runTurn(0.18);
@@ -74,6 +102,12 @@ assert(right.state.actualSteerAngle < 0, `RIGHT command must produce negative ra
 assert(right.leftLoadN > right.rightLoadN, `RIGHT turn must load LEFT/outside tires: left=${right.leftLoadN} right=${right.rightLoadN}`);
 
 console.log(JSON.stringify({
+  fullRackAuthority: {
+    maxSteerDeg: config.maxSteerAngle * 180 / Math.PI,
+    crawlDeg: rackAuthority.crawl.centerAngle * 180 / Math.PI,
+    highwayDeg: rackAuthority.highway.centerAngle * 180 / Math.PI,
+    veryFastDeg: rackAuthority.veryFast.centerAngle * 180 / Math.PI,
+  },
   lowSpeedAckermann: {
     speedKmh: ackermann.speedMs * 3.6,
     left: {
