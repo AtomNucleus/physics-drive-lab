@@ -1,11 +1,11 @@
 name: Anonymous Netlify Deploy
-# preview: M5 transient steering response
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
-      - agent/m5-transient-behavior
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
