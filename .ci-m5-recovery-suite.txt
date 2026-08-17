@@ -212,13 +212,73 @@ __test:steering-direction_EXIT_STATUS__=0
 > react-example@0.0.0 test:m5-transient
 > tsx src/physics/tests/M5TransientResponseTests.ts
 
+{
+  "speedKmh": 72,
+  "steerInput": 0.14,
+  "yawInertiaKgM2": 5332.76657118062,
+  "steady": {
+    "frontFyN": 13347.788355905306,
+    "outsideTravelDeltaM": 0.04570809585341494,
+    "rollDeg": 2.376752192240719,
+    "yawRateDegS": 30.976150613824363
+  },
+  "turnInTimingSec": {
+    "tire25": 0.016666666666666666,
+    "tire50": 0.025,
+    "travel25": 0.11666666666666667,
+    "travel50": 0.16666666666666666,
+    "roll25": 0.09166666666666666,
+    "roll50": 0.14166666666666666
+  },
+  "turnInFractions": {
+    "at50ms": {
+      "tire": 0.9140159954056878,
+      "travel": 0.020741122494423888,
+      "roll": 0.07801043324617032
+    },
+    "at100ms": {
+      "tire": 0.9674277309319192,
+      "travel": 0.19341203835061735,
+      "roll": 0.31617161352974743
+    },
+    "at250ms": {
+      "tire": 0.9014793368432379,
+      "travel": 0.7575533946362675,
+      "roll": 0.803128417897498
+    }
+  },
+  "releaseFractions": {
+    "at50ms": {
+      "tire": 0.43752377226426725,
+      "travel": 0.9427926386907827,
+      "roll": 0.9185485844402422,
+      "yaw": 0.9070328502065257
+    },
+    "at100ms": {
+      "tire": 0.28797458618475336,
+      "travel": 0.8366179062364472,
+      "roll": 0.7567642055540398,
+      "yaw": 0.6908091521094645
+    },
+    "at250ms": {
+      "tire": 0.38252088454888705,
+      "travel": 0.5510360440113636,
+      "roll": 0.5679236882449478,
+      "yaw": 0.20171541165777293
+    }
+  },
+  "release": {
+    "maxRollDeg": 2.2817238574042364,
+    "finalRollDeg": 0.006944794482257992
+  }
+}
 /home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7
   if (!condition) throw new Error(message);
                         ^
 
 Error: steering release sequence is wrong at 50 ms: tire=0.44 travel=0.94 roll=0.92
     at assert (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7:25)
-    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:193:1)
+    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:223:1)
     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
