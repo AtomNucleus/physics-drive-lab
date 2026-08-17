@@ -103,6 +103,16 @@ export class SuspensionKinematicsAdapter {
     if (this.steeringAdapterInstalled) return;
     this.steeringAdapterInstalled = true;
 
+    const legacyReset = this.vehicle.driverAids.reset.bind(this.vehicle.driverAids);
+    this.vehicle.driverAids.reset = (() => {
+      legacyReset();
+      // Vehicle.reset() and several long-lived regression harnesses reset DriverAids
+      // directly. Keep the new physical DOF inside the same reset contract so a
+      // previous rack angle/rate/compliance state can never leak across a respawn,
+      // benchmark pass, or left/right symmetry test.
+      this.steeringDynamics.reset();
+    }) as typeof this.vehicle.driverAids.reset;
+
     this.vehicle.driverAids.updateSteering = ((
       steerInput: number,
       forwardSpeedMs: number,
