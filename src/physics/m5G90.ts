@@ -37,7 +37,12 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tireStiffness: 15.0,
   tireLoadSensitivity: 0.000030,
   slideFrictionMultiplier: 0.83,
-  relaxationLength: 0.19,
+  // The G90's heavy chassis should not see peak lateral tire force in the same
+  // 120 Hz frame as a steering step. A longer lateral relaxation length gives the
+  // contact patch/carcass time to take a set before load reaches the sprung body.
+  // Longitudinal relaxation remains independent below so acceleration/braking
+  // response is unchanged.
+  relaxationLength: 0.50,
   longitudinalRelaxationLength: 0.12,
   longitudinalForceRelaxationLength: 0.066,
   tirePneumaticTrailMax: 0.030,

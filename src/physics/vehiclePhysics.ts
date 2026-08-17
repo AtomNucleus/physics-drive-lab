@@ -28,8 +28,80 @@ export class VehiclePhysicsEngine {
     this.simulation.setConfig(cfg);
   }
 
+  /**
+   * Keep the app-facing VehicleState contract complete even while the lower-level
+   * solver exposes a smaller physics snapshot. The HUD/renderer historically read
+   * these telemetry fields directly from VehicleState. A refactor dropped several
+   * of them from Vehicle.getState(), which made the compact HUD call toFixed() on
+   * undefined turboBoostPsi and crash the entire React tree at startup.
+   *
+   * Centralizing the compatibility layer here keeps all UI consumers deterministic
+   * without inventing physics: every value is read from the real live subsystem.
+   */
+  private hydrateAppState(snapshot: VehicleState): VehicleState {
+    const state = snapshot as any;
+    const vehicle = this.simulation.vehicle;
+    const x = Number.isFinite(state.x) ? state.x : 0;
+    const z = Number.isFinite(state.z) ? state.z : 0;
+    const surface = this.surfaceProvider.sampleSurface(x, z);
+    const wheels = Array.isArray(state.wheels) ? state.wheels : [];
+    const totalAligningTorque = wheels.reduce(
+      (sum: number, wheel: any) => sum + (Number(wheel?.aligningTorque) || 0),
+      0
+    );
+    const localVel = vehicle.rigidBody.getLocalVelocity();
+    const driftInfo = vehicle.telemetry.updateDriftScore(
+      Number(state.speedKmh) || 0,
+      localVel.x,
+      localVel.z,
+      0
+    );
+
+    Object.assign(state, {
+      steerInput: state.steerInput ?? 0,
+      actualSteerAngle:
+        Number.isFinite(state.actualSteerAngle)
+          ? state.actualSteerAngle
+          : vehicle.driverAids.currentCenterSteerAngle,
+      turboBoostPsi: Number(vehicle.powertrain.turboBoostPsi) || 0,
+      turboBlowOff: Boolean(vehicle.powertrain.turboBlowOff),
+      wastegateOpen: Boolean(vehicle.powertrain.wastegateOpen),
+      launchControlActive: Boolean(vehicle.powertrain.launchControlActive),
+      shiftLightStage: vehicle.telemetry.getShiftLightStage(
+        vehicle.powertrain.engineRpm,
+        vehicle.config.maxRpm,
+        vehicle.config.revLimiterRpm
+      ),
+      drsActive: Boolean(vehicle.aero.drsActive),
+      airbrakeActive: Boolean(vehicle.aero.airbrakeActive),
+      centerOfPressureShift: state.centerOfPressureShift ?? 0,
+      aeroDownforceTotalN: Number(vehicle.aero.totalDownforceN) || 0,
+      diffuserRideHeightM: Number(vehicle.aero.diffuserRideHeightM) || 0,
+      diffuserStalled: Boolean(vehicle.aero.diffuserStalled),
+      steeringRackTorque: totalAligningTorque,
+      totalAligningTorque,
+      elevationHeight: Number(surface.elevation) || 0,
+      terrainSlopePitch: Number(surface.slopePitch) || 0,
+      kerbRumbleIntensity: surface.isKerbRumble ? 0.85 : 0,
+      airborneWheelsCount:
+        Number.isFinite(state.airborneCount)
+          ? state.airborneCount
+          : wheels.filter((wheel: any) => wheel?.isAirborne).length,
+      gForceHistory: vehicle.telemetry.gForceHistory,
+      showForceVectors3D: vehicle.showForceVectors3D,
+      driftAngleDeg: driftInfo.driftAngleDeg,
+      isDrifting: driftInfo.isDrifting,
+      driftScore: vehicle.telemetry.driftScore,
+      performanceTimer: vehicle.telemetry.performanceTimer,
+      exhaustFlameIntensity:
+        Number.isFinite(state.exhaustFlameIntensity) ? state.exhaustFlameIntensity : 0,
+    });
+
+    return state as VehicleState;
+  }
+
   public get state(): VehicleState {
-    const snapshot = this.simulation.vehicle.getState();
+    const snapshot = this.hydrateAppState(this.simulation.vehicle.getState());
 
     // App/UI code historically toggles automatic mode through `engine.state`.
     // VehicleState is otherwise a telemetry snapshot, so define this one field as
@@ -78,7 +150,7 @@ export class VehiclePhysicsEngine {
 
   /** Advance the 120 Hz fixed accumulator physics with state interpolation. */
   public update(deltaTime: number, inputs: ControlInputs): VehicleState {
-    return this.simulation.advance(deltaTime, inputs);
+    return this.hydrateAppState(this.simulation.advance(deltaTime, inputs));
   }
 
   public runHeadlessTests(): TestResult[] {
