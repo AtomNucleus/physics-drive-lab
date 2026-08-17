@@ -107,6 +107,9 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     vy_body_ms: local.y,
     vz_body_ms: local.z,
     speed_kmh: state.speedKmh,
+    raw_ax_body_ms2: rb.acceleration.x,
+    raw_ay_body_ms2: rb.acceleration.y,
+    raw_az_body_ms2: rb.acceleration.z,
     lateral_g: state.lateralG,
     longitudinal_g: state.longitudinalG,
     vertical_g: state.verticalG,
@@ -133,6 +136,8 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     const prefix = ['fl', 'fr', 'rl', 'rr'][i];
     const susp = sim.vehicle.suspension.states[i] as any;
     row[`${prefix}_fz_n`] = wheel.forceVectorNorm;
+    row[`${prefix}_tire_normal_force_n`] = susp.tireNormalForceN;
+    row[`${prefix}_chassis_force_n`] = susp.chassisForceN;
     row[`${prefix}_fx_n`] = wheel.forceVectorLong;
     row[`${prefix}_fy_n`] = wheel.forceVectorLat;
     row[`${prefix}_slip_angle_deg`] = wheel.slipAngle * RAD_TO_DEG;
@@ -147,6 +152,7 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     row[`${prefix}_spring_force_n`] = susp.springForceN;
     row[`${prefix}_damper_force_n`] = susp.damperForceN;
     row[`${prefix}_bumpstop_force_n`] = susp.bumpStopForceN;
+    row[`${prefix}_hardstop_force_n`] = susp.hardStopForceN;
     row[`${prefix}_arb_force_n`] = susp.antiRollBarForceN;
     row[`${prefix}_camber_deg`] = wheel.camberAngleDeg;
     row[`${prefix}_aligning_moment_nm`] = wheel.aligningTorque;
