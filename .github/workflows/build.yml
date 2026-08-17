@@ -34,6 +34,9 @@ jobs:
       - name: Steering direction regression
         run: npm run test:steering-direction
 
+      - name: Physical steering dynamics regression
+        run: npm run test:steering-dynamics
+
       - name: Visual scale regression
         run: npm run test:visual-scale
 
