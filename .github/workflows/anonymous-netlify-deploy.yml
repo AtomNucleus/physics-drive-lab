@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: PR #21 mouse steering test
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - agent/physics-sign-convention-guardrails
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
