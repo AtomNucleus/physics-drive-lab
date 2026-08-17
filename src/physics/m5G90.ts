@@ -95,7 +95,13 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   steeringRackFrictionNm: 4.5,
   steeringRackMaxAngularSpeedRadS: 3.2,
   steeringRackMaxAngularAccelRadS2: 180,
-  steeringColumnTorsionStiffnessNmPerRad: 10.75,
+
+  // Effective driver/column stiffness is intentionally much lower than a literal
+  // steel steering-column torsion rate because it represents the driver's hands,
+  // column/torsion sensor and controller as one input-side compliance. 14 N*m/rad
+  // preserves small high-speed steering requests against SAT/mechanical-trail load
+  // without bypassing rack inertia, road feedback or the finite rack speed.
+  steeringColumnTorsionStiffnessNmPerRad: 14.0,
   steeringColumnTorsionDampingNmsPerRad: 0.18,
   steeringDriverMaxTorqueNm: 8.0,
   steeringEpsParkingGain: 20.0,
