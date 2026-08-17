@@ -1,0 +1,901 @@
+
+===== test:conventions =====
+
+> react-example@0.0.0 test:conventions
+> tsx src/physics/tests/PhysicsConventionTests.ts
+
+PASS Ackermann left/right mirror invariant
+PASS camber thrust inward/mirror invariant
+PASS anti-roll bar sign/conservation invariant
+PASS ABS forward/reverse invariant
+PASS TCS forward/reverse invariant
+PASS differential power/coast invariant
+PASS active differential zero-torque invariant
+PASS all 7 physics convention guardrail tests
+
+__test:conventions_EXIT_STATUS__=0
+
+===== test:mobile =====
+
+> react-example@0.0.0 test:mobile
+> tsx src/physics/tests/MobileControlsTests.ts
+
+MobileControlsTests: PASS
+
+__test:mobile_EXIT_STATUS__=0
+
+===== test:digital-steering =====
+
+> react-example@0.0.0 test:digital-steering
+> tsx src/physics/tests/DigitalSteeringInputTests.ts
+
+DigitalSteeringInputTests: PASS
+
+__test:digital-steering_EXIT_STATUS__=0
+
+===== test:mouse-steering =====
+
+> react-example@0.0.0 test:mouse-steering
+> tsx src/physics/tests/MouseSteeringInputTests.ts
+
+{
+  "left": 1,
+  "center": 0,
+  "right": -1,
+  "nearCenter": 0,
+  "quarterLeft": 0.4791666666666667,
+  "quarterRight": -0.4791666666666667
+}
+MouseSteeringInputTests: PASS
+
+__test:mouse-steering_EXIT_STATUS__=0
+
+===== test:turn-radius =====
+
+> react-example@0.0.0 test:turn-radius
+> tsx src/physics/tests/TurnRadiusTests.ts
+
+{
+  "scenario": "BMW M5 G90 50 km/h full-left turn-radius diagnostic",
+  "shapedDigital": {
+    "label": "held keyboard/touch full-left",
+    "peakSteerInput": 1,
+    "near50": {
+      "samples": 21,
+      "meanSpeedKmh": 48.30871556782832,
+      "meanYawRadiusM": 21.704015382973836,
+      "meanLatG": 0.609582733516156,
+      "meanFrontSteerDeg": 31.988781149283167,
+      "meanRearSteerDeg": 1.4838522147424247,
+      "meanFrontSlipDeg": 28.6080628452717
+    },
+    "lateMeanSpeedKmh": 38.33068724260572,
+    "lateMeanFrontSteerDeg": 33.34927988751668,
+    "lateMeanYawRadiusM": 16.274126448993535,
+    "lateMeanGeometricRadiusM": 4.565838457752453,
+    "peakLatG": 0.8373514076909367,
+    "peakFrontSlipDeg": 34.585860450082464
+  },
+  "fullMouseLock": {
+    "label": "mouse screen-edge full-left (+1.0, full mechanical rack)",
+    "peakSteerInput": 1,
+    "near50": {
+      "samples": 17,
+      "meanSpeedKmh": 48.193303562127404,
+      "meanYawRadiusM": 23.644768786534545,
+      "meanLatG": 0.5302102070281235,
+      "meanFrontSteerDeg": 33.344936444245654,
+      "meanRearSteerDeg": 1.4863415254251269,
+      "meanFrontSlipDeg": 32.95272254525096
+    },
+    "lateMeanSpeedKmh": 38.070399530413304,
+    "lateMeanFrontSteerDeg": 33.34943394711572,
+    "lateMeanYawRadiusM": 15.997522084229454,
+    "lateMeanGeometricRadiusM": 4.565811722981599,
+    "peakLatG": 0.8033301318588136,
+    "peakFrontSlipDeg": 34.69015623949638
+  },
+  "realM5SkidpadG": 0.98,
+  "realM5GripLimitedRadiusAt50M": 20.065035112848328
+}
+TurnRadiusTests: PASS
+
+__test:turn-radius_EXIT_STATUS__=0
+
+===== test:crawl =====
+
+> react-example@0.0.0 test:crawl
+> tsx src/physics/tests/CrawlSpeedStabilityTests.ts
+
+{
+  "scenario": "M5 crawl-speed stability at 6 km/h",
+  "straight": {
+    "label": "straight",
+    "steer": 0,
+    "samples": 360,
+    "finalSpeedKmh": 4.300351561487274,
+    "maxYawAccelRadPerSec2": 1.055873612107124e-13,
+    "maxRollStepRad": 2.389217652161816e-17,
+    "maxWheelOmegaStepRadPerSec": 0.005581945877074723,
+    "maxFrontSlipDeg": 0.02973839031900241,
+    "maxSkidIntensity": 0,
+    "frontForceSignFlips": 0,
+    "rollSignFlips": 0
+  },
+  "mediumTurn": {
+    "label": "medium-turn",
+    "steer": 0.5,
+    "samples": 360,
+    "finalSpeedKmh": 4.107181316280152,
+    "maxYawAccelRadPerSec2": 0.029975106477749813,
+    "maxRollStepRad": 0.00039752426421750054,
+    "maxWheelOmegaStepRadPerSec": 0.07758856789426183,
+    "maxFrontSlipDeg": 2.2904326570839872,
+    "maxSkidIntensity": 0,
+    "frontForceSignFlips": 0,
+    "rollSignFlips": 0
+  },
+  "fullLock": {
+    "label": "full-lock",
+    "steer": 1,
+    "samples": 360,
+    "finalSpeedKmh": 3.6215084756336338,
+    "maxYawAccelRadPerSec2": 0.08934152012897378,
+    "maxRollStepRad": 0.0007065636130802445,
+    "maxWheelOmegaStepRadPerSec": 0.13810229308882782,
+    "maxFrontSlipDeg": 4.344477259322882,
+    "maxSkidIntensity": 0,
+    "frontForceSignFlips": 0,
+    "rollSignFlips": 0
+  }
+}
+CrawlSpeedStabilityTests: PASS
+
+__test:crawl_EXIT_STATUS__=0
+
+===== test:cornering =====
+
+> react-example@0.0.0 test:cornering
+> tsx src/physics/tests/LowSpeedCorneringTests.ts
+
+{
+  "scenario": "M5 low-speed cornering at ~30 km/h",
+  "moderate": {
+    "label": "moderate-raw",
+    "peakSteerInput": 0.4,
+    "meanFrontSteerDeg": 13.159512037395652,
+    "peakFrontSlipDeg": 8.672875813203515,
+    "peakRearSlipDeg": 3.465209603746328,
+    "peakLatG": 0.8397184008043582,
+    "skidSamples": 0,
+    "frontSkidSamples": 0,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 1.0999741986269933,
+    "finalSpeedKmh": 27.257115820067103
+  },
+  "rawFullDigital": {
+    "label": "raw-full-digital",
+    "peakSteerInput": 1,
+    "meanFrontSteerDeg": 33.35297164359271,
+    "peakFrontSlipDeg": 27.892807987152345,
+    "peakRearSlipDeg": 4.042459074575271,
+    "peakLatG": 0.9552240702512936,
+    "skidSamples": 73,
+    "frontSkidSamples": 73,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 0.8177888188712858,
+    "finalSpeedKmh": 22.494611210435846
+  },
+  "heldDigital": {
+    "label": "held-digital-left",
+    "peakSteerInput": 1,
+    "meanFrontSteerDeg": 33.34880319151786,
+    "peakFrontSlipDeg": 25.493222873430163,
+    "peakRearSlipDeg": 4.207908721725837,
+    "peakLatG": 0.9664617354005078,
+    "skidSamples": 65,
+    "frontSkidSamples": 65,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 0.9092246219807331,
+    "finalSpeedKmh": 21.66141735810457
+  }
+}
+LowSpeedCorneringTests: PASS
+
+__test:cornering_EXIT_STATUS__=0
+
+===== test:stationary =====
+
+> react-example@0.0.0 test:stationary
+> tsx src/physics/tests/StationarySteeringTests.ts
+
+PASS stationary camber creates no planar force
+PASS parking-speed brush force is bounded and non-smoking
+PASS real wheelspin still produces skid
+  straight: vstart=0.0000, vmax=0.0000 m/s, yaw=0.0000 rad/s, dx=0.0000, dz=0.0000, migration=0.0000 m, dT=-0.0000 C, skidFrames=0, skidI=0.000, alpha=0.000 rad, kappa=0.000, Ftire=0 N, wheels={"FL":0,"FR":0,"RL":0,"RR":0}
+  full-left: vstart=0.0000, vmax=0.0000 m/s, yaw=0.0000 rad/s, dx=0.0000, dz=0.0000, migration=0.0000 m, dT=-0.0000 C, skidFrames=0, skidI=0.000, alpha=0.000 rad, kappa=0.000, Ftire=0 N, wheels={"FL":0,"FR":0,"RL":0,"RR":0}
+  full-right: vstart=0.0000, vmax=0.0000 m/s, yaw=0.0000 rad/s, dx=-0.0000, dz=0.0000, migration=0.0000 m, dT=-0.0000 C, skidFrames=0, skidI=0.000, alpha=0.000 rad, kappa=0.000, Ftire=0 N, wheels={"FL":0,"FR":0,"RL":0,"RR":0}
+PASS parked M5 remains stable straight and at full lock
+PASS all 4 stationary/low-speed tire regression tests
+
+__test:stationary_EXIT_STATUS__=0
+
+===== test:suspension =====
+
+> react-example@0.0.0 test:suspension
+> tsx src/physics/tests/SuspensionBehaviorTests.ts
+
+{
+  "progressiveLowTravelSlope": 62616.83673469388,
+  "progressiveHighTravelSlope": 84822.95918367348,
+  "bumpDamperForceN": 1242.8,
+  "reboundDamperForceN": -1560,
+  "antiRollBars": {
+    "equalBumpTransferN": 0,
+    "rightOutsideFrontTransferN": 1839.9999999999998,
+    "m5FrontTransferShare": 0.5348837209302325,
+    "frontStiffTransferShare": 0.6666666666666667,
+    "rearStiffFrontShare": 0.33333333333333337,
+    "frontBiasedFrontTireLoadSplitN": 6473.314282511947,
+    "frontBiasedRearTireLoadSplitN": 4394.8122877436535,
+    "rearBiasedFrontTireLoadSplitN": 4394.8122877436535,
+    "rearBiasedRearTireLoadSplitN": 6473.314282511947
+  },
+  "flatLoadsN": [
+    6223.379070607164,
+    6223.379070607164,
+    6223.379070607164,
+    6223.379070607164
+  ],
+  "leftTurnLoadsN": [
+    3312.447614844314,
+    9143.44267692385,
+    3461.197170036162,
+    8995.291780141812
+  ],
+  "rightTurnLoadsN": [
+    9143.44267692385,
+    3312.447614844314,
+    8995.291780141813,
+    3461.197170036162
+  ],
+  "oneStep10mmBump": {
+    "hubRiseM": 0.0035353535353535026,
+    "suspensionTravelChangeM": 0.0035353535353535026,
+    "unsprungAccelerationMps2": 50.909090909090956
+  },
+  "smooth40mmBump": {
+    "tirePeakTimeSec": 0.058333333333333334,
+    "chassisForcePeakTimeSec": 0.06666666666666667,
+    "bodyHeavePeakTimeSec": 0.16666666666666666,
+    "bodyHeavePeakM": 0.028820789060390206
+  },
+  "wheelHopHz": 12.550234479098846,
+  "bodyRideHz": 1.7046564252033334,
+  "status": "passed"
+}
+
+__test:suspension_EXIT_STATUS__=0
+
+===== test:kinematics =====
+
+> react-example@0.0.0 test:kinematics
+> tsx src/physics/tests/SuspensionKinematicsTests.ts
+
+{
+  "static": {
+    "camberDeg": -1.500000000000104,
+    "casterDeg": 7.199999999999986,
+    "kingpinInclinationDeg": 7.0000000000000036,
+    "scrubRadiusMm": -22.573355664823215
+  },
+  "mildGain": {
+    "derivedCamberGainDegPerMeter": -2.0000000042235726,
+    "bump50mmCamberDeltaDeg": -0.11329622541409146
+  },
+  "bump50mm": {
+    "camberDeg": -1.8869274441553439,
+    "bumpSteerDeg": -0.09602880646046123
+  },
+  "leftSteer15Deg": {
+    "insideCamberDeg": 0.3833531319767299,
+    "outsideCamberDeg": -3.3017051004479256
+  },
+  "maxFullTravelBumpSteerDeg": 0.4143876423008793,
+  "status": "passed"
+}
+
+__test:kinematics_EXIT_STATUS__=0
+
+===== test:kinematics-arb =====
+
+> react-example@0.0.0 test:kinematics-arb
+> tsx src/physics/tests/SuspensionKinematicsAntiRollIntegrationTests.ts
+
+{
+  "scenario": "PR18 anti-roll bars + geometry-driven wheel pose integration at 180 km/h",
+  "peakLatG": 1.1066522987948766,
+  "peakArbForceN": 2167.5431262941825,
+  "peakFrontDifferentialTravelMm": 47.13414513964986,
+  "peakRearDifferentialTravelMm": 49.20645532933665,
+  "peakCamberMigrationDeg": 0.43443446582303635,
+  "peakBumpSteerDeg": 0.05211578457463155,
+  "peakBodyRiseMm": 0,
+  "airborneSamples": 0,
+  "finalSpeedKmh": 170.44295517404768,
+  "finalRollDeg": 0.10413836222150251
+}
+
+__test:kinematics-arb_EXIT_STATUS__=0
+
+===== test:steering-direction =====
+
+> react-example@0.0.0 test:steering-direction
+> tsx src/physics/tests/SteeringDirectionTests.ts
+
+{
+  "fullRackAuthority": {
+    "maxSteerDeg": 33.231552117587746,
+    "crawlDeg": 33.231552117587746,
+    "highwayDeg": 33.231552117587746,
+    "veryFastDeg": 33.231552117587746
+  },
+  "lowSpeedAckermann": {
+    "speedKmh": 21.6,
+    "left": {
+      "insideFLDeg": 27.772801402293684,
+      "outsideFRDeg": 22.62153167531402
+    },
+    "right": {
+      "outsideFLDeg": -22.62153167531402,
+      "insideFRDeg": -27.772801402293684
+    }
+  },
+  "left": {
+    "x": 4.121531141237366,
+    "yawDeg": 34.572002097579606,
+    "leftLoadN": 4217.852600247605,
+    "rightLoadN": 19166.784035257362
+  },
+  "right": {
+    "x": -4.121531141237355,
+    "yawDeg": -34.57200209757955,
+    "leftLoadN": 19166.784035257406,
+    "rightLoadN": 4217.852600247599
+  },
+  "status": "passed"
+}
+
+__test:steering-direction_EXIT_STATUS__=0
+
+===== test:corner-load =====
+
+> react-example@0.0.0 test:corner-load
+> tsx src/physics/tests/DynamicCornerLoadTests.ts
+
+{
+  "leftTurn90Kmh": {
+    "averageLeftLoadN": 4399.121746088615,
+    "averageRightLoadN": 18974.924956392304,
+    "averageOutsideLoadGainN": 14575.80321030369,
+    "peakOutsideLoadDeltaN": 15255.126727912007,
+    "peakRollDeg": 2.6979520997766233,
+    "peakYawRateDegS": 34.889524995860384,
+    "expected": "FR + RR > FL + RL"
+  },
+  "flatRoad250Kmh": {
+    "durationSec": 5,
+    "maxHeaveDeltaM": 0.00003247957041807581,
+    "maxVerticalGMagnitude": 0.0004808796585847714,
+    "minTravelM": -0.0036827655332462572,
+    "maxTravelM": 0.0044671839609226605,
+    "airborneSamples": 0,
+    "maxYawDeviationDeg": 4.624815312490388e-13
+  },
+  "status": "passed"
+}
+
+__test:corner-load_EXIT_STATUS__=0
+
+===== test:tire =====
+
+> react-example@0.0.0 test:tire
+> tsx src/physics/tests/TireModelTests.ts
+
+{
+  "pureLongitudinal": {
+    "peakSlipRatio": 0.12,
+    "peakForceN": 7501.97202259352
+  },
+  "pureLateral": {
+    "peakSlipAngleDeg": 7.677634454753032,
+    "peakForceN": 7501.9846111466295
+  },
+  "loadSensitivity": {
+    "lowLoadMu": 1.3765023257257305,
+    "referenceLoadMu": 1.21,
+    "highLoadMu": 1.122102154222942
+  },
+  "combinedSlip": {
+    "lateralForceRetention": 0.728046366551331,
+    "longitudinalForceRetention": 0.7360284885396362,
+    "utilization": 1
+  },
+  "status": "passed"
+}
+
+__test:tire_EXIT_STATUS__=0
+
+===== test:m5-transient =====
+
+> react-example@0.0.0 test:m5-transient
+> tsx src/physics/tests/M5TransientResponseTests.ts
+
+{
+  "speedKmh": 72,
+  "targetCenterSteerDeg": 3.2,
+  "steerInput": 0.09629402769623888,
+  "yawInertiaKgM2": 5332.76657118062,
+  "steady": {
+    "frontFyN": 9825.957644486734,
+    "frontFySignedN": 9825.957644486734,
+    "outsideTravelDeltaM": 0.03330140931284002,
+    "rollDeg": 1.7378042147962012,
+    "yawRateDegS": 22.32396818784309
+  },
+  "turnInTimingSec": {
+    "tire25": 0.016666666666666666,
+    "tire50": 0.025,
+    "travel25": 0.10833333333333334,
+    "travel50": 0.15833333333333333,
+    "roll25": 0.08333333333333333,
+    "roll50": 0.13333333333333333
+  },
+  "turnInFractions": {
+    "at50ms": {
+      "tire": 0.9994457528885566,
+      "travel": 0.024041337067158015,
+      "roll": 0.08772936930304108
+    },
+    "at100ms": {
+      "tire": 1.002557003820481,
+      "travel": 0.21521848542093622,
+      "roll": 0.3471228841470882
+    },
+    "at250ms": {
+      "tire": 0.9227369332031937,
+      "travel": 0.7858376747579344,
+      "roll": 0.8307271339650879
+    }
+  },
+  "release": {
+    "firstCorrectiveForceTimeSec": 0.06666666666666667,
+    "fractions": {
+      "at50ms": {
+        "residualCorneringTire": 0.06905907208003648,
+        "signedTire": 0.06905907208003648,
+        "tireMagnitude": 0.06905907208003648,
+        "travel": 0.9430238323489893,
+        "roll": 0.8858288036012129,
+        "yaw": 0.7888496493348289
+      },
+      "at100ms": {
+        "residualCorneringTire": 0.05581760616491007,
+        "signedTire": 0.05581760616491007,
+        "tireMagnitude": 0.05581760616491007,
+        "travel": 0.7626307041502317,
+        "roll": 0.6417090055233723,
+        "yaw": 0.45874365946506557
+      },
+      "at250ms": {
+        "residualCorneringTire": 0.1423568742705098,
+        "signedTire": 0.1423568742705098,
+        "tireMagnitude": 0.1423568742705098,
+        "travel": 0.3083079982925236,
+        "roll": 0.28445631182985376,
+        "yaw": 0.01800784974325937
+      },
+      "at500ms": {
+        "residualCorneringTire": 0,
+        "signedTire": -0.03666416796462736,
+        "tireMagnitude": 0.03666416796462736,
+        "travel": 0.07335277973738417,
+        "roll": 0.07596910349732573,
+        "yaw": 0.0006693927667646484
+      },
+      "at750ms": {
+        "residualCorneringTire": 0.006247377775244582,
+        "signedTire": 0.006247377775244582,
+        "tireMagnitude": 0.03202939005160395,
+        "travel": 0.009559522235806757,
+        "roll": 0.013018817930410648,
+        "yaw": 0.00040819264395801596
+      }
+    },
+    "maxRollDeg": 1.6853782584357815,
+    "finalRollDeg": 0.004861801371558112
+  }
+}
+M5TransientResponseTests: PASS
+
+__test:m5-transient_EXIT_STATUS__=0
+
+===== test:m5-oversteer =====
+
+> react-example@0.0.0 test:m5-oversteer
+> tsx src/physics/tests/M5OversteerRecoveryDiagnostic.ts
+
+{
+  "scenario": "M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF",
+  "inductionSec": 0.26666666666666666,
+  "yawInertiaKgM2": 5332.76657118062,
+  "releaseTimeSec": 0.225,
+  "peakCounterInput": 0.9333333333333336,
+  "peakCounterSteerDeg": 31.051284206265933,
+  "samples": [
+    {
+      "t": 0,
+      "speedKmh": 82.38749341319173,
+      "yawRateDegS": 52.67288688202407,
+      "sideslipDeg": -8.272278779031625,
+      "driverInput": 0.18,
+      "steerDeg": 5.9309087373722855,
+      "frontSlipDeg": 10.547465805366816,
+      "rearSlipDeg": 11.568298251883785,
+      "frontKappa": 0.003460343857985695,
+      "rearKappa": -0.5587906756899745,
+      "frontFyN": 17058.80373122813,
+      "rearFyN": 4711.004895445558
+    },
+    {
+      "t": 0.1,
+      "speedKmh": 81.28162516392374,
+      "yawRateDegS": 50.40393158372378,
+      "sideslipDeg": -11.699021404816136,
+      "driverInput": -0.3733333333333333,
+      "steerDeg": -12.220046793498337,
+      "frontSlipDeg": -1.902890430960751,
+      "rearSlipDeg": 13.961293235326066,
+      "frontKappa": 0.0011776280289503716,
+      "rearKappa": -0.0009741884103049896,
+      "frontFyN": -5924.574214691829,
+      "rearFyN": 11411.101643466496
+    },
+    {
+      "t": 0.25,
+      "speedKmh": 80.23245041834889,
+      "yawRateDegS": -6.477004923613359,
+      "sideslipDeg": -15.102471172698419,
+      "driverInput": -0.7000000000000002,
+      "steerDeg": -23.161360128129324,
+      "frontSlipDeg": -10.69040822130781,
+      "rearSlipDeg": 15.12566397290404,
+      "frontKappa": -0.00815775281605457,
+      "rearKappa": 0.0024062097625450274,
+      "frontFyN": -14220.655075345789,
+      "rearFyN": 10670.806734054393
+    },
+    {
+      "t": 0.5,
+      "speedKmh": 78.69781919931778,
+      "yawRateDegS": -26.37490478490519,
+      "sideslipDeg": -4.079110156496737,
+      "driverInput": 0,
+      "steerDeg": 0.06113092505584737,
+      "frontSlipDeg": 7.033566171200801,
+      "rearSlipDeg": 3.4146037828735043,
+      "frontKappa": -0.000284284396588794,
+      "rearKappa": -0.00030023468426024853,
+      "frontFyN": 13391.191266154277,
+      "rearFyN": 10282.361808457292
+    },
+    {
+      "t": 0.75,
+      "speedKmh": 78.37082439452618,
+      "yawRateDegS": -2.1261099147817717,
+      "sideslipDeg": 1.0702371717584827,
+      "driverInput": 0,
+      "steerDeg": -0.013501543139685698,
+      "frontSlipDeg": -0.595049917774165,
+      "rearSlipDeg": -1.0733394311055384,
+      "frontKappa": 0.00005395497493939047,
+      "rearKappa": 0.000050173700388740584,
+      "frontFyN": -2831.6704443400704,
+      "rearFyN": -4330.5891154173005
+    },
+    {
+      "t": 1,
+      "speedKmh": 78.16492795367456,
+      "yawRateDegS": 0.019756787034392705,
+      "sideslipDeg": -0.16085274586279902,
+      "driverInput": 0,
+      "steerDeg": -0.002226358345629192,
+      "frontSlipDeg": -0.026161847143660252,
+      "rearSlipDeg": -0.023193817149808293,
+      "frontKappa": 0.00010639752474197106,
+      "rearKappa": 0.00011580166157491101,
+      "frontFyN": -335.424646301768,
+      "rearFyN": -277.9796645961051
+    },
+    {
+      "t": 1.5,
+      "speedKmh": 77.66225469737272,
+      "yawRateDegS": 0.10256822490834541,
+      "sideslipDeg": -0.026371785476842047,
+      "driverInput": 0,
+      "steerDeg": -0.00014139165664079324,
+      "frontSlipDeg": 0.011669978573135367,
+      "rearSlipDeg": 0.02606986568907637,
+      "frontKappa": 0.00020287744971364422,
+      "rearKappa": 0.00021076564502741236,
+      "frontFyN": -26.418998951485435,
+      "rearFyN": 13.579734233376655
+    }
+  ]
+}
+M5OversteerRecoveryTests: PASS
+
+__test:m5-oversteer_EXIT_STATUS__=0
+
+===== test:automatic =====
+
+> react-example@0.0.0 test:automatic
+> tsx src/physics/tests/AutomaticTransmissionTests.ts
+
+PASS UI automatic flag writes through to the real powertrain
+PASS manual mode does not self-shift
+PASS automatic mode upshifts near full-load redline
+PASS automatic kickdown selects a safe lower gear
+PASS automatic kickdown blocks predicted over-rev
+PASS automatic coast downshift does not inject throttle
+PASS manual downshift rev-match aid still blips
+PASS automatic idle creep torque stays bounded
+  automatic M5 drive: maxGear=5, shifts=4, maxRPM=6907, maxSpeed=198.8 km/h
+PASS M5 full-throttle automatic drive changes gear
+PASS all 9 automatic-transmission regression tests
+
+__test:automatic_EXIT_STATUS__=0
+
+===== test:wheel-visual =====
+
+> react-example@0.0.0 test:wheel-visual
+> tsx src/physics/tests/WheelVisualPoseTests.ts
+
+{
+  "flat": {
+    "x": -0.846,
+    "y": 0.34199999999999997,
+    "z": 1.5,
+    "rotationX": 0,
+    "rotationZ": -0.02617993877991494,
+    "mountX": -0.84,
+    "mountY": 0,
+    "mountZ": 1.5,
+    "crashAttachmentBlend": 0
+  },
+  "crashPose": {
+    "x": -0.46349678941262284,
+    "y": -1.0266326110590263,
+    "z": 0.7482929167043537,
+    "rotationX": 0.6632251157578452,
+    "rotationZ": 0.9686577348568528,
+    "mountX": -0.45749678941262284,
+    "mountY": -1.4786326110590262,
+    "mountZ": 0.7482929167043537,
+    "crashAttachmentBlend": 1
+  },
+  "status": "passed"
+}
+
+__test:wheel-visual_EXIT_STATUS__=0
+
+===== test:m5-rwd =====
+
+> react-example@0.0.0 test:m5-rwd
+> tsx src/physics/tests/M5DriveModeTests.ts
+
+M5 xDrive 2WD regression tests passed
+
+__test:m5-rwd_EXIT_STATUS__=0
+
+===== test:high-speed =====
+
+> react-example@0.0.0 test:high-speed
+> tsx src/physics/tests/HighSpeedAntiRollTests.ts
+
+{
+  "scenario": "200 km/h smooth double lane change on flat dry surface",
+  "moderateBars": {
+    "steerAmplitude": 0.04,
+    "peakRollDeg": 1.9390891143309208,
+    "peakRollRateDegPerSec": 9.39369495035182,
+    "peakLatG": 0.8350999808713558,
+    "peakVerticalG": 0.05182677121138995,
+    "peakActualSteerDeg": 1.3271939285328858,
+    "peakBodyRiseM": 0.011463932396170051,
+    "peakBodyDropM": 0,
+    "peakTotalNormalLoadN": 23737.138531840206,
+    "minimumTotalNormalLoadN": 21873.73110733136,
+    "minimumWheelLoadN": 2654.372354523968,
+    "minimumInsideSideLoadN": 6184.724394010477,
+    "peakSideLoadDifferenceN": 11021.614008171207,
+    "geometricSideDifferenceAtPeakLatG": 12132.745197764601,
+    "loadTransferRatioToRigidGeometry": 0.9084188144165333,
+    "peakArbForceN": 1664.2032228674145,
+    "peakArbNetBiasN": 0,
+    "airborneSamples": 0,
+    "weightN": 23365.590435000002,
+    "finalSpeedKmh": 189.95821414432427,
+    "finalRollDeg": 0.006997354777922471
+  },
+  "moderateNoBars": {
+    "steerAmplitude": 0.04,
+    "peakRollDeg": 3.732367606114114,
+    "peakRollRateDegPerSec": 16.118045396004252,
+    "peakLatG": 0.8482152244981203,
+    "peakVerticalG": 0.05768647566398006,
+    "peakActualSteerDeg": 1.342472041994966,
+    "peakBodyRiseM": 0.011446760446016335,
+    "peakBodyDropM": 0,
+    "peakTotalNormalLoadN": 23784.03179258853,
+    "minimumTotalNormalLoadN": 21873.733066061402,
+    "minimumWheelLoadN": 2541.65182662115,
+    "minimumInsideSideLoadN": 5947.45278913752,
+    "peakSideLoadDifferenceN": 11528.886224905398,
+    "geometricSideDifferenceAtPeakLatG": 12323.289938244785,
+    "loadTransferRatioToRigidGeometry": 0.9355363935020314,
+    "peakArbForceN": 0,
+    "peakArbNetBiasN": 0,
+    "airborneSamples": 0,
+    "weightN": 23365.590435000002,
+    "finalSpeedKmh": 189.94326195268832,
+    "finalRollDeg": 0.025721456946544295
+  },
+  "nearLimitBars": {
+    "steerAmplitude": 0.075,
+    "peakRollDeg": 2.6544138327007025,
+    "peakRollRateDegPerSec": 7.351591165145147,
+    "peakLatG": 1.1667966974381334,
+    "peakVerticalG": 0.05546118888172262,
+    "peakActualSteerDeg": 2.484762863194437,
+    "peakBodyRiseM": 0.011424041038079369,
+    "peakBodyDropM": 0,
+    "peakTotalNormalLoadN": 23783.794706507473,
+    "minimumTotalNormalLoadN": 21873.21802040286,
+    "minimumWheelLoadN": 1721.1599313520474,
+    "minimumInsideSideLoadN": 4176.107224462277,
+    "peakSideLoadDifferenceN": 15019.273188855988,
+    "geometricSideDifferenceAtPeakLatG": 16951.799008352344,
+    "loadTransferRatioToRigidGeometry": 0.8859987769708585,
+    "peakArbForceN": 2280.137350313133,
+    "peakArbNetBiasN": 0,
+    "airborneSamples": 0,
+    "weightN": 23365.590435000002,
+    "finalSpeedKmh": 182.62752036037523,
+    "finalRollDeg": 0.4811986126265204
+  },
+  "nearLimitNoBars": {
+    "steerAmplitude": 0.075,
+    "peakRollDeg": 5.061388104078759,
+    "peakRollRateDegPerSec": 12.63928996605958,
+    "peakLatG": 1.17761518640857,
+    "peakVerticalG": 0.10583403214696416,
+    "peakActualSteerDeg": 2.5119988687024164,
+    "peakBodyRiseM": 0.01138413341573441,
+    "peakBodyDropM": 0,
+    "peakTotalNormalLoadN": 23917.696099518726,
+    "minimumTotalNormalLoadN": 21873.22478295622,
+    "minimumWheelLoadN": 1679.2392831813247,
+    "minimumInsideSideLoadN": 4053.5006831241735,
+    "peakSideLoadDifferenceN": 15285.08998825125,
+    "geometricSideDifferenceAtPeakLatG": 17108.9753622138,
+    "loadTransferRatioToRigidGeometry": 0.8933959903881379,
+    "peakArbForceN": 0,
+    "peakArbNetBiasN": 0,
+    "airborneSamples": 0,
+    "weightN": 23365.590435000002,
+    "finalSpeedKmh": 178.2919807221773,
+    "finalRollDeg": 2.628386803357824
+  },
+  "tireLimitBars": {
+    "steerAmplitude": 0.1,
+    "peakRollDeg": 2.701572808870133,
+    "peakRollRateDegPerSec": 9.042598915242872,
+    "peakLatG": 1.1885656605300523,
+    "peakVerticalG": 0.05940954951978669,
+    "peakActualSteerDeg": 3.3093552473810783,
+    "peakBodyRiseM": 0.011389072584524706,
+    "peakBodyDropM": 0,
+    "peakTotalNormalLoadN": 23804.57476828176,
+    "minimumTotalNormalLoadN": 21872.675837145413,
+    "minimumWheelLoadN": 1659.3553539433271,
+    "minimumInsideSideLoadN": 4049.638650032486,
+    "peakSideLoadDifferenceN": 15290.355270626733,
+    "geometricSideDifferenceAtPeakLatG": 17268.069261571854,
+    "loadTransferRatioToRigidGeometry": 0.8854698831127402,
+    "peakArbForceN": 2320.170933077905,
+    "peakArbNetBiasN": 0,
+    "airborneSamples": 0,
+    "weightN": 23365.590435000002,
+    "finalSpeedKmh": 170.5927950060115,
+    "finalRollDeg": 0.8832546875851727
+  },
+  "moderateRollReductionFraction": 0.4804667388189644,
+  "nearLimitRollReductionFraction": 0.4755561561142442
+}
+
+__test:high-speed_EXIT_STATUS__=0
+
+===== test:smoke =====
+
+> react-example@0.0.0 test:smoke
+> tsx src/physics/tests/TireSmokeRegressionTests.ts
+
+Tire smoke regression checks passed.
+
+__test:smoke_EXIT_STATUS__=0
+
+===== test:crash =====
+
+> react-example@0.0.0 test:crash
+> tsx src/physics/tests/CrashStabilityTests.ts
+
+{
+  "uprightSpin": {
+    "maxAngularSpeedRadS": 4.174663652843658,
+    "maxTipDeg": 3.327458177204049,
+    "maxHeaveDeltaM": 0.0028602420178708288,
+    "maxVerticalSpeedMps": 0.02161508897104129,
+    "meanLateShakeEnergy": 0.000032442253948545466,
+    "latePeakVerticalSpeedMps": 0.000005435035960193985,
+    "lateSkidFrames": 0,
+    "nonFiniteSamples": 0
+  },
+  "wipeout": {
+    "maxPostStepPenetrationM": 0,
+    "maxAngularSpeedRadS": 6.966337220123246,
+    "maxHeaveM": 3.4987280129873355,
+    "nonFiniteSamples": 0
+  },
+  "status": "passed"
+}
+
+__test:crash_EXIT_STATUS__=0
+
+===== test:crash-recovery =====
+
+> react-example@0.0.0 test:crash-recovery
+> tsx src/physics/tests/CrashRecoveryTests.ts
+
+PASS tire shear remains tangent to road
+PASS post-spin contact patch settles
+PASS chassis visual rotates around physical CG
+PASS wheel authority hands off before sideways jacking
+PASS rendered wheel tracks physical hub during wipeout
+PASS all 5 crash-recovery regression tests
+
+__test:crash-recovery_EXIT_STATUS__=0
+
+===== build =====
+
+> react-example@0.0.0 build
+> vite build
+
+[36mvite v6.4.3 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 1717 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.89 kB[22m[1m[22m[2m │ gzip:   0.47 kB[22m
+[2mdist/[22m[2massets/[22m[35mindex-C1c5r_6x.css  [39m[1m[2m 56.64 kB[22m[1m[22m[2m │ gzip:   9.65 kB[22m
+[2mdist/[22m[2massets/[22m[36mindex-hjcA0wiN.js   [39m[1m[33m980.41 kB[39m[22m[2m │ gzip: 267.84 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 4.41s[39m
+
+__build_EXIT_STATUS__=0
+
+__EXIT_STATUS__=0
