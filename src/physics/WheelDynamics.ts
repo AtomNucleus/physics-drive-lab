@@ -208,8 +208,11 @@ export class WheelDynamics {
     const wheelSurfaceSpeed = this.angularVelocity * this.radius;
     const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
 
-    // Smoothly leave the static/brush regime between roughly 0.8 and 4 mph.
-    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (1.80 - 0.35), 0, 1);
+    // Keep crawl-speed steering in the stable contact-patch/brush regime longer.
+    // Around 6 km/h the previous 1.80 m/s endpoint made the model ~98% dynamic,
+    // causing the lateral solution to chatter exactly at the handoff. Blend from
+    // static brush behavior at ~1.3 km/h to the full dynamic tire by ~10.8 km/h.
+    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
     const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
 
     // A regularization floor prevents near-zero velocity from turning a tiny
