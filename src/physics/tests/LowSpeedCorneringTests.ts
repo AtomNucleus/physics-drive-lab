@@ -24,13 +24,13 @@ const config = {
   ...BMW_M5_2025_OVERRIDES,
 } as VehicleConfig;
 
-function makeRollingM5() {
+function makeRollingM5(startSpeedMs: number = START_SPEED_MS) {
   const sim = new Simulation(config, new ProvingGroundSurfaceProvider());
   sim.reset(0, 0, 0);
   sim.vehicle.powertrain.isAutomatic = false;
   sim.vehicle.powertrain.gear = 0;
-  sim.vehicle.rigidBody.velocity.z = START_SPEED_MS;
-  for (const wheel of sim.vehicle.wheels) wheel.angularVelocity = START_SPEED_MS / config.wheelRadius;
+  sim.vehicle.rigidBody.velocity.z = startSpeedMs;
+  for (const wheel of sim.vehicle.wheels) wheel.angularVelocity = startSpeedMs / config.wheelRadius;
   for (let i = 0; i < 60; i++) sim.stepExplicit(zeroInputs, 1);
   return sim;
 }
@@ -98,6 +98,87 @@ function runCorner(label: string, steerProvider: SteerProvider, durationSec: num
   };
 }
 
+function runTenKmhFullLockDiagnostic() {
+  const sim = makeRollingM5(10 / 3.6);
+  const settleSteps = Math.round(0.75 / DT);
+  const totalSteps = Math.round(4.0 / DT);
+
+  let entrySpeedKmh = 0;
+  let finalSpeedKmh = 0;
+  let heaveMin = Infinity;
+  let heaveMax = -Infinity;
+  let rollMin = Infinity;
+  let rollMax = -Infinity;
+  let rollRatePeakDegS = 0;
+  let verticalGMin = Infinity;
+  let verticalGMax = -Infinity;
+  const travelMin = [Infinity, Infinity, Infinity, Infinity];
+  const travelMax = [-Infinity, -Infinity, -Infinity, -Infinity];
+  const loadMin = [Infinity, Infinity, Infinity, Infinity];
+  const loadMax = [-Infinity, -Infinity, -Infinity, -Infinity];
+  const damperVelocityPeak = [0, 0, 0, 0];
+  const airborneToggles = [0, 0, 0, 0];
+  const previousAirborne = [false, false, false, false];
+  let heaveVelocityReversals = 0;
+  let previousHeaveVelocitySign = 0;
+
+  for (let step = 0; step < totalSteps; step++) {
+    const state = sim.stepExplicit({ ...zeroInputs, steer: 1.0 }, 1);
+    if (step === 0) entrySpeedKmh = state.speedKmh;
+    finalSpeedKmh = state.speedKmh;
+
+    for (let i = 0; i < 4; i++) {
+      const airborne = state.wheels[i].isAirborne;
+      if (step > 0 && airborne !== previousAirborne[i]) airborneToggles[i]++;
+      previousAirborne[i] = airborne;
+    }
+
+    if (step < settleSteps) continue;
+
+    heaveMin = Math.min(heaveMin, state.heave);
+    heaveMax = Math.max(heaveMax, state.heave);
+    rollMin = Math.min(rollMin, state.roll);
+    rollMax = Math.max(rollMax, state.roll);
+    rollRatePeakDegS = Math.max(rollRatePeakDegS, Math.abs(state.rollRate) * DEG);
+    verticalGMin = Math.min(verticalGMin, state.verticalG);
+    verticalGMax = Math.max(verticalGMax, state.verticalG);
+
+    const heaveVelocitySign = Math.abs(state.vy) > 0.006 ? Math.sign(state.vy) : 0;
+    if (
+      heaveVelocitySign !== 0 &&
+      previousHeaveVelocitySign !== 0 &&
+      heaveVelocitySign !== previousHeaveVelocitySign
+    ) {
+      heaveVelocityReversals++;
+    }
+    if (heaveVelocitySign !== 0) previousHeaveVelocitySign = heaveVelocitySign;
+
+    for (let i = 0; i < 4; i++) {
+      const wheel = state.wheels[i];
+      travelMin[i] = Math.min(travelMin[i], wheel.verticalTravelM);
+      travelMax[i] = Math.max(travelMax[i], wheel.verticalTravelM);
+      loadMin[i] = Math.min(loadMin[i], wheel.forceVectorNorm);
+      loadMax[i] = Math.max(loadMax[i], wheel.forceVectorNorm);
+      damperVelocityPeak[i] = Math.max(damperVelocityPeak[i], Math.abs(wheel.damperVelocity));
+    }
+  }
+
+  return {
+    label: '10-kmh-full-lock-neutral',
+    entrySpeedKmh,
+    finalSpeedKmh,
+    heavePeakToPeakMm: (heaveMax - heaveMin) * 1000,
+    rollPeakToPeakDeg: (rollMax - rollMin) * DEG,
+    rollRatePeakDegS,
+    verticalGPeakToPeak: verticalGMax - verticalGMin,
+    wheelTravelPeakToPeakMm: travelMax.map((max, i) => (max - travelMin[i]) * 1000),
+    tireLoadPeakToPeakN: loadMax.map((max, i) => max - loadMin[i]),
+    damperVelocityPeakMps: damperVelocityPeak,
+    airborneToggles,
+    heaveVelocityReversals,
+  };
+}
+
 // With the physical rack no longer shrinking at speed, 40% input produces roughly
 // the same ~13-degree road-wheel angle that the old 45% speed-capped case exercised.
 // Keep this as the ordinary tight-road-turn handling check; it should stay below
@@ -120,7 +201,15 @@ const heldDigital = runCorner(
   2.0
 );
 
-console.log(JSON.stringify({ scenario: 'M5 low-speed cornering at ~30 km/h', moderate, rawFullDigital, heldDigital }, null, 2));
+const tenKmhFullLock = runTenKmhFullLockDiagnostic();
+
+console.log(JSON.stringify({
+  scenario: 'M5 low-speed cornering',
+  moderate,
+  rawFullDigital,
+  heldDigital,
+  tenKmhFullLock,
+}, null, 2));
 
 assert(moderate.peakFrontSlipDeg < 9.0, `moderate corner gross-slid front tires: ${moderate.peakFrontSlipDeg.toFixed(2)} deg`);
 assert(moderate.frontSkidSamples === 0, `moderate corner emitted front skid state for ${moderate.frontSkidSamples} samples`);
