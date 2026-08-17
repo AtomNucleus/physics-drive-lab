@@ -6,6 +6,7 @@ import { BMW_M5_2025_OVERRIDES } from './physics/m5G90';
 import { disableM5TwoWheelDrive, enableM5TwoWheelDrive } from './physics/m5DriveMode';
 import type { M5XDriveRestoreSnapshot } from './physics/m5DriveMode';
 import { VehiclePhysicsEngine } from './physics/vehiclePhysics';
+import { updateDigitalSteeringInput } from './physics/DigitalSteeringInput';
 import { CarRenderer } from './graphics/carRenderer';
 import { EnvironmentManager } from './graphics/environment';
 import { CameraController } from './graphics/cameraController';
@@ -93,6 +94,7 @@ export default function App() {
   const cameraControllerRef = useRef<CameraController | null>(null);
   const m5XDriveRestoreRef = useRef<M5XDriveRestoreSnapshot | null>(null);
   const keysDownRef = useRef<{ [code: string]: boolean }>({});
+  const digitalSteerInputRef = useRef(0);
   const touchInputsRef = useRef<{
     throttle: boolean;
     brake: boolean;
@@ -172,6 +174,7 @@ export default function App() {
         setCameraMode(next);
       } else if (e.code === 'KeyR') {
         physicsEngine.reset(0, 0, 0);
+        digitalSteerInputRef.current = 0;
         envManager.resetCones();
       } else if (e.code === 'KeyT') {
         setShowTelemetry((prev) => !prev);
@@ -234,7 +237,14 @@ export default function App() {
 
       const throttleInput = isThrottle ? 1.0 : 0;
       const brakeInput = isBrake ? 1.0 : 0;
-      const steerInput = (isLeft ? 1.0 : 0) - (isRight ? 1.0 : 0);
+      const steerDirection: -1 | 0 | 1 = isLeft === isRight ? 0 : isLeft ? 1 : -1;
+      digitalSteerInputRef.current = updateDigitalSteeringInput(
+        digitalSteerInputRef.current,
+        steerDirection,
+        physicsEngine.state.speedMs,
+        deltaTime
+      );
+      const steerInput = digitalSteerInputRef.current;
 
       const shiftUp = keys['ShiftLeft'] || keys['ShiftRight'];
       const shiftDown = keys['ControlLeft'] || keys['ControlRight'];
@@ -399,6 +409,7 @@ export default function App() {
     if (physicsEngineRef.current) {
       physicsEngineRef.current.reset(0, 0, 0);
     }
+    digitalSteerInputRef.current = 0;
     if (envManagerRef.current) {
       envManagerRef.current.resetCones();
     }
