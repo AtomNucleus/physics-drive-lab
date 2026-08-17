@@ -58,6 +58,9 @@ jobs:
       - name: M5 transient response regression
         run: npm run test:m5-transient
 
+      - name: M5 chassis inertia and CG dynamics regression
+        run: npm run test:m5-chassis
+
       - name: M5 driver-controlled oversteer recovery regression
         run: npm run test:m5-oversteer
 
