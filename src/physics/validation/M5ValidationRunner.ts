@@ -1,9 +1,19 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { M5_REFERENCE_DATA, M5_REFERENCE_DATA_NEEDED } from './M5ReferenceData';
+import {
+  M5_REFERENCE_DATA,
+  M5_REFERENCE_DATA_NEEDED,
+  findM5Reference,
+  type ValidationReference,
+} from './M5ReferenceData';
+import {
+  M5_DERIVED_REFERENCE_DATA,
+  findM5DerivedReference,
+} from './M5DerivedReferenceData';
 import { runCorrectedValidationTests } from './M5ValidationCorrectedTests';
 import { ensureArtifactDir, writeJson, writeMarkdown, writeRowsCsv } from './ValidationArtifacts';
 
 const DT = 1 / 120;
+type Status = 'PASS' | 'WARNING' | 'FAIL' | 'NO REFERENCE DATA';
 
 function parseArg(name: string): string | null {
   const exact = process.argv.find((arg) => arg.startsWith(`--${name}=`));
@@ -37,6 +47,100 @@ function regressionDeltas(current: any, baseline: any) {
     .sort((x, y) => Math.abs((y.percent as number) ?? 0) - Math.abs((x.percent as number) ?? 0));
 }
 
+function assess(value: unknown, reference?: ValidationReference) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !reference) {
+    return { status: 'NO REFERENCE DATA' as Status, errorPercent: null as number | null };
+  }
+  const min = reference.min ?? reference.target;
+  const max = reference.max ?? reference.target;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { status: 'NO REFERENCE DATA' as Status, errorPercent: null as number | null };
+  }
+  const target = reference.target ?? ((min as number) + (max as number)) * 0.5;
+  const errorPercent = Math.abs(target) > 1e-12 ? ((value - target) / target) * 100 : null;
+  if (value >= (min as number) && value <= (max as number)) {
+    return { status: 'PASS' as Status, errorPercent };
+  }
+  const span = Math.max(Math.abs((max as number) - (min as number)), Math.abs(target) * 0.01, 1e-6);
+  if (value >= (min as number) - span * 0.5 && value <= (max as number) + span * 0.5) {
+    return { status: 'WARNING' as Status, errorPercent };
+  }
+  return { status: 'FAIL' as Status, errorPercent };
+}
+
+function combineStatuses(statuses: Status[]): Status {
+  if (statuses.includes('FAIL')) return 'FAIL';
+  if (statuses.includes('WARNING')) return 'WARNING';
+  if (statuses.every((status) => status === 'NO REFERENCE DATA')) return 'NO REFERENCE DATA';
+  if (statuses.includes('PASS')) return 'PASS';
+  return 'NO REFERENCE DATA';
+}
+
+function rescoreAcceleration(results: any[]) {
+  const acceleration = results.find((result) => result.id === 'acceleration');
+  if (!acceleration) return;
+
+  const zeroTo100 = assess(
+    acceleration.metrics.zeroTo100KmhSec,
+    findM5Reference('zeroTo100KmhSec')
+  );
+  const zeroTo60True = assess(
+    acceleration.metrics.zeroTo60MphTrueStartSec,
+    findM5Reference('zeroTo60MphTrueStartSec')
+  );
+  const quarterTrueStartSec = acceleration.metrics.quarterMileSec;
+  const quarter = assess(
+    quarterTrueStartSec,
+    findM5DerivedReference('quarterMileTrueStartSec')
+  );
+  const trap = assess(
+    acceleration.metrics.quarterMileTrapMph,
+    findM5Reference('quarterMileTrapMph')
+  );
+
+  acceleration.metrics.quarterMileTrueStartSec = quarterTrueStartSec;
+  acceleration.metrics.zeroTo60TrueStartReferenceErrorPercent = zeroTo60True.errorPercent;
+  acceleration.metrics.quarterMileTrueStartReferenceErrorPercent = quarter.errorPercent;
+  acceleration.metrics.quarterMileTrapReferenceErrorPercent = trap.errorPercent;
+  acceleration.status = combineStatuses([
+    zeroTo100.status,
+    zeroTo60True.status,
+    quarter.status,
+    trap.status,
+  ]);
+
+  acceleration.referenceChecks = {
+    zeroTo100Kmh: {
+      status: zeroTo100.status,
+      reference: findM5Reference('zeroTo100KmhSec'),
+    },
+    zeroTo60MphTrueStart: {
+      status: zeroTo60True.status,
+      reference: findM5Reference('zeroTo60MphTrueStartSec'),
+    },
+    quarterMileTrueStart: {
+      status: quarter.status,
+      reference: findM5DerivedReference('quarterMileTrueStartSec'),
+    },
+    quarterMileTrap: {
+      status: trap.status,
+      reference: findM5Reference('quarterMileTrapMph'),
+    },
+  };
+
+  const diagnostics = Array.isArray(acceleration.diagnostics) ? acceleration.diagnostics : [];
+  const cleaned = diagnostics.filter((diagnostic: string) =>
+    !diagnostic.startsWith('Quarter-mile comparison:')
+  );
+  if (quarter.status !== 'PASS') {
+    cleaned.push(
+      `Quarter-mile comparison: simulator true-start ${Number(quarterTrueStartSec).toFixed(3)} s vs rollout-adjusted engineering target 11.1 s (${quarter.status}). This does not override the separate hard C/D 10.9 s rollout-convention measurement.`
+    );
+  }
+  acceleration.diagnostics = cleaned;
+  acceleration.summary = `0–100 km/h ${Number(acceleration.metrics.zeroTo100KmhSec).toFixed(3)} s; true-start 0–60 mph ${Number(acceleration.metrics.zeroTo60MphTrueStartSec).toFixed(3)} s; quarter mile ${Number(quarterTrueStartSec).toFixed(3)} s @ ${Number(acceleration.metrics.quarterMileTrapMph).toFixed(2)} mph.`;
+}
+
 function main() {
   const artifactDir = parseArg('artifacts') ?? 'artifacts/m5-validation';
   const baseDir = parseArg('base') ?? `${artifactDir}/base`;
@@ -53,6 +157,11 @@ function main() {
     if (!results.some((existing: any) => existing.id === result.id)) results.push(result);
   }
 
+  // The core acceleration test records quarter-mile and trap data, but its original
+  // verdict was driven only by the 0–100/0–60 checks. Re-score the whole acceleration
+  // envelope here so a perfect launch cannot hide a slower quarter mile.
+  rescoreAcceleration(results);
+
   const statusCounts = results.reduce((acc: Record<string, number>, result: any) => {
     acc[result.status] = (acc[result.status] ?? 0) + 1;
     return acc;
@@ -66,10 +175,13 @@ function main() {
     fixedPhysicsHz: 1 / DT,
     coordinateContract: '+X left, +Y up, +Z forward; positive steer/yaw = left; wheel order FL/FR/RL/RR',
     antiGamingRule: 'All measurements use the normal Simulation/Vehicle path; validation code prescribes only driver inputs, road geometry/material and initial conditions.',
-    harnessRevision: 'v2 hardened: normal-driveline brake entry, validated skidpad speed/radius hold, first-sample step thresholds, actual unsprung hub bump telemetry, per-step energy accounting',
+    harnessRevision: 'v2 hardened: normal-driveline brake entry, validated skidpad speed/radius hold, first-sample step thresholds, actual unsprung hub bump telemetry, per-step energy accounting, full acceleration-envelope scoring',
     statusCounts,
     results,
-    references: Object.values(M5_REFERENCE_DATA),
+    references: [
+      ...Object.values(M5_REFERENCE_DATA),
+      ...Object.values(M5_DERIVED_REFERENCE_DATA),
+    ],
     referenceDataNeeded: M5_REFERENCE_DATA_NEEDED,
     placeholders: base.placeholders ?? {},
   };
