@@ -32,15 +32,26 @@ function makeOversteeringM5() {
   const lf = config.wheelbase * (1 - config.weightDistributionFront);
   const lr = config.wheelbase * config.weightDistributionFront;
   const expectedYawInertia = config.mass * lf * lr;
-  const actualYawInertia = sim.vehicle.rigidBody.config.inertia.y;
+  const initialYawInertia = sim.vehicle.rigidBody.config.inertia.y;
   assert(
-    Math.abs(actualYawInertia - expectedYawInertia) / expectedYawInertia < 1e-9,
-    `M5 yaw inertia does not match axle/CG model: actual=${actualYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
+    Math.abs(initialYawInertia - expectedYawInertia) / expectedYawInertia < 1e-9,
+    `M5 yaw inertia does not match axle/CG model at construction: actual=${initialYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
   );
   assert(
-    actualYawInertia > 4800 && actualYawInertia < 6000,
-    `M5 yaw inertia outside plausible heavy-sedan guardrail: ${actualYawInertia.toFixed(1)} kg*m^2`
+    initialYawInertia > 4800 && initialYawInertia < 6000,
+    `M5 yaw inertia outside plausible heavy-sedan guardrail: ${initialYawInertia.toFixed(1)} kg*m^2`
   );
+
+  // Runtime preset/tuning changes used to recompute the old low yaw inertia even
+  // when construction was correct. Reapply the exact same M5 config and prove the
+  // rotational properties remain identical before beginning the recovery exercise.
+  sim.setConfig(config);
+  const reconfiguredYawInertia = sim.vehicle.rigidBody.config.inertia.y;
+  assert(
+    Math.abs(reconfiguredYawInertia - expectedYawInertia) / expectedYawInertia < 1e-9,
+    `M5 runtime reconfiguration changed yaw inertia: actual=${reconfiguredYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
+  );
+  assert.equal(reconfiguredYawInertia, initialYawInertia, 'M5 yaw inertia must survive identical runtime config reapply');
 
   for (let i = 0; i < 300; i++) sim.stepExplicit(neutral, 1);
   const speedMs = 25;
@@ -55,7 +66,7 @@ function makeOversteeringM5() {
     const rearSlip = 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle));
     if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
-  return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: actualYawInertia };
+  return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: reconfiguredYawInertia };
 }
 function runDigitalDriverRecovery() {
   const { sim, inductionSec, yawInertiaKgM2 } = makeOversteeringM5();
