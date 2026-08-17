@@ -60,11 +60,18 @@ export class Vehicle {
     const W = this.config.trackWidth;
     const H = this.config.centerOfGravityHeight;
 
-    // Approximate sprung chassis as a cuboid with empirical multipliers for the fact
-    // that a real automobile is not a homogeneous box. Pitch inertia belongs on X;
-    // roll inertia belongs on Z. This was previously reversed.
+    // Approximate sprung chassis as a cuboid for pitch/roll. Yaw is different: using
+    // wheelbase as though it were the complete body length substantially underestimates
+    // the inertia of a long, heavy road car. A standard passenger-car approximation is
+    // Iyy ~= m * lf * lr, where lf/lr are CG-to-axle distances. It preserves the real
+    // effect of both wheelbase and static weight distribution without inventing an
+    // arbitrary yaw damping term. For a 54.5/45.5 G90 M5 this is ~5.33e3 kg*m^2 rather
+    // than the previous ~2.58e3 kg*m^2, so once the rear breaks loose the chassis carries
+    // realistic rotational momentum and the driver must catch/unwind it physically.
+    const frontAxleDistance = L * (1.0 - this.config.weightDistributionFront);
+    const rearAxleDistance = L * this.config.weightDistributionFront;
     const Ixx = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
-    const Iyy = (m / 12) * (L * L + W * W) * 1.1; // Yaw inertia
+    const Iyy = m * frontAxleDistance * rearAxleDistance; // Yaw inertia
     const Izz = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
 
     this.rigidBody = new RigidBody(
@@ -758,38 +765,21 @@ export class Vehicle {
       throttle: this.powertrain.engineTorqueOutput > 0 ? 1 : 0,
       brake: 0,
       handbrake: false,
-      steerInput: 0,
-      actualSteerAngle: this.driverAids.currentCenterSteerAngle,
-      turboBoostPsi: this.powertrain.turboBoostPsi,
-      turboBlowOff: this.powertrain.turboBlowOff,
-      wastegateOpen: this.powertrain.wastegateOpen,
-      exhaustFlameIntensity: this.exhaustFlameTimer > 0 ? 1.0 : 0,
-      launchControlActive: false,
-      shiftLightStage: shiftStage,
-      drsActive: this.aero.drsActive,
-      airbrakeActive: this.aero.airbrakeActive,
-      centerOfPressureShift: 0,
-      aeroDownforceTotalN: this.aero.totalDownforceN,
-      diffuserRideHeightM: this.aero.diffuserRideHeightM,
-      diffuserStalled: this.aero.diffuserStalled,
-      steeringRackTorque: 0,
-      totalAligningTorque: 0,
-      elevationHeight: cgSurface.elevation,
-      terrainSlopePitch: cgSurface.slopePitch,
-      kerbRumbleIntensity: cgSurface.isKerbRumble ? 0.85 : 0,
-      airborneWheelsCount: airborneCount,
+      absActive: this.driverAids.absActive,
+      tcsActive: this.driverAids.tcsActive,
+      driftAngle: driftInfo.angle,
+      driftScore: driftInfo.score,
+      comboMultiplier: driftInfo.combo,
       lateralG: this.smoothedAx,
       longitudinalG: this.smoothedAz,
       verticalG: this.smoothedAy,
-      gForceHistory: this.telemetry.gForceHistory,
-      showForceVectors3D: this.showForceVectors3D,
-      driftAngleDeg: driftInfo.driftAngleDeg,
-      isDrifting: driftInfo.isDrifting,
-      driftScore: this.telemetry.driftScore,
-      absActive: this.driverAids.absActive,
-      tcsActive: this.driverAids.tcsActive,
       wheels: wheelStates,
-      performanceTimer: this.telemetry.performanceTimer,
+      totalAligningTorque: wheelStates.reduce((sum, w) => sum + w.aligningTorque, 0),
+      actualSteerAngle: (this.wheels[0].steerAngle + this.wheels[1].steerAngle) * 0.5,
+      airborneCount,
+      exhaustFlameActive: this.exhaustFlameTimer > 0,
+      exhaustFlameIntensity: Math.min(1, this.exhaustFlameTimer / 0.15),
+      drsActive: this.aero.drsActive,
     };
   }
 }
