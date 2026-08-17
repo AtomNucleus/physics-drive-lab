@@ -400,30 +400,57 @@ export class WheelDynamics {
     } else {
       const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
       const brakeSign = Math.sign(spinReference);
-      const brakeTorque = brakeRequest * brakeSign;
       const tireReactionTorque = contactFxForWheelTorque * this.radius;
-      const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
-      const angularAccel = PhysicsMath.clamp(
-        (driveTorque - brakeTorque - tireReactionTorque) / effectiveRotationalInertia,
-        -4500,
-        4500
-      );
-      const omegaBefore = this.angularVelocity;
-      this.angularVelocity += angularAccel * dt;
+      const nonBrakeTorque = driveTorque - tireReactionTorque;
+      const brakeCanHold = brakeRequest > Math.abs(nonBrakeTorque) + 2.0;
 
-      const beforeError = omegaBefore - roadOmega;
-      const afterError = this.angularVelocity - roadOmega;
-      if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
-        this.angularVelocity = roadOmega;
-      }
+      // A service brake is a static-friction torque constraint at zero wheel speed,
+      // not a signed torque source that is allowed to integrate the wheel through
+      // zero and then reverse it. Once brake capacity exceeds the opposing axle /
+      // tire torque in the final walking-speed phase, lock the rotational DOF at
+      // zero while the tire contact patch continues to generate the chassis force
+      // that removes the remaining vehicle speed. This is the physical equivalent
+      // of the caliper holding the disc against converter/driveline creep.
+      const staticBrakeHold =
+        brakeCanHold &&
+        Math.abs(longitudinalVelocity) < 1.20 &&
+        Math.abs(this.angularVelocity) < 4.5;
 
-      if (brakeRequest > 0 && Math.abs(longitudinalVelocity) < 1.0 && Math.sign(this.angularVelocity) !== Math.sign(spinReference)) {
+      if (staticBrakeHold) {
         this.angularVelocity = 0;
-      }
+      } else {
+        const brakeTorque = brakeRequest * brakeSign;
+        const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
+        const angularAccel = PhysicsMath.clamp(
+          (nonBrakeTorque - brakeTorque) / effectiveRotationalInertia,
+          -4500,
+          4500
+        );
+        const omegaBefore = this.angularVelocity;
+        this.angularVelocity += angularAccel * dt;
 
-      if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
-        const sync = 1 - Math.exp(-14 * dt);
-        this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
+        const beforeError = omegaBefore - roadOmega;
+        const afterError = this.angularVelocity - roadOmega;
+        if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+          this.angularVelocity = roadOmega;
+        }
+
+        // If the brake has enough capacity to hold the wheel, it may bring rotation
+        // to zero but may not numerically accelerate it into the opposite direction.
+        // Tire or drive torque can re-start the wheel on a later step if it truly
+        // exceeds brake capacity.
+        if (
+          brakeCanHold &&
+          Math.abs(spinReference) > 1e-6 &&
+          Math.sign(this.angularVelocity) !== Math.sign(spinReference)
+        ) {
+          this.angularVelocity = 0;
+        }
+
+        if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
+          const sync = 1 - Math.exp(-14 * dt);
+          this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
+        }
       }
     }
 
