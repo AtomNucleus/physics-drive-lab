@@ -25,6 +25,8 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   camberStaticFront: -1.5,
   camberStaticRear: -1.2,
   camberGain: 7.5,
+  frontCasterDeg: 7.2,
+  frontKingpinInclinationDeg: 7.0,
   antiDiveFront: 0.45,
   antiSquatRear: 0.35,
   // Render exactly the rigid-body pitch/roll produced by the suspension and tire forces.
@@ -97,8 +99,56 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   brakeForce: 10800,
   handbrakeForce: 10000,
   brakeBiasFront: 0.60,
+
+  // Steering geometry and ratio anchors. BMW publishes a 14.2:1 overall steering
+  // ratio, 118.3 in wheelbase, 66.3 in front track, speed-sensitive M Servotronic
+  // assistance and variable steering ratio. The single legacy trackWidth above is
+  // the mean front/rear track used by chassis load-transfer code; steering uses the
+  // actual published 66.3 in front track independently.
   ackermannRatio: 0.90,
+  steeringFrontTrackM: 1.68402,
   maxSteerAngle: 0.58,
+  steeringRatioCenter: 14.2,
+  // BMW does not publish the full ratio curve. 12.6:1 at high rack travel is a
+  // conservative variable-ratio calibration that retains ~14.2:1 around center.
+  steeringRatioAtLock: 12.6,
+
+  // The remaining rack/EPS/compliance values are explicit engineering calibration,
+  // not claimed BMW measurements. The equivalent rack inertia includes reflected
+  // column/steering-wheel inertia through the steering ratio.
+  steeringRackHalfTravelM: 0.070,
+  steeringRackEquivalentInertiaKgm2: 5.8,
+  steeringRackDampingNmsPerRad: 46,
+  steeringRackFrictionNm: 4.5,
+  steeringRackMaxAngularSpeedRadS: 3.2,
+  steeringRackMaxAngularAccelRadS2: 180,
+  steeringColumnTorsionStiffnessNmPerRad: 4.0,
+  steeringColumnTorsionDampingNmsPerRad: 0.18,
+  steeringDriverMaxTorqueNm: 8.0,
+
+  // EPS acts on measured driver/column torque; it does not overwrite tire/caster
+  // feedback. Assistance fades with speed while the physical rack stops stay fixed.
+  steeringEpsParkingGain: 20.0,
+  steeringEpsHighSpeedGain: 9.0,
+  steeringEpsFadeSpeedMs: 27.8,
+  steeringEpsMaxAssistTorqueNm: 65,
+
+  steeringStopStartFraction: 0.92,
+  steeringStopStiffnessNmPerRad: 9000,
+  steeringStopDampingNmsPerRad: 190,
+
+  // Four elastic elements in series at each front corner. Their aggregate motion is
+  // limited to <0.4 deg so contact-patch load can move effective toe subtly without
+  // making the wheel visibly floppy.
+  steeringTieRodStiffnessNmPerRad: 180000,
+  steeringRackMountStiffnessNmPerRad: 250000,
+  steeringControlArmBushingStiffnessNmPerRad: 140000,
+  steeringTireCarcassStiffnessNmPerRad: 110000,
+  steeringComplianceDampingNmsPerRad: 1800,
+  steeringMaxComplianceRad: 0.0065,
+
+  // Legacy DriverAids values remain for direct Vehicle-only compatibility tests;
+  // Simulation runtime steering is replaced by PhysicalSteeringSystem.
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
