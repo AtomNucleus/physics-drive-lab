@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { VehicleConfig } from '../types';
 import type { Kn5VisualResult } from './kn5Loader';
+import { fitM5VisualToRealScale } from './m5VisualScale';
 
 const DEFAULT_M5_ASSET_PARTS = 8;
 const DEFAULT_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-default`;
@@ -93,7 +94,24 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
     const mesh = new THREE.Mesh(geometry, materials[materialId] ?? fallback); mesh.name = name; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
   }
   if (reader.remaining() !== 0) throw new Error(`Bundled BMW visual has ${reader.remaining()} unexpected trailing bytes.`);
-  return { group, version, meshCount, textureCount: 0, materialCount, hiddenWheelNodeCount: 4, warnings: ['Default BMW uses compact LOD-C exterior geometry from the supplied G90 mod. Physics-driven wheel/suspension assemblies remain separate; importing the original KN5 replaces this with the full-detail textured car.'] };
+
+  const scaleReport = fitM5VisualToRealScale(group);
+  const scaleMessage = Math.abs(scaleReport.appliedScale - 1) > 0.0025
+    ? `Bundled BMW visual normalized from ${scaleReport.sourceLengthM.toFixed(3)} m to ${scaleReport.finalLengthM.toFixed(3)} m (x${scaleReport.appliedScale.toFixed(4)}).`
+    : `Bundled BMW visual metre scale verified at ${scaleReport.finalLengthM.toFixed(3)} m long.`;
+
+  return {
+    group,
+    version,
+    meshCount,
+    textureCount: 0,
+    materialCount,
+    hiddenWheelNodeCount: 4,
+    warnings: [
+      'Default BMW uses compact LOD-C exterior geometry from the supplied G90 mod. Physics-driven wheel/suspension assemblies remain separate; importing the original KN5 replaces this with the full-detail textured car.',
+      scaleMessage,
+    ],
+  };
 }
 
 export async function loadBundledM5Visual(_config: VehicleConfig): Promise<Kn5VisualResult> { return parseCompactM5(await loadBundledBytes()); }

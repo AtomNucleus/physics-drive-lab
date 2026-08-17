@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { VehicleConfig, VehicleState } from '../types';
 import { computeWheelVisualPose } from './wheelVisualPose';
+import { BASE_VISUAL_WHEEL_RADIUS_M } from './worldScale';
 
 export class CarRenderer {
   public rootGroup: THREE.Group;
@@ -297,7 +298,7 @@ export class CarRenderer {
   }
 
   private buildWheels() {
-    const tireRadius = 0.33;
+    const tireRadius = BASE_VISUAL_WHEEL_RADIUS_M;
     const tireWidth = 0.27;
 
     const tireGeo = new THREE.CylinderGeometry(tireRadius, tireRadius, tireWidth, 28);
@@ -492,12 +493,21 @@ export class CarRenderer {
       const wheelGroup = this.wheelMeshes[idx];
       if (!wheelGroup) return;
 
+      // Geometry is authored at 0.33 m radius, but the active vehicle's physical
+      // wheel radius is the visual source of truth. For the G90 this is 0.369 m,
+      // so the old renderer understated wheel/car scale by about 11.8%.
+      const physicalWheelRadius = Number.isFinite(config.wheelRadius) && config.wheelRadius > 0
+        ? config.wheelRadius
+        : BASE_VISUAL_WHEEL_RADIUS_M;
+      const wheelVisualScale = physicalWheelRadius / BASE_VISUAL_WHEEL_RADIUS_M;
+      wheelGroup.scale.setScalar(wheelVisualScale);
+
       const camberRad = (wheel.camberAngleDeg * Math.PI) / 180;
       const crashPose = computeWheelVisualPose({
         chassisHeaveM: state.heave, chassisPitchRad: state.pitch, chassisRollRad: state.roll,
         mountX: wheel.localPos.x, mountZ: wheel.localPos.z, suspensionTravelM: wheel.verticalTravelM,
         tireSquishM: wheel.tireSquishM, sidewallDeflectionM: wheel.sidewallDeflection,
-        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: 0.33,
+        isLeft: wheel.isLeft, camberRad, visualWheelRadiusM: physicalWheelRadius,
       });
       const hub = (wheel as any).hubWorldPos as { x: number; y: number; z: number } | undefined;
       if (hub && Number.isFinite(hub.x) && Number.isFinite(hub.y) && Number.isFinite(hub.z)) {
