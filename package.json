@@ -30,6 +30,7 @@
     "test:visual-scale": "tsx src/physics/tests/VisualScaleTests.ts",
     "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts",
     "test:m5-rwd": "tsx src/physics/tests/M5DriveModeTests.ts",
+    "test:m5-transient": "tsx src/physics/tests/M5TransientResponseTests.ts",
     "test:high-speed": "tsx src/physics/tests/HighSpeedAntiRollTests.ts"
   },
   "dependencies": {
