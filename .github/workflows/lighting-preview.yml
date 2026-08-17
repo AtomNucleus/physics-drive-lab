@@ -1,0 +1,46 @@
+name: Lighting Preview
+
+on:
+  push:
+    branches:
+      - agent/brighten-car-lighting
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove temporary workflow from branch
+        run: |
+          rm .github/workflows/lighting-preview.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/lighting-preview.yml
+          git commit -m "Remove temporary lighting preview workflow"
+          git push origin HEAD:agent/brighten-car-lighting
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Deploy anonymous Netlify preview
+        shell: bash
+        run: |
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir dist --no-build 2>&1 | tee netlify-deploy.log
+
+      - name: Upload deploy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlify-deploy-log
+          path: netlify-deploy.log
+          if-no-files-found: ignore
