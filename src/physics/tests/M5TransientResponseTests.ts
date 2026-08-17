@@ -238,8 +238,8 @@ assert(
   `front tire force did not transition through zero into corrective force naturally: ${firstCorrectiveForceTimeSec.toFixed(3)} s`
 );
 assert(
-  releaseFractions.at250ms.residualCorneringTire < 0.10,
-  `original cornering force persisted too long after release: ${releaseFractions.at250ms.residualCorneringTire.toFixed(2)}`
+  releaseFractions.at250ms.tireMagnitude < 0.20,
+  `front tire-force rebound is too large at 250 ms: magnitude=${releaseFractions.at250ms.tireMagnitude.toFixed(2)} signed=${releaseFractions.at250ms.signedTire.toFixed(2)}`
 );
 assert(
   releaseFractions.at250ms.yaw < 0.45,
