@@ -40,6 +40,9 @@ jobs:
       - name: 6 kmh crawl-speed stability regression
         run: npm run test:crawl
 
+      - name: Low-speed brake ABS/driveline limit-cycle regression
+        run: npm run test:low-speed-brake
+
       - name: Low-speed cornering regression
         run: npm run test:cornering
 
