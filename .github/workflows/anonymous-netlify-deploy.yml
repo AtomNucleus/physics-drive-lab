@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# browser-gated preview for M5 startup white-screen fix
+# browser-gated preview for M5 startup white-screen fix v2
 
 on:
   push:
@@ -37,22 +37,23 @@ jobs:
           set -e
           kill "$preview_pid" 2>/dev/null || true
 
+          root_error=false
+          if grep -q '<div id="root"><pre id="startup-error"' /tmp/dom.html || grep -q '<div id="root"><pre id="bootstrap-error"' /tmp/dom.html; then
+            root_error=true
+          fi
+          hud_mounted=false
+          if grep -q 'id="driving-hud"' /tmp/dom.html; then
+            hud_mounted=true
+          fi
+
           : > .ci-browser-gate.txt
           printf 'browser_status=%s\n' "$browser_status" >> .ci-browser-gate.txt
-          if grep -q 'id="startup-error"\|id="bootstrap-error"' /tmp/dom.html; then
-            printf 'startup_error=true\n' >> .ci-browser-gate.txt
-          else
-            printf 'startup_error=false\n' >> .ci-browser-gate.txt
-          fi
-          if grep -q 'id="driving-hud"' /tmp/dom.html; then
-            printf 'hud_mounted=true\n' >> .ci-browser-gate.txt
-          else
-            printf 'hud_mounted=false\n' >> .ci-browser-gate.txt
-          fi
+          printf 'startup_error=%s\n' "$root_error" >> .ci-browser-gate.txt
+          printf 'hud_mounted=%s\n' "$hud_mounted" >> .ci-browser-gate.txt
           printf '\n=== ERROR LINES ===\n' >> .ci-browser-gate.txt
-          grep -Ei 'CONSOLE|Uncaught|TypeError|ReferenceError|SyntaxError|bootstrap|startup' /tmp/chrome.log >> .ci-browser-gate.txt 2>/dev/null || true
+          grep -Ei 'CONSOLE|Uncaught|TypeError|ReferenceError|SyntaxError|Application startup/render failure|Bootstrap startup failure' /tmp/chrome.log >> .ci-browser-gate.txt 2>/dev/null || true
 
-          if [ "$browser_status" -ne 0 ] || grep -q 'id="startup-error"\|id="bootstrap-error"' /tmp/dom.html || ! grep -q 'id="driving-hud"' /tmp/dom.html; then
+          if [ "$browser_status" -ne 0 ] || [ "$root_error" = true ] || [ "$hud_mounted" != true ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add .ci-browser-gate.txt
