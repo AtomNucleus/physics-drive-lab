@@ -162,9 +162,11 @@ export class TireModel {
     const pureFx = longitudinalPeak * magicFormula(kappa, bx, cx, ex);
     let pureFy = lateralPeak * magicFormula(alpha, by, cy, ey);
 
-    // Camber thrust remains a modest secondary contribution rather than a source
-    // of free lateral grip. Mirror it across left/right tires in wheel-local axes.
-    const signedCamber = (input.isLeft ? -1 : 1) * input.camberDeg;
+    // Negative camber leans each tire toward the vehicle center. In the canonical
+    // +X-left wheel frame that means a negative camber-thrust contribution on left
+    // tires and a positive contribution on right tires. Mirror geometry, not force,
+    // across the centerline so equal static camber cancels instead of pushing outward.
+    const signedCamber = (input.isLeft ? 1 : -1) * input.camberDeg;
     const camberThrust = PhysicsMath.clamp(
       signedCamber * this.config.camberStiffness * Math.pow(loadRatio, 0.75),
       -lateralPeak * 0.10,

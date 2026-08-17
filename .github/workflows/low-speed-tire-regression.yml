@@ -5,7 +5,10 @@ on:
     paths:
       - 'src/physics/**'
       - 'src/graphics/carRenderer.ts'
+      - 'src/App.tsx'
       - 'package.json'
+      - 'PHYSICS_CONVENTIONS.md'
+      - 'AGENTS.md'
       - '.github/workflows/low-speed-tire-regression.yml'
   workflow_dispatch:
 
@@ -27,8 +30,26 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Physics coordinate/sign convention guardrails
+        run: npm run test:conventions
+
       - name: Mobile steering regression
         run: npm run test:mobile
+
+      - name: Digital steering shaping regression
+        run: npm run test:digital-steering
+
+      - name: Mouse steering sign/range regression
+        run: npm run test:mouse-steering
+
+      - name: 50 kmh full-lock turn-radius diagnostic
+        run: npm run test:turn-radius
+
+      - name: 6 kmh crawl-speed stability regression
+        run: npm run test:crawl
+
+      - name: Low-speed cornering regression
+        run: npm run test:cornering
 
       - name: Stationary steering and low-speed tire regression
         run: npm run test:stationary

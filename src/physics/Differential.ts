@@ -73,11 +73,9 @@ export class DifferentialSystem {
    * Solve torque split across a single axle differential.
    *
    * Clutch-ramp numbers are treated as engagement strength, not as a literal
-   * fraction of driveshaft torque. The previous implementation could generate
-   * more locking torque than one wheel's 50% share and reverse that wheel's
-   * torque under power, creating a left/right oscillation. Real plate LSDs bias
-   * torque strongly, but a normal 1.5-way does not chatter between +drive and
-   * -drive on a straight launch.
+   * fraction of driveshaft torque. Power/coast selection is based on mechanical
+   * power flow (torque * carrier speed), so reverse acceleration uses the power
+   * ramp just like forward acceleration instead of being mistaken for coast.
    */
   private solveAxleDifferential(
     inputTorque: number,
@@ -108,7 +106,14 @@ export class DifferentialSystem {
       };
     }
 
-    const isPowerOn = inputTorque >= 0;
+    // Positive mechanical power means the drivetrain is propelling the axle.
+    // Negative mechanical power means the axle is back-driving the drivetrain
+    // under lift/coast. At essentially zero carrier speed there is no meaningful
+    // coast direction yet, so an applied torque request is treated as power-on.
+    const mechanicalPower = inputTorque * carrierSpeed;
+    const isPowerOn = Math.abs(carrierSpeed) < 0.20
+      ? Math.abs(inputTorque) > 1
+      : mechanicalPower >= 0;
     const rampCoeff = PhysicsMath.clamp(isPowerOn ? this.config.powerRamp : this.config.coastRamp, 0, 1);
 
     // Plate ramp strength is scaled to a realistic axle torque-biasing range.
@@ -116,7 +121,18 @@ export class DifferentialSystem {
     // strong lock instead of allowing one wheel to receive reverse torque.
     const preload = Math.max(0, this.config.preloadTorque);
     const rampLockCapacity = Math.abs(inputTorque) * rampCoeff * 0.25;
-    const maxLockingTorque = preload + rampLockCapacity;
+
+    // The G90 preset uses TORQUE_VECTOR to represent an actively controlled clutch
+    // differential, not a permanently preloaded mechanical plate pack. With zero
+    // driveline torque, forcing the full nominal preload across inside/outside wheels
+    // fights the necessary Ackermann wheel-speed difference in a parking-speed turn
+    // and can excite the explicit wheel rotational DOFs. Fade active-diff preload in
+    // with meaningful drive/coast torque; mechanical LSD-style types retain preload.
+    const activePreloadEngagement = this.config.type === 'TORQUE_VECTOR'
+      ? PhysicsMath.clamp(Math.abs(inputTorque) / Math.max(40, preload * 2), 0, 1)
+      : 1;
+    const effectivePreload = preload * activePreloadEngagement;
+    const maxLockingTorque = effectivePreload + rampLockCapacity;
 
     // Smooth engagement with wheel-speed difference. A gentler slope avoids
     // instant full-lock response to tiny numerical speed differences.
@@ -124,8 +140,9 @@ export class DifferentialSystem {
     let actualLockTorque = maxLockingTorque * lockActivation;
 
     // Under meaningful drive/coast torque, keep both axle torques in the same
-    // direction. Preload is still allowed to cross-couple around zero torque.
-    if (Math.abs(inputTorque) > preload * 2) {
+    // direction. Preload is still allowed to cross-couple around zero torque for
+    // mechanical LSDs; an active TORQUE_VECTOR unit has already faded preload above.
+    if (Math.abs(inputTorque) > effectivePreload * 2) {
       const sameSignCap = Math.abs(inputTorque) * 0.48;
       actualLockTorque = PhysicsMath.clamp(actualLockTorque, -sameSignCap, sameSignCap);
     }

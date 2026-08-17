@@ -6,6 +6,8 @@ import { BMW_M5_2025_OVERRIDES } from './physics/m5G90';
 import { disableM5TwoWheelDrive, enableM5TwoWheelDrive } from './physics/m5DriveMode';
 import type { M5XDriveRestoreSnapshot } from './physics/m5DriveMode';
 import { VehiclePhysicsEngine } from './physics/vehiclePhysics';
+import { updateDigitalSteeringInput } from './physics/DigitalSteeringInput';
+import { mouseSteeringFromClientX, type SteeringInputMode } from './physics/MouseSteeringInput';
 import { CarRenderer } from './graphics/carRenderer';
 import { EnvironmentManager } from './graphics/environment';
 import { CameraController } from './graphics/cameraController';
@@ -20,6 +22,7 @@ import { loadBundledM5Visual } from './graphics/bundledM5Visual';
 
 const INITIAL_PRESET_KEY = 'm5G90';
 const INITIAL_CONFIG: VehicleConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
+const STEERING_INPUT_STORAGE_KEY = 'racing-game-steering-input-mode';
 
 function shouldDefaultToAutomaticOnMobile() {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
@@ -38,6 +41,11 @@ function shouldDefaultToAutomaticOnMobile() {
   const touchSizedViewport = window.innerWidth <= 1180;
 
   return uaMobile || iPadLike || (coarsePointer && touchCapable && touchSizedViewport);
+}
+
+function getInitialSteeringInputMode(): SteeringInputMode {
+  if (typeof window === 'undefined') return 'keyboard';
+  return window.localStorage.getItem(STEERING_INPUT_STORAGE_KEY) === 'mouse' ? 'mouse' : 'keyboard';
 }
 
 function disposeImportedVisual(root: THREE.Object3D) {
@@ -78,6 +86,7 @@ export default function App() {
   const [isTestRunnerOpen, setIsTestRunnerOpen] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [activeKeys, setActiveKeys] = useState<{ [key: string]: boolean }>({});
+  const [steeringInputMode, setSteeringInputMode] = useState<SteeringInputMode>(getInitialSteeringInputMode);
 
   const [vehicleTelemetry, setVehicleTelemetry] = useState<VehicleState>(() => {
     const engine = new VehiclePhysicsEngine(INITIAL_CONFIG);
@@ -93,6 +102,9 @@ export default function App() {
   const cameraControllerRef = useRef<CameraController | null>(null);
   const m5XDriveRestoreRef = useRef<M5XDriveRestoreSnapshot | null>(null);
   const keysDownRef = useRef<{ [code: string]: boolean }>({});
+  const digitalSteerInputRef = useRef(0);
+  const mouseSteerInputRef = useRef(0);
+  const steeringInputModeRef = useRef<SteeringInputMode>(steeringInputMode);
   const touchInputsRef = useRef<{
     throttle: boolean;
     brake: boolean;
@@ -172,6 +184,8 @@ export default function App() {
         setCameraMode(next);
       } else if (e.code === 'KeyR') {
         physicsEngine.reset(0, 0, 0);
+        digitalSteerInputRef.current = 0;
+        mouseSteerInputRef.current = 0;
         envManager.resetCones();
       } else if (e.code === 'KeyT') {
         setShowTelemetry((prev) => !prev);
@@ -210,8 +224,20 @@ export default function App() {
       setActiveKeys({ ...keysDownRef.current });
     };
 
+    const handlePointerMove = (e: PointerEvent) => {
+      if (steeringInputModeRef.current !== 'mouse') return;
+      const rect = canvas.getBoundingClientRect();
+      mouseSteerInputRef.current = mouseSteeringFromClientX(e.clientX, rect.left, rect.width);
+    };
+
+    const handlePointerLeave = () => {
+      if (steeringInputModeRef.current === 'mouse') mouseSteerInputRef.current = 0;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerleave', handlePointerLeave);
 
     let animationFrameId: number;
     let lastTime = performance.now();
@@ -234,7 +260,30 @@ export default function App() {
 
       const throttleInput = isThrottle ? 1.0 : 0;
       const brakeInput = isBrake ? 1.0 : 0;
-      const steerInput = (isLeft ? 1.0 : 0) - (isRight ? 1.0 : 0);
+      const touchSteeringActive = touches.steerLeft || touches.steerRight;
+      let steerInput: number;
+
+      if (steeringInputModeRef.current === 'mouse' && !touchSteeringActive) {
+        // Mouse/wheel-style analog input represents a fraction of the physical
+        // steering rack. BMW's speed sensitivity changes assistance/ratio, not
+        // the mechanical lock, so bypass the keyboard-only road-speed angle cap.
+        physicsEngine.simulation.vehicle.driverAids.config.steerSpeedReduction = 0;
+        digitalSteerInputRef.current = 0;
+        steerInput = mouseSteerInputRef.current;
+      } else {
+        // Restore the configured speed-shaped rack behavior for binary keyboard
+        // and touch control, where a held button otherwise means instant full lock.
+        physicsEngine.simulation.vehicle.driverAids.config.steerSpeedReduction =
+          physicsEngine.config.steerSpeedReduction;
+        const steerDirection: -1 | 0 | 1 = isLeft === isRight ? 0 : isLeft ? 1 : -1;
+        digitalSteerInputRef.current = updateDigitalSteeringInput(
+          digitalSteerInputRef.current,
+          steerDirection,
+          physicsEngine.state.speedMs,
+          deltaTime
+        );
+        steerInput = digitalSteerInputRef.current;
+      }
 
       const shiftUp = keys['ShiftLeft'] || keys['ShiftRight'];
       const shiftDown = keys['ControlLeft'] || keys['ControlRight'];
@@ -284,6 +333,8 @@ export default function App() {
       resizeObserver.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('pointerleave', handlePointerLeave);
       defaultVisualLoadTokenRef.current += 1;
       if (importedVisualRef.current) {
         disposeImportedVisual(importedVisualRef.current);
@@ -399,6 +450,8 @@ export default function App() {
     if (physicsEngineRef.current) {
       physicsEngineRef.current.reset(0, 0, 0);
     }
+    digitalSteerInputRef.current = 0;
+    mouseSteerInputRef.current = 0;
     if (envManagerRef.current) {
       envManagerRef.current.resetCones();
     }
@@ -419,6 +472,14 @@ export default function App() {
   const handleTouchInput = (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => {
     globalAudio.init();
     touchInputsRef.current[action] = active;
+  };
+
+  const handleSetSteeringInputMode = (mode: SteeringInputMode) => {
+    steeringInputModeRef.current = mode;
+    setSteeringInputMode(mode);
+    digitalSteerInputRef.current = 0;
+    mouseSteerInputRef.current = 0;
+    if (typeof window !== 'undefined') window.localStorage.setItem(STEERING_INPUT_STORAGE_KEY, mode);
   };
 
   const handleToggleForceVectors = () => {
@@ -464,7 +525,10 @@ export default function App() {
       id="driving-simulator-app"
       className="relative w-screen h-screen overflow-hidden bg-slate-950 select-none font-sans"
     >
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block cursor-grab active:cursor-grabbing" />
+      <canvas
+        ref={canvasRef}
+        className={`absolute inset-0 block h-full w-full ${steeringInputMode === 'mouse' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+      />
 
       <DashboardUI
         state={vehicleTelemetry}
@@ -516,6 +580,8 @@ export default function App() {
             setVehicleTelemetry({ ...physicsEngineRef.current.state });
           }
         }}
+        steeringInputMode={steeringInputMode}
+        onSetSteeringInputMode={handleSetSteeringInputMode}
         showM5XDriveSetting={activePresetKey === INITIAL_PRESET_KEY}
         isM5RwdMode={config.drivetrain === 'RWD'}
         onSetM5RwdMode={handleSetM5RwdMode}

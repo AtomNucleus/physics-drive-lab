@@ -74,30 +74,14 @@ for (let step = 0; step < 120 * 2.4; step++) {
   const frontArbNet = susp[0].antiRollBarForceN + susp[1].antiRollBarForceN;
   const rearArbNet = susp[2].antiRollBarForceN + susp[3].antiRollBarForceN;
 
-  // PR #18 invariant: bars are axle-local, signed, and exactly equal/opposite.
+  // Dynamic integration can directly observe conservation: the two axle-local
+  // reactions must remain exactly equal/opposite and create no vertical bias.
+  // The force-vs-differential-travel sign itself is now tested exactly at the
+  // calculateAntiRollBarForces solver boundary in PhysicsConventionTests. Comparing
+  // it here to post-step displacement is invalid because the chassis pose is
+  // integrated after the bar force was evaluated.
   assert(Math.abs(frontArbNet) < 1e-6, `front ARB created net vertical bias: ${frontArbNet} N`);
   assert(Math.abs(rearArbNet) < 1e-6, `rear ARB created net vertical bias: ${rearArbNet} N`);
-
-  if (Math.abs(frontDiff) > 1e-5) {
-    assert(
-      Math.sign(susp[0].antiRollBarForceN) === Math.sign(frontDiff),
-      `front ARB force sign disagreed with differential travel: diff=${frontDiff}, force=${susp[0].antiRollBarForceN}`
-    );
-    assert(
-      Math.sign(susp[1].antiRollBarForceN) === -Math.sign(frontDiff),
-      'front inside/outside ARB reactions stopped being equal-and-opposite'
-    );
-  }
-  if (Math.abs(rearDiff) > 1e-5) {
-    assert(
-      Math.sign(susp[2].antiRollBarForceN) === Math.sign(rearDiff),
-      `rear ARB force sign disagreed with differential travel: diff=${rearDiff}, force=${susp[2].antiRollBarForceN}`
-    );
-    assert(
-      Math.sign(susp[3].antiRollBarForceN) === -Math.sign(rearDiff),
-      'rear inside/outside ARB reactions stopped being equal-and-opposite'
-    );
-  }
 
   peakLatG = Math.max(peakLatG, Math.abs(state.lateralG));
   peakArbForceN = Math.max(

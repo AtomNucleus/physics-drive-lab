@@ -22,11 +22,23 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Physics coordinate/sign convention guardrails
+        run: npm run test:conventions
+
       - name: Mobile steering regression
         run: npm run test:mobile
 
+      - name: Digital steering shaping regression
+        run: npm run test:digital-steering
+
       - name: Steering direction regression
         run: npm run test:steering-direction
+
+      - name: 6 kmh crawl-speed stability regression
+        run: npm run test:crawl
+
+      - name: Low-speed cornering regression
+        run: npm run test:cornering
 
       - name: Stationary steering regression
         run: npm run test:stationary
