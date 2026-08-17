@@ -28,6 +28,9 @@ jobs:
       - name: Mobile steering regression
         run: npm run test:mobile
 
+      - name: Digital steering shaping regression
+        run: npm run test:digital-steering
+
       - name: Steering direction regression
         run: npm run test:steering-direction
 
