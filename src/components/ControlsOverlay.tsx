@@ -1,6 +1,7 @@
 import React from 'react';
 import { CameraMode } from '../types';
 import { VEHICLE_PRESETS } from '../physics/vehiclePresets';
+import type { SteeringInputMode } from '../physics/MouseSteeringInput';
 import { mapMobileSteeringDirection } from './mobileControls';
 import {
   Activity,
@@ -35,6 +36,8 @@ interface ControlsOverlayProps {
   onTouchInput: (action: 'throttle' | 'brake' | 'steerLeft' | 'steerRight' | 'handbrake', active: boolean) => void;
   isAutomatic: boolean;
   onSetAutomatic: (automatic: boolean) => void;
+  steeringInputMode: SteeringInputMode;
+  onSetSteeringInputMode: (mode: SteeringInputMode) => void;
   showM5XDriveSetting: boolean;
   isM5RwdMode: boolean;
   onSetM5RwdMode?: (enabled: boolean) => void;
@@ -77,6 +80,8 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
   onTouchInput,
   isAutomatic,
   onSetAutomatic,
+  steeringInputMode,
+  onSetSteeringInputMode,
   showM5XDriveSetting,
   isM5RwdMode,
   onSetM5RwdMode,
@@ -210,6 +215,40 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             </div>
             <div className="mt-2 px-1 text-[8px] text-slate-500">Keyboard shortcut: M</div>
 
+            {!mobileMode && (
+              <div className="mt-3 border-t border-slate-800 pt-3">
+                <div className="mb-2 px-1">
+                  <div className="text-[10px] font-bold text-white">Steering input</div>
+                  <div className="mt-0.5 text-[8px] leading-relaxed text-slate-500">Choose digital keys or continuous analog mouse steering.</div>
+                </div>
+                <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-900/65 p-1">
+                  <button
+                    id="steering-input-keyboard"
+                    type="button"
+                    onClick={() => onSetSteeringInputMode('keyboard')}
+                    className={`rounded-lg px-2 py-2 text-[9px] font-bold transition-colors ${steeringInputMode === 'keyboard' ? 'bg-sky-400 text-slate-950' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    aria-pressed={steeringInputMode === 'keyboard'}
+                  >
+                    Keyboard
+                  </button>
+                  <button
+                    id="steering-input-mouse"
+                    type="button"
+                    onClick={() => onSetSteeringInputMode('mouse')}
+                    className={`rounded-lg px-2 py-2 text-[9px] font-bold transition-colors ${steeringInputMode === 'mouse' ? 'bg-sky-400 text-slate-950' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+                    aria-pressed={steeringInputMode === 'mouse'}
+                  >
+                    Mouse
+                  </button>
+                </div>
+                <div className="mt-2 px-1 text-[8px] leading-relaxed text-slate-500">
+                  {steeringInputMode === 'mouse'
+                    ? 'Center = straight • move left/right across the driving view • screen edge = true full steering input.'
+                    : 'A / D or arrow keys use speed-aware digital steering.'}
+                </div>
+              </div>
+            )}
+
             {showM5XDriveSetting && onSetM5RwdMode && (
               <div className="mt-3 border-t border-slate-800 pt-3">
                 <div className={`flex items-center justify-between gap-3 rounded-xl border p-2.5 ${isM5RwdMode ? 'border-amber-400/40 bg-amber-400/10' : 'border-slate-800 bg-slate-900/65'}`}>
@@ -342,7 +381,7 @@ export const ControlsOverlay: React.FC<ControlsOverlayProps> = ({
             <div className="grid grid-cols-2 gap-1.5 font-mono">
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-emerald-300">W / ↑</span><br />Throttle</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-rose-300">S / ↓</span><br />Brake</div>
-              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">A / D</span><br />Steer</div>
+              <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-sky-300">{steeringInputMode === 'mouse' ? 'MOUSE' : 'A / D'}</span><br />{steeringInputMode === 'mouse' ? 'Steer by cursor' : 'Steer'}</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-amber-300">SPACE</span><br />Handbrake</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">C / R</span><br />Camera / reset</div>
               <div className="rounded-lg bg-slate-900/65 p-2"><span className="text-slate-200">M</span><br />Auto / manual</div>
