@@ -39,9 +39,11 @@ function makeM5(overrides: Partial<VehicleConfig> = {}) {
 }
 
 function laneChangeSteer(time: number, amplitude: number) {
-  // Smooth left/right pulse. At 200 km/h, amplitude 0.04 produces roughly half-g,
-  // 0.075 reaches the upper three-quarter-g range, and 0.10 pushes close to the
-  // calibrated road-tire lateral limit without using an impossible full-lock input.
+  // Smooth left/right driver-input pulse. These are normalized steering-wheel
+  // requests, not direct road-wheel angles: the physical rack, SAT, caster and EPS
+  // now determine the achieved wheel angle. At 200 km/h the calibrated M5 reaches
+  // roughly 0.35-0.40 g at 0.04, the low/mid 0.7-g range at 0.075, and about 0.97 g
+  // at 0.10 without requiring an impossible full-lock highway input.
   const pulseDuration = 0.72;
   if (time < pulseDuration) {
     return amplitude * Math.sin(Math.PI * time / pulseDuration);
@@ -179,7 +181,10 @@ console.log(JSON.stringify({
     : 0,
 }, null, 2));
 
-assert(moderateBars.peakLatG > 0.40, `moderate high-speed maneuver was too mild: ${moderateBars.peakLatG.toFixed(2)} g`);
+// The small-input gate now checks a meaningful, stable highway response rather than
+// preserving the old direct-wheel-angle gain. Near-limit and tire-limit assertions
+// below remain unchanged and continue to guard actual high-g vehicle capability.
+assert(moderateBars.peakLatG > 0.32, `moderate high-speed maneuver was too mild: ${moderateBars.peakLatG.toFixed(2)} g`);
 assert(moderateBars.airborneSamples === 0, 'moderate high-speed lane change lifted a wheel');
 assert(moderateBars.peakBodyRiseM < 0.05, `moderate maneuver jacked body ${moderateBars.peakBodyRiseM.toFixed(3)} m`);
 assert(moderateBars.peakArbNetBiasN < 1e-6, `ARB created net vertical force: ${moderateBars.peakArbNetBiasN} N`);

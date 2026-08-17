@@ -10,7 +10,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   wheelRadius: 0.369,
   wheelInertia: 2.10,
   unsprungMassCorner: 55,
-
   suspensionRestLength: 0.34,
   suspensionStiffness: 62000,
   suspensionDamping: 5000,
@@ -25,23 +24,17 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   camberStaticFront: -1.5,
   camberStaticRear: -1.2,
   camberGain: 7.5,
+  frontCasterDeg: 7.2,
+  frontKingpinInclinationDeg: 7.0,
   antiDiveFront: 0.45,
   antiSquatRear: 0.35,
-  // Render exactly the rigid-body pitch/roll produced by the suspension and tire forces.
-  // No visual multiplier is allowed on the M5 calibration.
   bodyRollMultiplier: 1.0,
   bodyPitchMultiplier: 1.0,
-
   tireGripFront: 1.21,
   tireGripRear: 1.20,
   tireStiffness: 15.0,
   tireLoadSensitivity: 0.000030,
   slideFrictionMultiplier: 0.83,
-  // The G90's heavy chassis should not see peak lateral tire force in the same
-  // 120 Hz frame as a steering step. A longer lateral relaxation length gives the
-  // contact patch/carcass time to take a set before load reaches the sprung body.
-  // Longitudinal relaxation remains independent below so acceleration/braking
-  // response is unchanged.
   relaxationLength: 0.50,
   longitudinalRelaxationLength: 0.12,
   longitudinalForceRelaxationLength: 0.066,
@@ -52,9 +45,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tireBasePressure: 35.0,
   optimalTireTemp: 75,
   driftAssist: 0.0,
-
-  // The test data does not provide a measured road-car downforce map, so do not
-  // invent aerodynamic load merely to force a benchmark result.
   aeroDownforceFront: 0,
   aeroDownforceRear: 0,
   aeroDragCoeff: 0.35,
@@ -63,7 +53,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   groundEffectMaxDownforce: 0,
   drsEnabled: false,
   airbrakeEnabled: false,
-
   drivetrain: 'AWD',
   differentialType: 'TORQUE_VECTOR',
   centerFrontTorqueRatio: 0.40,
@@ -71,10 +60,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   diffCoastRamp: 0.48,
   diffPreloadTorque: 100,
   diffLockRatio: 0.88,
-
-  // maxTorque is the pre-boost base curve in this engine. Turbo boost and the
-  // low-rpm hybrid fill below produce the system delivery without inflating the
-  // real car's ~130 mph quarter-mile trap speed.
   maxTorque: 700,
   maxRpm: 7200,
   idleRpm: 750,
@@ -91,14 +76,52 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   forwardGearRatios: [5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
   gearRatios: [-3.97, 5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
   finalDriveRatio: 3.31,
-
-  // Retain one speed-independent hydraulic calibration rather than adding a
-  // low-speed brake multiplier solely to erase the remaining 70-0 test residual.
   brakeForce: 10800,
   handbrakeForce: 10000,
   brakeBiasFront: 0.60,
+
+  // BMW-published steering anchors: 14.2:1 overall ratio, 118.3 in wheelbase,
+  // 66.3 in front track, speed-sensitive M Servotronic, variable ratio.
   ackermannRatio: 0.90,
+  steeringFrontTrackM: 1.68402,
   maxSteerAngle: 0.58,
+  steeringRatioCenter: 14.2,
+  steeringRatioAtLock: 12.6,
+
+  // Internal rack/EPS values below are engineering calibration, not BMW data.
+  steeringRackHalfTravelM: 0.070,
+  steeringRackEquivalentInertiaKgm2: 5.8,
+  steeringRackDampingNmsPerRad: 46,
+  steeringRackFrictionNm: 4.5,
+  steeringRackMaxAngularSpeedRadS: 3.2,
+  // Keep steady steering authority separate from transient rack response. The first
+  // 180 rad/s^2 pass could move the road wheel too far in a single 120 Hz step once
+  // column stiffness was raised enough to resist highway SAT. 90 rad/s^2 preserves
+  // finite turn-in while leaving equilibrium road-wheel angle unchanged.
+  steeringRackMaxAngularAccelRadS2: 90,
+
+  // Effective driver/column stiffness is intentionally much lower than a literal
+  // steel steering-column torsion rate because it represents the driver's hands,
+  // column/torsion sensor and controller as one input-side compliance. 14 N*m/rad
+  // preserves small high-speed steering requests against SAT/mechanical-trail load
+  // without bypassing rack inertia, road feedback or the finite rack speed.
+  steeringColumnTorsionStiffnessNmPerRad: 14.0,
+  steeringColumnTorsionDampingNmsPerRad: 0.18,
+  steeringDriverMaxTorqueNm: 8.0,
+  steeringEpsParkingGain: 20.0,
+  steeringEpsHighSpeedGain: 9.0,
+  steeringEpsFadeSpeedMs: 27.8,
+  steeringEpsMaxAssistTorqueNm: 65,
+  steeringStopStartFraction: 0.92,
+  steeringStopStiffnessNmPerRad: 9000,
+  steeringStopDampingNmsPerRad: 190,
+  steeringTieRodStiffnessNmPerRad: 180000,
+  steeringRackMountStiffnessNmPerRad: 250000,
+  steeringControlArmBushingStiffnessNmPerRad: 140000,
+  steeringTireCarcassStiffnessNmPerRad: 110000,
+  steeringComplianceDampingNmsPerRad: 1800,
+  steeringMaxComplianceRad: 0.0065,
+
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
@@ -108,7 +131,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tcsSportSlipThreshold: 0.16,
   tcsSportResponse: 30.0,
   tcsSportGain: 2.6,
-
   launchControlEnabled: true,
   launchControlRpm: 3000,
   lowSpeedTorqueFillNm: 600,

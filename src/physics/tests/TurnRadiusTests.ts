@@ -50,9 +50,9 @@ function runTurn(
 ) {
   const sim = makeRollingM5();
   if (fullMechanicalRack) {
-    // Mouse/wheel-style analog steering represents a fraction of the physical
-    // rack. BMW speed sensitivity is assistance/ratio behavior, not a smaller
-    // mechanical lock, so mirror the App's mouse-mode bypass here.
+    // Retained for compatibility with older DriverAids-only paths. Runtime Simulation
+    // steering now keeps a fixed mechanical stop at every speed and changes effort via
+    // EPS/road forces instead of shrinking rack authority.
     sim.vehicle.driverAids.config.steerSpeedReduction = 0;
   }
 
@@ -157,8 +157,13 @@ assert(Number.isFinite(shapedDigital.lateMeanYawRadiusM), 'digital turn radius m
 assert(Number.isFinite(fullMouseLock.lateMeanYawRadiusM), 'mouse full-lock turn radius must be finite');
 assert(fullMouseLock.peakSteerInput === 1, 'mouse full-lock diagnostic must send exactly 100% steering input');
 assert(fullMouseLock.near50.samples > 0, 'mouse full-lock diagnostic must capture samples while still near 50 km/h');
+
+// A full steering-input STEP must no longer be expected to teleport the road wheels
+// to their stop while the car is still in the first near-50 km/h samples. The new
+// steering dynamics regression checks that early motion is finite; this legacy turn-
+// radius diagnostic should instead prove eventual full mechanical authority.
 assert(
-  fullMouseLock.near50.meanFrontSteerDeg > 30,
-  `mouse full lock must reach the physical rack, got ${fullMouseLock.near50.meanFrontSteerDeg.toFixed(2)} deg`
+  fullMouseLock.lateMeanFrontSteerDeg > 30,
+  `held full input must eventually reach the physical rack, got late mean ${fullMouseLock.lateMeanFrontSteerDeg.toFixed(2)} deg`
 );
 console.log('TurnRadiusTests: PASS');
