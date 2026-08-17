@@ -185,6 +185,28 @@ function testDifferentialPowerCoastDirectionInvariant() {
   assert(Math.abs(sumReverse + 1000) < 1e-9, 'reverse differential must conserve commanded torque');
 }
 
+function testActiveDifferentialDoesNotLockAtZeroDrivelineTorque() {
+  const diff = new DifferentialSystem({
+    type: 'TORQUE_VECTOR',
+    powerRamp: 0.88,
+    coastRamp: 0.48,
+    preloadTorque: 100,
+    drivetrain: 'AWD',
+    frontTorqueRatio: 0.40,
+  });
+
+  // Tight-turn wheel speeds deliberately differ left/right and front/rear. With
+  // zero driveshaft torque, an active torque-vectoring unit must not inject equal-
+  // and-opposite wheel torques merely because the wheels follow different radii.
+  const coastNeutral = diff.distributeTorque(0, [4.0, 5.5, 4.2, 5.2]);
+  for (let i = 0; i < 4; i++) {
+    assert(
+      Math.abs(coastNeutral.wheelTorques[i]) < 1e-12,
+      `active differential injected ${coastNeutral.wheelTorques[i]} Nm at wheel ${i} with zero driveline torque`
+    );
+  }
+}
+
 const tests: Array<[string, () => void]> = [
   ['Ackermann left/right mirror invariant', testAckermannMirrorInvariant],
   ['camber thrust inward/mirror invariant', testCamberThrustPointsInwardAndMirrors],
@@ -192,6 +214,7 @@ const tests: Array<[string, () => void]> = [
   ['ABS forward/reverse invariant', testAbsForwardReverseSymmetry],
   ['TCS forward/reverse invariant', testTcsForwardReverseSymmetry],
   ['differential power/coast invariant', testDifferentialPowerCoastDirectionInvariant],
+  ['active differential zero-torque invariant', testActiveDifferentialDoesNotLockAtZeroDrivelineTorque],
 ];
 
 for (const [name, test] of tests) {
