@@ -214,71 +214,96 @@ __test:steering-direction_EXIT_STATUS__=0
 
 {
   "speedKmh": 72,
-  "steerInput": 0.14,
+  "targetCenterSteerDeg": 3.2,
+  "steerInput": 0.09629402769623888,
   "yawInertiaKgM2": 5332.76657118062,
   "steady": {
-    "frontFyN": 13347.788355905306,
-    "outsideTravelDeltaM": 0.04570809585341494,
-    "rollDeg": 2.376752192240719,
-    "yawRateDegS": 30.976150613824363
+    "frontFyN": 9825.957644486734,
+    "frontFySignedN": 9825.957644486734,
+    "outsideTravelDeltaM": 0.03330140931284002,
+    "rollDeg": 1.7378042147962012,
+    "yawRateDegS": 22.32396818784309
   },
   "turnInTimingSec": {
     "tire25": 0.016666666666666666,
     "tire50": 0.025,
-    "travel25": 0.11666666666666667,
-    "travel50": 0.16666666666666666,
-    "roll25": 0.09166666666666666,
-    "roll50": 0.14166666666666666
+    "travel25": 0.10833333333333334,
+    "travel50": 0.15833333333333333,
+    "roll25": 0.08333333333333333,
+    "roll50": 0.13333333333333333
   },
   "turnInFractions": {
     "at50ms": {
-      "tire": 0.9140159954056878,
-      "travel": 0.020741122494423888,
-      "roll": 0.07801043324617032
+      "tire": 0.9994457528885566,
+      "travel": 0.024041337067158015,
+      "roll": 0.08772936930304108
     },
     "at100ms": {
-      "tire": 0.9674277309319192,
-      "travel": 0.19341203835061735,
-      "roll": 0.31617161352974743
+      "tire": 1.002557003820481,
+      "travel": 0.21521848542093622,
+      "roll": 0.3471228841470882
     },
     "at250ms": {
-      "tire": 0.9014793368432379,
-      "travel": 0.7575533946362675,
-      "roll": 0.803128417897498
-    }
-  },
-  "releaseFractions": {
-    "at50ms": {
-      "tire": 0.43752377226426725,
-      "travel": 0.9427926386907827,
-      "roll": 0.9185485844402422,
-      "yaw": 0.9070328502065257
-    },
-    "at100ms": {
-      "tire": 0.28797458618475336,
-      "travel": 0.8366179062364472,
-      "roll": 0.7567642055540398,
-      "yaw": 0.6908091521094645
-    },
-    "at250ms": {
-      "tire": 0.38252088454888705,
-      "travel": 0.5510360440113636,
-      "roll": 0.5679236882449478,
-      "yaw": 0.20171541165777293
+      "tire": 0.9227369332031937,
+      "travel": 0.7858376747579344,
+      "roll": 0.8307271339650879
     }
   },
   "release": {
-    "maxRollDeg": 2.2817238574042364,
-    "finalRollDeg": 0.006944794482257992
+    "firstCorrectiveForceTimeSec": 0.06666666666666667,
+    "fractions": {
+      "at50ms": {
+        "residualCorneringTire": 0.06905907208003648,
+        "signedTire": 0.06905907208003648,
+        "tireMagnitude": 0.06905907208003648,
+        "travel": 0.9430238323489893,
+        "roll": 0.8858288036012129,
+        "yaw": 0.7888496493348289
+      },
+      "at100ms": {
+        "residualCorneringTire": 0.05581760616491007,
+        "signedTire": 0.05581760616491007,
+        "tireMagnitude": 0.05581760616491007,
+        "travel": 0.7626307041502317,
+        "roll": 0.6417090055233723,
+        "yaw": 0.45874365946506557
+      },
+      "at250ms": {
+        "residualCorneringTire": 0.1423568742705098,
+        "signedTire": 0.1423568742705098,
+        "tireMagnitude": 0.1423568742705098,
+        "travel": 0.3083079982925236,
+        "roll": 0.28445631182985376,
+        "yaw": 0.01800784974325937
+      },
+      "at500ms": {
+        "residualCorneringTire": 0,
+        "signedTire": -0.03666416796462736,
+        "tireMagnitude": 0.03666416796462736,
+        "travel": 0.07335277973738417,
+        "roll": 0.07596910349732573,
+        "yaw": 0.0006693927667646484
+      },
+      "at750ms": {
+        "residualCorneringTire": 0.006247377775244582,
+        "signedTire": 0.006247377775244582,
+        "tireMagnitude": 0.03202939005160395,
+        "travel": 0.009559522235806757,
+        "roll": 0.013018817930410648,
+        "yaw": 0.00040819264395801596
+      }
+    },
+    "maxRollDeg": 1.6853782584357815,
+    "finalRollDeg": 0.004861801371558112
   }
 }
 /home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7
   if (!condition) throw new Error(message);
                         ^
 
-Error: steering release sequence is wrong at 50 ms: tire=0.44 travel=0.94 roll=0.92
+Error: original cornering force persisted too long after release: 0.14
     at assert (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7:25)
-    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:223:1)
+    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:240:1)
     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
