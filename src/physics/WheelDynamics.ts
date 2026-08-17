@@ -92,6 +92,15 @@ export class WheelDynamics {
   public wearPercent = 0;
   public brakeRotorTemp = 25;
 
+  // Exposed deterministic solver telemetry used by the vehicle validation suite.
+  // These are observational only; they do not feed back into the dynamics.
+  public driveTorqueNm = 0;
+  public driveForceDemandN = 0;
+  public longitudinalAdhesionCapacityN = 0;
+  public driveAdhesionAuthority = 0;
+  public driveAdhesionSpeedAuthority = 0;
+  public driveAdhesionTorqueAuthority = 0;
+
   public lastTireOutput: TireForceOutput = makeZeroTireOutput();
 
   private tireModel: TireModel;
@@ -139,6 +148,12 @@ export class WheelDynamics {
     this.pressurePsi = this.tireConfig.basePressurePsi;
     this.wearPercent = 0;
     this.brakeRotorTemp = 25;
+    this.driveTorqueNm = 0;
+    this.driveForceDemandN = 0;
+    this.longitudinalAdhesionCapacityN = 0;
+    this.driveAdhesionAuthority = 0;
+    this.driveAdhesionSpeedAuthority = 0;
+    this.driveAdhesionTorqueAuthority = 0;
     this.lastTireOutput = makeZeroTireOutput();
     this.tireModel.reset();
   }
@@ -178,10 +193,6 @@ export class WheelDynamics {
     const roadOmega = longitudinalVelocity / this.radius;
     const isFreeRolling = Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20;
 
-    // The former implementation snapped into a different longitudinal solver at
-    // 2.6 m/s (9.36 km/h). At full lock, the inside/outside front wheels repeatedly
-    // crossed that threshold and alternated between zero and dynamic longitudinal
-    // tire force. Replace the cliff with a smooth crawl-speed rolling constraint.
     const freeRollFullConstraintMs = 1.40;
     const freeRollDynamicMs = 3.40;
     const freeRollLinear = PhysicsMath.clamp(
@@ -326,15 +337,6 @@ export class WheelDynamics {
     const blendedTargetMz = target.aligningTorque * dynamicBlend;
     const blendedFrictionLimit = PhysicsMath.lerp(lowSpeedFrictionLimit, target.frictionLimit, dynamicBlend);
 
-    // A driven tire below the traction limit is in static adhesion: the contact
-    // patch supplies whatever longitudinal reaction is required to balance axle
-    // torque, while the wheel rolls with the road. Explicitly integrating that
-    // stiff algebraic constraint through a ~2 kg*m^2 wheel at 120 Hz caused the
-    // 10 km/h full-lock limit cycle: omega overshot, Fx changed sign, then the tire
-    // kicked the wheel back hundreds of times. Solve the adhesion constraint
-    // directly while there is ample friction reserve, and fade smoothly back to
-    // the normal slip model as speed or torque demand rises. Genuine wheelspin is
-    // untouched because it necessarily exceeds the adhesion reserve.
     const driveForceDemand = driveTorque / this.radius;
     const lateralForReserve = Math.min(
       Math.abs(blendedTargetFy),
@@ -345,12 +347,6 @@ export class WheelDynamics {
       blendedFrictionLimit * blendedFrictionLimit - lateralForReserve * lateralForReserve
     ));
     const driveDemandAbs = Math.abs(driveForceDemand);
-
-    // Solver-domain selection must depend on the road/contact speed, not the wheel
-    // surface speed that this constraint is trying to stabilize. Using wheel speed
-    // created a circular switch: omega overshot -> adhesion switched off -> slip
-    // force kicked omega harder -> adhesion switched back on. Road speed is the
-    // independent kinematic condition and keeps the handoff continuous.
     const driveAdhesionRoadSpeed = Math.abs(longitudinalVelocity);
     const driveAdhesionSpeedLinear = PhysicsMath.clamp(
       (5.0 - driveAdhesionRoadSpeed) / 1.5,
@@ -359,9 +355,6 @@ export class WheelDynamics {
     );
     const driveAdhesionSpeedAuthority =
       driveAdhesionSpeedLinear * driveAdhesionSpeedLinear * (3 - 2 * driveAdhesionSpeedLinear);
-
-    // Restrict static drive adhesion to clearly sub-limit torque. Full-throttle
-    // launch and intentional wheelspin remain entirely on the dynamic tire model.
     const adhesionFullDemand = longitudinalAdhesionCapacity * 0.35;
     const adhesionReleaseDemand = longitudinalAdhesionCapacity * 0.58;
     const driveAdhesionTorqueAuthority = adhesionReleaseDemand > adhesionFullDemand + 1
@@ -378,6 +371,13 @@ export class WheelDynamics {
       driveDemandAbs > 1
         ? driveAdhesionSpeedAuthority * driveAdhesionTorqueAuthority
         : 0;
+
+    this.driveTorqueNm = driveTorque;
+    this.driveForceDemandN = driveForceDemand;
+    this.longitudinalAdhesionCapacityN = longitudinalAdhesionCapacity;
+    this.driveAdhesionAuthority = driveAdhesionAuthority;
+    this.driveAdhesionSpeedAuthority = driveAdhesionSpeedAuthority;
+    this.driveAdhesionTorqueAuthority = driveAdhesionTorqueAuthority;
 
     if (driveAdhesionAuthority > 0) {
       const slipDecay = Math.exp(-120 * driveAdhesionAuthority * dt);
