@@ -43,11 +43,8 @@ export class Vehicle {
   public telemetry: TelemetrySystem;
   public surfaceProvider: ISurfaceProvider;
 
-  // Visual / Debug Options
   public showForceVectors3D: boolean = true;
   private totalSimTime: number = 0;
-
-  // Smoothing filters for G-forces
   private smoothedAx: number = 0;
   private smoothedAy: number = 0;
   private smoothedAz: number = 0;
@@ -56,10 +53,6 @@ export class Vehicle {
   constructor(config: VehicleConfig, surfaceProvider?: ISurfaceProvider) {
     this.config = { ...config };
     this.surfaceProvider = surfaceProvider || new ProvingGroundSurfaceProvider();
-
-    // 1. Build a physical chassis mass model. The rigid-body origin is the actual
-    // center of gravity, and the principal inertias are derived from mass second
-    // moments rather than arbitrary per-axis multipliers.
     this.chassisMassProperties = deriveChassisMassProperties(this.config as any);
     const H = this.config.centerOfGravityHeight;
 
@@ -74,8 +67,6 @@ export class Vehicle {
     );
 
     this.suspension = new SuspensionSystem();
-
-    // 2. Instantiate 4 Wheels [FL, FR, RL, RR]
     const tireRadius = this.config.wheelRadius;
     const wheelInertia = this.config.wheelInertia;
 
@@ -114,7 +105,6 @@ export class Vehicle {
       new WheelDynamics({ id: 'RR', isFront: false, isLeft: false, radius: tireRadius, inertia: wheelInertia, tireConfig: tireConfigRear }),
     ];
 
-    // 3. Powertrain
     this.powertrain = new Powertrain({
       maxTorque: this.config.maxTorque,
       idleRpm: this.config.idleRpm,
@@ -142,7 +132,6 @@ export class Vehicle {
       autoBlipDownshift: this.config.autoBlipDownshift,
     });
 
-    // 4. Differential
     this.differential = new DifferentialSystem({
       type: this.config.differentialType,
       powerRamp: this.config.diffPowerRamp,
@@ -152,14 +141,12 @@ export class Vehicle {
       frontTorqueRatio: (this.config as any).centerFrontTorqueRatio,
     });
 
-    // 5. Brakes
     this.brakes = new BrakeSystem({
       maxBrakeTorque: this.config.brakeForce,
       handbrakeTorque: this.config.handbrakeForce,
       frontBias: this.config.brakeBiasFront,
     });
 
-    // 6. Driver Aids
     this.driverAids = new DriverAidsSystem({
       absMode: this.config.absMode,
       tcsMode: this.config.tcsMode,
@@ -177,7 +164,6 @@ export class Vehicle {
       tcsFullGain: (this.config as any).tcsFullGain,
     });
 
-    // 7. Aerodynamics
     this.aero = new AerodynamicsSystem({
       downforceFront100Kmh: this.config.aeroDownforceFront,
       downforceRear100Kmh: this.config.aeroDownforceRear,
@@ -277,7 +263,6 @@ export class Vehicle {
       airbrakeEnabled: newConfig.airbrakeEnabled,
     };
 
-    // Update wheel tire configs
     for (let i = 0; i < 4; i++) {
       const isFront = i < 2;
       (this.wheels[i] as any).radius = newConfig.wheelRadius;
@@ -300,8 +285,6 @@ export class Vehicle {
 
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
     const H = this.config.centerOfGravityHeight;
-    // RigidBody.position is the physical center of gravity, not a visual or
-    // suspension reference point.
     this.rigidBody.position = PhysicsMath.vec3(x, H, z);
     this.rigidBody.velocity = PhysicsMath.vec3(0, 0, 0);
     this.rigidBody.angularVelocity = PhysicsMath.vec3(0, 0, 0);
@@ -327,38 +310,28 @@ export class Vehicle {
     this.aero.toggleDrs();
   }
 
-  /**
-   * Get 4 suspension top-mount hardpoints relative to the physical CG.
-   */
   public getHardpointsBody(): [Vec3, Vec3, Vec3, Vec3] {
     const frontHalfTrack = this.chassisMassProperties.frontTrack * 0.5;
     const rearHalfTrack = this.chassisMassProperties.rearTrack * 0.5;
     const frontDist = this.chassisMassProperties.cgToFrontAxle;
     const rearDist = this.chassisMassProperties.cgToRearAxle;
-    // The former rigid-body origin was this pickup plane, 0.35 m above the CG.
-    // Keep the physical top-mount height while expressing it correctly about the CG.
     const pickupHeightAboveCg = Math.max(
       0,
       Number((this.config as any).suspensionPickupHeightAboveCg ?? 0.35)
     );
 
-    // +X is vehicle-left in the right-handed (+X left, +Y up, +Z forward) body frame.
     return [
-      PhysicsMath.vec3(frontHalfTrack, pickupHeightAboveCg, frontDist),  // FL
-      PhysicsMath.vec3(-frontHalfTrack, pickupHeightAboveCg, frontDist), // FR
-      PhysicsMath.vec3(rearHalfTrack, pickupHeightAboveCg, -rearDist),  // RL
-      PhysicsMath.vec3(-rearHalfTrack, pickupHeightAboveCg, -rearDist), // RR
+      PhysicsMath.vec3(frontHalfTrack, pickupHeightAboveCg, frontDist),
+      PhysicsMath.vec3(-frontHalfTrack, pickupHeightAboveCg, frontDist),
+      PhysicsMath.vec3(rearHalfTrack, pickupHeightAboveCg, -rearDist),
+      PhysicsMath.vec3(-rearHalfTrack, pickupHeightAboveCg, -rearDist),
     ];
   }
 
-  /**
-   * Step the entire 14-DOF vehicle simulation for fixed step dt
-   */
   public step(inputs: ControlInputs, dt: number) {
     if (dt <= 0) return;
     this.totalSimTime += dt;
 
-    // Shift handling
     if (inputs.shiftUp) this.powertrain.shiftUp();
     if (inputs.shiftDown) this.powertrain.shiftDown();
 
@@ -368,7 +341,6 @@ export class Vehicle {
     const forwardSpeed = localVel.z;
     const speedMs = PhysicsMath.vec3Length(this.rigidBody.velocity);
 
-    // 1. Steering kinematics with Ackermann geometry
     const steerOut = this.driverAids.updateSteering(inputs.steer, forwardSpeed, dt);
     this.wheels[0].steerAngle = steerOut.steerFL;
     this.wheels[1].steerAngle = steerOut.steerFR;
@@ -383,7 +355,6 @@ export class Vehicle {
     this.wheels[2].steerAngle = rearSteer;
     this.wheels[3].steerAngle = rearSteer;
 
-    // 2. Suspension ground clearance & solve 4-corner displacements and normal loads
     const hardpointsBody = this.getHardpointsBody();
 
     const cornerCfgFront: SuspensionCornerConfig = {
@@ -432,7 +403,6 @@ export class Vehicle {
       dt
     );
 
-    // 3. Aerodynamics (Front & Rear Downforce, Drag, Diffuser Suction)
     const minRideHeight = Math.min(...this.suspension.states.map((s) => this.config.suspensionRestLength - s.displacement));
     const aeroOut = this.aero.calculateAeroForces(
       localVel,
@@ -442,13 +412,11 @@ export class Vehicle {
       this.config.wheelbase
     );
 
-    // Apply aero forces to rigid body
     this.rigidBody.addBodyForceAtPoint(aeroOut.frontAeroForce, aeroOut.frontPointBody);
     this.rigidBody.addBodyForceAtPoint(aeroOut.rearAeroForce, aeroOut.rearPointBody);
     this.rigidBody.addBodyForceAtPoint(aeroOut.diffuserAeroForce, aeroOut.diffuserPointBody);
     this.rigidBody.addBodyForceAtPoint(aeroOut.dragForce, PhysicsMath.vec3(0, 0, 0));
 
-    // 4. TCS Throttle Reduction
     const drivenSlips =
       this.config.drivetrain === 'FWD'
         ? [this.wheels[0].rawSlipRatio, this.wheels[1].rawSlipRatio]
@@ -459,7 +427,6 @@ export class Vehicle {
     const tcsResult = this.driverAids.updateTCS(drivenSlips, dt);
     const effectiveThrottle = inputs.throttle * tcsResult.throttleMultiplier;
 
-    // 5. Powertrain & Differential Torque Path
     const wheelOmegas: [number, number, number, number] = [
       this.wheels[0].angularVelocity,
       this.wheels[1].angularVelocity,
@@ -467,22 +434,17 @@ export class Vehicle {
       this.wheels[3].angularVelocity,
     ];
 
-    // Driven axle speed
     const drivenOmega =
       this.config.drivetrain === 'FWD'
         ? (wheelOmegas[0] + wheelOmegas[1]) * 0.5
         : (wheelOmegas[2] + wheelOmegas[3]) * 0.5;
 
-    // The G90 M5 can preload its automatic/hybrid powertrain against the brake.
-    // Keep this physical state in the powertrain rather than faking extra launch force.
     this.powertrain.launchControlActive = Boolean(
       this.config.launchControlEnabled && inputs.brake > 0.55 && inputs.throttle > 0.80 && speedMs < 2.0
     );
     const powertrainOut = this.powertrain.update(effectiveThrottle, drivenOmega, dt);
-
     const diffOut = this.differential.distributeTorque(powertrainOut.driveshaftTorque, wheelOmegas);
 
-    // 6. Brakes & ABS Controller
     const wheelSlips: [number, number, number, number] = [
       this.wheels[0].rawSlipRatio,
       this.wheels[1].rawSlipRatio,
@@ -498,7 +460,6 @@ export class Vehicle {
       dt
     );
     this.brakes.pressureModulators = absModulators;
-
     const brakeTorques = this.brakes.calculateBrakeTorques(inputs.brake, inputs.handbrake);
 
     const currentGear = this.powertrain.gear;
@@ -521,38 +482,26 @@ export class Vehicle {
         ? (drivelineInputInertia * totalRatio * totalRatio * drivelineCoupling) / drivenWheelCount
         : 0;
 
-    // 7. Solve 4 Wheels & Apply Contact Forces to Rigid Body
     let totalAligningTorque = 0;
 
     for (let i = 0; i < 4; i++) {
       const wheel = this.wheels[i];
       const suspState = this.suspension.states[i];
       const hpBody = hardpointsBody[i];
-
-      // Ground velocity at wheel contact patch expressed in body coords. The point
-      // is now genuinely relative to the physical CG, so chassis yaw/roll/pitch
-      // velocity feeds directly back into tire slip at each corner.
       const contactPointBody = PhysicsMath.vec3(
         hpBody.x,
         -this.config.centerOfGravityHeight,
         hpBody.z
       );
       const vContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
-
-      // Rotate velocity into wheel heading coordinate frame (steer angle about Y)
       const steer = wheel.steerAngle;
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
-
-      // vx_wheel (longitudinal in wheel rolling direction), vy_wheel (lateral to the right of wheel)
       const vxWheel = vContactBody.x * sinS + vContactBody.z * cosS;
       const vyWheel = vContactBody.x * cosS - vContactBody.z * sinS;
-
-      // Sample local surface friction and properties
       const contactWorld = suspState.contactPointWorld;
       const surface = this.surfaceProvider.sampleSurface(contactWorld.x, contactWorld.z);
 
-      // Step wheel rotational dynamics and compute tire forces (Fx, Fy)
       const tireOut = wheel.update(
         vxWheel,
         vyWheel,
@@ -595,45 +544,42 @@ export class Vehicle {
           wheelContactAuthority
         );
 
-        // RigidBody.mass is the complete vehicle mass. The external support on it
-        // is therefore the road/tire normal reaction, not the internal spring force.
-        const suspensionSupportWorld = PhysicsMath.vec3Scale(
-          roadNormal,
-          suspState.tireNormalForceN * wheelContactAuthority
+        // Tire normal load excites the unsprung wheel/hub and sets available grip.
+        // It must not also push the chassis directly or the road bypasses the spring
+        // and damper. The rigid body receives only the suspension-side reaction.
+        const suspensionReactionWorld = PhysicsMath.vec3(
+          0,
+          suspState.chassisForceN * wheelContactAuthority,
+          0
         );
-        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+        const suspensionHardpointWorld = PhysicsMath.vec3Add(
+          this.rigidBody.position,
+          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+        );
 
-        // Apply the complete road reaction at the actual contact patch. RigidBody's
-        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
-        // around the physical mass center with no artificial yaw/roll/pitch force.
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+        // Tire shear still acts at the road contact patch around the physical CG.
+        // Vertical load reaches the body through its real spring/damper/ARB pickup.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
       }
     }
 
-    // 8. Apply Gravity in World Frame
     const gravityForceWorld = PhysicsMath.vec3(0, -this.config.mass * 9.81, 0);
     this.rigidBody.addWorldForce(gravityForceWorld);
-
-    // 9. Integrate 6-DOF Rigid Body Equations of Motion
     this.rigidBody.integrate(dt);
 
-    // 10. Update Telemetry, Performance Timers & G-Forces
     const rawAx = this.rigidBody.acceleration.x / 9.81;
     const rawAy = this.rigidBody.acceleration.y / 9.81;
     const rawAz = this.rigidBody.acceleration.z / 9.81;
-
-    // Smooth G-forces
     const gAlpha = Math.min(1.0, 15.0 * dt);
     this.smoothedAx += (rawAx - this.smoothedAx) * gAlpha;
     this.smoothedAy += (rawAy - this.smoothedAy) * gAlpha;
     this.smoothedAz += (rawAz - this.smoothedAz) * gAlpha;
 
     const speedKmh = speedMs * 3.6;
-    const speedMph = speedKmh * 0.621371;
-
     this.telemetry.updateTimersAndGForces(
       speedKmh,
       speedMs,
@@ -643,10 +589,8 @@ export class Vehicle {
       this.totalSimTime,
       dt
     );
-
     this.telemetry.updateDriftScore(speedKmh, localVel.x, localVel.z, dt);
 
-    // Exhaust flame timer
     if (this.powertrain.turboBlowOff || (this.powertrain.isRevLimiting && this.powertrain.revCutBounce)) {
       this.exhaustFlameTimer = 0.15;
     } else if (this.exhaustFlameTimer > 0) {
@@ -654,9 +598,6 @@ export class Vehicle {
     }
   }
 
-  /**
-   * Export complete read-only VehicleState snapshot for rendering, UI, audio, and tests
-   */
   public getState(): VehicleState {
     const pos = this.rigidBody.position;
     const euler = this.rigidBody.getEuler();
@@ -665,10 +606,8 @@ export class Vehicle {
     const speedMs = PhysicsMath.vec3Length(this.rigidBody.velocity);
     const speedKmh = speedMs * 3.6;
     const speedMph = speedKmh * 0.621371;
-
     const hardpointsBody = this.getHardpointsBody();
 
-    // Map 4 WheelStates
     const wheelStates: [WheelState, WheelState, WheelState, WheelState] = this.wheels.map((w, idx) => {
       const susp = this.suspension.states[idx];
       const tire = w.lastTireOutput;
@@ -727,13 +666,11 @@ export class Vehicle {
 
     const airborneCount = this.suspension.states.filter((s) => s.isAirborne).length;
     const cgSurface = this.surfaceProvider.sampleSurface(pos.x, pos.z);
-
     const shiftStage = this.telemetry.getShiftLightStage(
       this.powertrain.engineRpm,
       this.config.maxRpm,
       this.config.revLimiterRpm
     );
-
     const driftInfo = this.telemetry.updateDriftScore(speedKmh, localVel.x, localVel.z, 0);
 
     return {
@@ -743,7 +680,6 @@ export class Vehicle {
       yaw: euler.yaw,
       pitch: euler.pitch * this.config.bodyPitchMultiplier,
       roll: euler.roll * this.config.bodyRollMultiplier,
-      // Heave is CG motion relative to the local road, not world altitude.
       heave: pos.y - cgSurface.elevation - this.config.centerOfGravityHeight,
       vx: localVel.x,
       vy: localVel.y,
