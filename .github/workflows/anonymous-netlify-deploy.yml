@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# temporary self-reporting M5 oversteer diagnostic
+# temporary self-reporting M5 recovery regression suite
 
 on:
   push:
@@ -21,16 +21,23 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - name: Run and publish M5 recovery diagnostic
+      - name: Run and publish M5 recovery suite
         shell: bash
         run: |
           set +e
-          npm run test:m5-oversteer > .ci-m5-oversteer-result.txt 2>&1
-          status=$?
-          printf '\n__EXIT_STATUS__=%s\n' "$status" >> .ci-m5-oversteer-result.txt
+          : > .ci-m5-recovery-suite.txt
+          overall=0
+          for test_name in test:m5-oversteer test:cornering test:steering-direction test:m5-transient; do
+            printf '\n===== %s =====\n' "$test_name" >> .ci-m5-recovery-suite.txt
+            npm run "$test_name" >> .ci-m5-recovery-suite.txt 2>&1
+            status=$?
+            printf '\n__%s_EXIT_STATUS__=%s\n' "$test_name" "$status" >> .ci-m5-recovery-suite.txt
+            if [ "$status" -ne 0 ]; then overall=1; fi
+          done
+          printf '\n__EXIT_STATUS__=%s\n' "$overall" >> .ci-m5-recovery-suite.txt
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-m5-oversteer-result.txt
-          git commit -m "Record M5 recovery diagnostic result"
+          git add .ci-m5-recovery-suite.txt
+          git commit -m "Record M5 recovery regression suite"
           git push origin HEAD:agent/m5-transient-behavior
