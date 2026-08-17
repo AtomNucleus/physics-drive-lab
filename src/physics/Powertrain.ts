@@ -243,12 +243,16 @@ export class Powertrain {
 
     if (this.isRevLimiting && this.revCutBounce) rawTorque = 0;
 
-    let engineCombustionTorque = 0;
-    if (effectiveThrottle > 0.02) engineCombustionTorque = rawTorque * effectiveThrottle;
-    else {
-      const brakingFactor = this.engineRpm / this.config.maxRpm;
-      engineCombustionTorque = -this.config.engineBrakingTorque * brakingFactor;
-    }
+    // Real engine torque does not switch discontinuously from pumping loss to
+    // positive combustion at one accelerator sample. Keep the existing full-load
+    // torque map untouched, but fade closed-throttle engine braking out smoothly
+    // over the first 5% of pedal travel while combustion torque builds normally.
+    const brakingFactor = this.engineRpm / this.config.maxRpm;
+    const closedThrottleBrakingTorque = this.config.engineBrakingTorque * brakingFactor;
+    const brakeReleaseLinear = PhysicsMath.clamp(effectiveThrottle / 0.05, 0, 1);
+    const brakeRelease = brakeReleaseLinear * brakeReleaseLinear * (3 - 2 * brakeReleaseLinear);
+    const engineCombustionTorque =
+      rawTorque * effectiveThrottle - closedThrottleBrakingTorque * (1 - brakeRelease);
     this.engineTorqueOutput = engineCombustionTorque;
 
     const currentGearRatio = this.getGearRatio(this.gear);
@@ -291,12 +295,18 @@ export class Powertrain {
       const clutchSlipTorque = deltaOmega * 95.0;
 
       // Legacy clutch-like coupling remains authoritative for manuals, higher
-      // gears, launch control and meaningful accelerator demand. It preserves the
-      // already validated standing-start and high-load calibration.
+      // gears, launch control and meaningful accelerator demand. Smoothly release
+      // the idle-creep cap with throttle so the converter has no second 2% cliff.
       let positiveTorqueCapacity = maxClutchTorqueCapacity;
-      if (hasAutomaticConverter && this.gear === 1 && effectiveThrottle <= 0.02 && deltaOmega > 0) {
+      if (hasAutomaticConverter && this.gear === 1 && deltaOmega > 0) {
         const idleCreepTorque = PhysicsMath.clamp(this.config.maxTorque * 0.03, 12, 24);
-        positiveTorqueCapacity = Math.min(positiveTorqueCapacity, idleCreepTorque);
+        const creepReleaseLinear = PhysicsMath.clamp(effectiveThrottle / 0.08, 0, 1);
+        const creepRelease = creepReleaseLinear * creepReleaseLinear * (3 - 2 * creepReleaseLinear);
+        positiveTorqueCapacity = PhysicsMath.lerp(
+          Math.min(maxClutchTorqueCapacity, idleCreepTorque),
+          maxClutchTorqueCapacity,
+          creepRelease
+        );
       }
       const legacyTransmittedTorque = PhysicsMath.clamp(
         clutchSlipTorque,

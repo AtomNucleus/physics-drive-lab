@@ -27,6 +27,7 @@ function makeAtTenKmh(automaticDrive: boolean) {
   const sim = new Simulation(config, new ProvingGroundSurfaceProvider());
   sim.reset(0, 0, 0);
 
+  // Let the chassis and unsprung masses establish their static ride state first.
   sim.vehicle.powertrain.isAutomatic = false;
   sim.vehicle.powertrain.gear = 0;
   for (let i = 0; i < 360; i++) sim.stepExplicit({ ...baseInputs, steer: 0 }, 1);
@@ -42,11 +43,6 @@ function makeAtTenKmh(automaticDrive: boolean) {
 }
 
 const range = (values: number[]) => Math.max(...values) - Math.min(...values);
-const minMax = (values: number[]) => ({
-  min: Math.min(...values),
-  max: Math.max(...values),
-  mean: values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length),
-});
 const rms = (values: number[]) =>
   Math.sqrt(values.reduce((sum, value) => sum + value * value, 0) / Math.max(1, values.length));
 
@@ -94,12 +90,6 @@ function runScenario(mode: ScenarioMode, options: ScenarioOptions = {}) {
   const tireLoad = [[], [], [], []] as number[][];
   const slipRatio = [[], [], [], []] as number[][];
   const omega = [[], [], [], []] as number[][];
-  const driveTorque = [[], [], [], []] as number[][];
-  const driveForceDemand = [[], [], [], []] as number[][];
-  const adhesionCapacity = [[], [], [], []] as number[][];
-  const adhesionAuthority = [[], [], [], []] as number[][];
-  const adhesionSpeedAuthority = [[], [], [], []] as number[][];
-  const adhesionTorqueAuthority = [[], [], [], []] as number[][];
   const longForceSignFlips = [0, 0, 0, 0];
   const previousLongForceSign = [0, 0, 0, 0];
   const airborneToggles = [0, 0, 0, 0];
@@ -112,6 +102,8 @@ function runScenario(mode: ScenarioMode, options: ScenarioOptions = {}) {
     const currentSpeedMs = Math.abs(sim.vehicle.rigidBody.getLocalVelocity().z);
     let throttle = 0;
     if (mode === 'automatic-speed-hold') {
+      // Smooth low-throttle controller keeps the drivetrain loaded near the reported
+      // 10 km/h operating point without introducing keyboard on/off chatter itself.
       const error = TARGET_SPEED_MS - currentSpeedMs;
       throttle = PhysicsMath.clamp(0.055 + error * 0.055, 0, 0.18);
     }
@@ -140,18 +132,11 @@ function runScenario(mode: ScenarioMode, options: ScenarioOptions = {}) {
     roll.push(state.roll * DEG);
     heave.push(state.heave * 1000);
     for (let i = 0; i < 4; i++) {
-      const wheelDynamics = sim.vehicle.wheels[i];
       wheelTravel[i].push(state.wheels[i].verticalTravelM * 1000);
       hubY[i].push(state.wheels[i].hubWorldPos.y * 1000);
       tireLoad[i].push(state.wheels[i].forceVectorNorm);
       slipRatio[i].push(state.wheels[i].slipRatio);
       omega[i].push(state.wheels[i].angularVelocity);
-      driveTorque[i].push(wheelDynamics.driveTorqueNm);
-      driveForceDemand[i].push(wheelDynamics.driveForceDemandN);
-      adhesionCapacity[i].push(wheelDynamics.longitudinalAdhesionCapacityN);
-      adhesionAuthority[i].push(wheelDynamics.driveAdhesionAuthority);
-      adhesionSpeedAuthority[i].push(wheelDynamics.driveAdhesionSpeedAuthority);
-      adhesionTorqueAuthority[i].push(wheelDynamics.driveAdhesionTorqueAuthority);
     }
   }
 
@@ -181,14 +166,6 @@ function runScenario(mode: ScenarioMode, options: ScenarioOptions = {}) {
     tireLoadHighPassRmsN: tireLoad.map((v) => highPassRms(v)),
     slipRatioP2p: slipRatio.map(range),
     omegaSecondDiffRms: omega.map((v) => secondDifferenceRms(v)),
-    solverTelemetry: {
-      driveTorqueNm: driveTorque.map(minMax),
-      driveForceDemandN: driveForceDemand.map(minMax),
-      longitudinalAdhesionCapacityN: adhesionCapacity.map(minMax),
-      adhesionAuthority: adhesionAuthority.map(minMax),
-      adhesionSpeedAuthority: adhesionSpeedAuthority.map(minMax),
-      adhesionTorqueAuthority: adhesionTorqueAuthority.map(minMax),
-    },
     longForceSignFlips,
     airborneToggles,
   };
