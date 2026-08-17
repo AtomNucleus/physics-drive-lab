@@ -7,6 +7,7 @@ import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
 
 const DT = 1 / 120;
+const ABS_LOW_SPEED_CUTOUT_MS = 1.25;
 const M5_CONFIG = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
 const NEUTRAL: ControlInputs = {
   throttle: 0,
@@ -41,8 +42,10 @@ function testAbsPhaseOut() {
   let finalPressure = 0;
   let activeBelowCutout = 0;
 
-  for (let i = 0; i <= 360; i++) {
-    const speedMs = 2.4 - (2.0 * i / 360);
+  // Start above full ABS authority and sweep through the complete low-speed
+  // handoff to below the final cutout.
+  for (let i = 0; i <= 420; i++) {
+    const speedMs = 3.5 - (3.0 * i / 420);
     const omega = speedMs / M5_CONFIG.wheelRadius;
     const p = aids.updateABS(
       [-0.22, -0.22, -0.22, -0.22],
@@ -55,11 +58,11 @@ function testAbsPhaseOut() {
     minPressure = Math.min(minPressure, p);
     previousPressure = p;
     finalPressure = p;
-    if (speedMs < 0.70 && aids.absActive) activeBelowCutout++;
+    if (speedMs < ABS_LOW_SPEED_CUTOUT_MS && aids.absActive) activeBelowCutout++;
   }
 
   console.log(`ABS phase-out: min=${minPressure.toFixed(3)} final=${finalPressure.toFixed(3)} maxStep=${maxPressureStep.toFixed(4)} activeBelowCutout=${activeBelowCutout}`);
-  assert(minPressure < 0.95, 'ABS never entered pressure regulation');
+  assert(minPressure < 0.90, 'ABS never entered meaningful pressure regulation above the handoff');
   assert(finalPressure > 0.995, `ABS did not return to full pressure near rest: ${finalPressure.toFixed(3)}`);
   assert(maxPressureStep < 0.08, `ABS pressure jumped during low-speed phase-out: ${maxPressureStep.toFixed(4)}`);
   assert.equal(activeBelowCutout, 0, 'ABS remained active below the final low-speed cutout');
@@ -117,7 +120,7 @@ function runAutomaticStop(label: string, brake: number, steer: number) {
       maxPressureStep = Math.max(maxPressureStep, Math.abs(pressures[i] - previousPressures[i]));
       previousPressures[i] = pressures[i];
     }
-    if (speed < 0.70) {
+    if (speed < ABS_LOW_SPEED_CUTOUT_MS) {
       if (sim.vehicle.driverAids.absActive) absSamplesBelowCutout++;
       minPressureBelowCutout = Math.min(minPressureBelowCutout, ...pressures);
     }
