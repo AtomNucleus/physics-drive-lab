@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: suspension force -> chassis test
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - agent/suspension-force-to-chassis
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
