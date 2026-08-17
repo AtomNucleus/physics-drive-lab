@@ -92,15 +92,6 @@ export class WheelDynamics {
   public wearPercent = 0;
   public brakeRotorTemp = 25;
 
-  // Exposed deterministic solver telemetry used by the vehicle validation suite.
-  // These are observational only; they do not feed back into the dynamics.
-  public driveTorqueNm = 0;
-  public driveForceDemandN = 0;
-  public longitudinalAdhesionCapacityN = 0;
-  public driveAdhesionAuthority = 0;
-  public driveAdhesionSpeedAuthority = 0;
-  public driveAdhesionTorqueAuthority = 0;
-
   public lastTireOutput: TireForceOutput = makeZeroTireOutput();
 
   private tireModel: TireModel;
@@ -148,12 +139,6 @@ export class WheelDynamics {
     this.pressurePsi = this.tireConfig.basePressurePsi;
     this.wearPercent = 0;
     this.brakeRotorTemp = 25;
-    this.driveTorqueNm = 0;
-    this.driveForceDemandN = 0;
-    this.longitudinalAdhesionCapacityN = 0;
-    this.driveAdhesionAuthority = 0;
-    this.driveAdhesionSpeedAuthority = 0;
-    this.driveAdhesionTorqueAuthority = 0;
     this.lastTireOutput = makeZeroTireOutput();
     this.tireModel.reset();
   }
@@ -193,6 +178,10 @@ export class WheelDynamics {
     const roadOmega = longitudinalVelocity / this.radius;
     const isFreeRolling = Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20;
 
+    // The former implementation snapped into a different longitudinal solver at
+    // 2.6 m/s (9.36 km/h). At full lock, the inside/outside front wheels repeatedly
+    // crossed that threshold and alternated between zero and dynamic longitudinal
+    // tire force. Replace the cliff with a smooth crawl-speed rolling constraint.
     const freeRollFullConstraintMs = 1.40;
     const freeRollDynamicMs = 3.40;
     const freeRollLinear = PhysicsMath.clamp(
@@ -207,6 +196,9 @@ export class WheelDynamics {
     const freeRollDynamicAuthority = 1 - freeRollConstraintAuthority;
 
     if (isFreeRolling) {
+      // Preserve the established dynamic free-wheel response outside the crawl
+      // handoff. Only add stronger road-speed tracking as constraint authority
+      // actually rises, so 25 m/s braking and other high-speed tests are untouched.
       const baselineTrackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
       const trackingRate = PhysicsMath.lerp(
         baselineTrackingRate,
@@ -337,55 +329,6 @@ export class WheelDynamics {
     const blendedTargetMz = target.aligningTorque * dynamicBlend;
     const blendedFrictionLimit = PhysicsMath.lerp(lowSpeedFrictionLimit, target.frictionLimit, dynamicBlend);
 
-    const driveForceDemand = driveTorque / this.radius;
-    const lateralForReserve = Math.min(
-      Math.abs(blendedTargetFy),
-      Math.max(0, blendedFrictionLimit)
-    );
-    const longitudinalAdhesionCapacity = Math.sqrt(Math.max(
-      0,
-      blendedFrictionLimit * blendedFrictionLimit - lateralForReserve * lateralForReserve
-    ));
-    const driveDemandAbs = Math.abs(driveForceDemand);
-    const driveAdhesionRoadSpeed = Math.abs(longitudinalVelocity);
-    const driveAdhesionSpeedLinear = PhysicsMath.clamp(
-      (5.0 - driveAdhesionRoadSpeed) / 1.5,
-      0,
-      1
-    );
-    const driveAdhesionSpeedAuthority =
-      driveAdhesionSpeedLinear * driveAdhesionSpeedLinear * (3 - 2 * driveAdhesionSpeedLinear);
-    const adhesionFullDemand = longitudinalAdhesionCapacity * 0.35;
-    const adhesionReleaseDemand = longitudinalAdhesionCapacity * 0.58;
-    const driveAdhesionTorqueAuthority = adhesionReleaseDemand > adhesionFullDemand + 1
-      ? PhysicsMath.clamp(
-          (adhesionReleaseDemand - driveDemandAbs) /
-            (adhesionReleaseDemand - adhesionFullDemand),
-          0,
-          1
-        )
-      : 0;
-    const driveAdhesionAuthority =
-      fz > 20 &&
-      brakeRequest < 8 &&
-      driveDemandAbs > 1
-        ? driveAdhesionSpeedAuthority * driveAdhesionTorqueAuthority
-        : 0;
-
-    this.driveTorqueNm = driveTorque;
-    this.driveForceDemandN = driveForceDemand;
-    this.longitudinalAdhesionCapacityN = longitudinalAdhesionCapacity;
-    this.driveAdhesionAuthority = driveAdhesionAuthority;
-    this.driveAdhesionSpeedAuthority = driveAdhesionSpeedAuthority;
-    this.driveAdhesionTorqueAuthority = driveAdhesionTorqueAuthority;
-
-    if (driveAdhesionAuthority > 0) {
-      const slipDecay = Math.exp(-120 * driveAdhesionAuthority * dt);
-      this.rawSlipRatio *= slipDecay;
-      this.relaxationSlipRatio *= slipDecay;
-      this.lowSpeedLongDeflection *= slipDecay;
-    }
-
     const lateralForceSigma = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
     const longitudinalForceSigma = Math.max(
       0.018,
@@ -403,13 +346,6 @@ export class WheelDynamics {
     if (freeRollConstraintAuthority > 0) {
       const constraintForceDecay = Math.exp(-70 * freeRollConstraintAuthority * dt);
       this.transientFx *= constraintForceDecay;
-    }
-    if (driveAdhesionAuthority > 0) {
-      this.transientFx = PhysicsMath.lerp(
-        this.transientFx,
-        driveForceDemand,
-        driveAdhesionAuthority
-      );
     }
     this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
@@ -442,8 +378,6 @@ export class WheelDynamics {
 
     if (staticBrakeHold) {
       this.angularVelocity = 0;
-    } else if (driveAdhesionAuthority >= 0.995) {
-      this.angularVelocity = roadOmega;
     } else {
       const brakeTorque = brakeRequest * brakeSign;
       const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
@@ -458,6 +392,8 @@ export class WheelDynamics {
       const afterError = this.angularVelocity - roadOmega;
 
       if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+        // Preserve the original free-wheel overshoot guard at every speed. The bug
+        // was the speed-dependent force-state reset, not this zero-crossing clamp.
         this.angularVelocity = roadOmega;
       }
 
@@ -465,14 +401,6 @@ export class WheelDynamics {
         const postTrackingRate = 180 * freeRollConstraintAuthority;
         const postTrackingAlpha = 1 - Math.exp(-postTrackingRate * dt);
         this.angularVelocity += (roadOmega - this.angularVelocity) * postTrackingAlpha;
-      }
-
-      if (driveAdhesionAuthority > 0) {
-        this.angularVelocity = PhysicsMath.lerp(
-          this.angularVelocity,
-          roadOmega,
-          driveAdhesionAuthority
-        );
       }
 
       if (
