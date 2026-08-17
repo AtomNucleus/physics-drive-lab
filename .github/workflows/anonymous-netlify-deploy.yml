@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# temporary browser boot diagnostic for M5 preview v3
+# browser-gated preview for M5 startup white-screen fix
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  validate-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,35 +22,62 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Boot production build in headless browser and publish diagnostics
+      - name: Browser startup gate
         shell: bash
         run: |
-          set +e
+          set -e
           npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
           preview_pid=$!
           sleep 3
           chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
-          : > .ci-browser-smoke.txt
-          printf 'chrome=%s\n' "$chrome" >> .ci-browser-smoke.txt
-          if [ -z "$chrome" ]; then
-            printf 'NO_CHROME\n' >> .ci-browser-smoke.txt
-            browser_status=127
-          else
-            "$chrome" --headless=new --no-sandbox --disable-dev-shm-usage --disable-gpu --virtual-time-budget=5000 --enable-logging=stderr --v=1 --dump-dom http://127.0.0.1:4173 > /tmp/dom.html 2> /tmp/chrome.log
-            browser_status=$?
-          fi
-          printf 'browser_status=%s\n\n=== DOM ===\n' "$browser_status" >> .ci-browser-smoke.txt
-          head -c 20000 /tmp/dom.html >> .ci-browser-smoke.txt 2>/dev/null || true
-          printf '\n\n=== ERROR LINES ===\n' >> .ci-browser-smoke.txt
-          grep -Ei 'CONSOLE|ERROR|FATAL|Uncaught|TypeError|ReferenceError|SyntaxError|bootstrap|startup' /tmp/chrome.log >> .ci-browser-smoke.txt 2>/dev/null || true
-          printf '\n\n=== CHROME LOG TAIL ===\n' >> .ci-browser-smoke.txt
-          tail -200 /tmp/chrome.log >> .ci-browser-smoke.txt 2>/dev/null || true
-          printf '\n\n=== VITE PREVIEW LOG ===\n' >> .ci-browser-smoke.txt
-          cat /tmp/vite-preview.log >> .ci-browser-smoke.txt 2>/dev/null || true
-          kill "$preview_pid" 2>/dev/null || true
+          test -n "$chrome"
+          set +e
+          "$chrome" --headless=new --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader --enable-unsafe-swiftshader --virtual-time-budget=5000 --enable-logging=stderr --v=1 --dump-dom http://127.0.0.1:4173 > /tmp/dom.html 2> /tmp/chrome.log
+          browser_status=$?
           set -e
+          kill "$preview_pid" 2>/dev/null || true
+
+          : > .ci-browser-gate.txt
+          printf 'browser_status=%s\n' "$browser_status" >> .ci-browser-gate.txt
+          if grep -q 'id="startup-error"\|id="bootstrap-error"' /tmp/dom.html; then
+            printf 'startup_error=true\n' >> .ci-browser-gate.txt
+          else
+            printf 'startup_error=false\n' >> .ci-browser-gate.txt
+          fi
+          if grep -q 'id="driving-hud"' /tmp/dom.html; then
+            printf 'hud_mounted=true\n' >> .ci-browser-gate.txt
+          else
+            printf 'hud_mounted=false\n' >> .ci-browser-gate.txt
+          fi
+          printf '\n=== ERROR LINES ===\n' >> .ci-browser-gate.txt
+          grep -Ei 'CONSOLE|Uncaught|TypeError|ReferenceError|SyntaxError|bootstrap|startup' /tmp/chrome.log >> .ci-browser-gate.txt 2>/dev/null || true
+
+          if [ "$browser_status" -ne 0 ] || grep -q 'id="startup-error"\|id="bootstrap-error"' /tmp/dom.html || ! grep -q 'id="driving-hud"' /tmp/dom.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .ci-browser-gate.txt
+            git commit -m "Record failed browser startup gate"
+            git push origin HEAD:agent/m5-transient-behavior
+            exit 1
+          fi
+      - name: Deploy verified build anonymously to Netlify
+        shell: bash
+        run: |
+          set -e
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/netlify.json', 'utf8'));
+          const safe = {
+            browser_gate: 'passed',
+            site_url: data.site_url,
+            deploy_id: data.deploy_id,
+            password: data.password || null
+          };
+          fs.writeFileSync('.ci-fixed-preview.json', JSON.stringify(safe, null, 2) + '\n');
+          NODE
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-browser-smoke.txt
-          git commit -m "Record browser boot diagnostic"
+          git add .ci-browser-gate.txt .ci-fixed-preview.json
+          git commit -m "Record verified Netlify preview"
           git push origin HEAD:agent/m5-transient-behavior
