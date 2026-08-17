@@ -1,0 +1,229 @@
+chrome=/usr/bin/google-chrome
+browser_status=0
+
+=== DOM ===
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>3D Driving Simulator - Vehicle Physics &amp; Body Roll</title>
+    <meta name="description" content="Keyboard-friendly 3D driving simulator with authentic vehicle physics, chassis weight transfer, and body roll dynamics.">
+    <meta property="og:title" content="My Google AI Studio App">
+    <meta property="og:description" content="An application built with Google AI Studio.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <script type="module" crossorigin="" src="/assets/index-hjcA0wiN.js"></script>
+    <link rel="stylesheet" crossorigin="" href="/assets/index-C1c5r_6x.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  
+
+</body></html>
+
+
+=== CHROME LOG TAIL ===
+1  ... 
+
+Histogram: WebApp.Migrations.InstallSourceAddUserInstalled recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.PartiallyInstalledAppsToCorrectState recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.PendingInfoWasIgnoredMigrated recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.PendingUpdateInfoIconDataCorrupted recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.RelativeManifestIdFragmentRemoved recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.RelativeManifestIdPopulatedOrFixed recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.ScopeMismatchedWithStartUrl recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.ScopeRefQueryRemoved recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Migrations.ShortcutAppsToDiy2 recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.ResolvePendingMigrationInfoCommand.UpdatesApplied recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebApp.Uninstall.NonSyncIncompleteCount recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DOMContentLoaded recorded 8 samples, mean = 0.0 (flags = 0x1)
+0  --------O                                                                 (8 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DidChangeVisibleSecurityState recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DidFinishLoad recorded 8 samples, mean = 0.0 (flags = 0x1)
+0  --------O                                                                 (8 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DidFinishNavigation recorded 9 samples, mean = 0.7 (flags = 0x1)
+0  --------O                                                                 (8 = 88.9%)
+1  ... 
+6  -O                                                                        (1 = 11.1%) {88.9%}
+7  ... 
+
+Histogram: WebContentsObserver.DidFirstVisuallyNonEmptyPaint recorded 3 samples, mean = 0.0 (flags = 0x1)
+0  ---O                                                                      (3 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DidStartLoading recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.DidStartNavigation recorded 9 samples, mean = 2.2 (flags = 0x1)
+0   ------O                                                                   (6 = 66.7%)
+1   ... 
+3   -O                                                                        (1 = 11.1%) {66.7%}
+4   -O                                                                        (1 = 11.1%) {77.8%}
+5   ... 
+12  -O                                                                        (1 = 11.1%) {88.9%}
+14  ... 
+
+Histogram: WebContentsObserver.DidStartNavigation.MainFrame recorded 9 samples, mean = 2.2 (flags = 0x1)
+0   ------O                                                                   (6 = 66.7%)
+1   ... 
+3   -O                                                                        (1 = 11.1%) {66.7%}
+4   -O                                                                        (1 = 11.1%) {77.8%}
+5   ... 
+12  -O                                                                        (1 = 11.1%) {88.9%}
+14  ... 
+
+Histogram: WebContentsObserver.DidStopLoading recorded 8 samples, mean = 1.1 (flags = 0x1)
+0  -------O                                                                  (7 = 87.5%)
+1  ... 
+8  -O                                                                        (1 = 12.5%) {87.5%}
+10 ... 
+
+Histogram: WebContentsObserver.DidUpdateNavigationHandleTiming recorded 25 samples, mean = 0.0 (flags = 0x1)
+0  -------------------------O                                                (25 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.LoadProgressChanged recorded 45 samples, mean = 0.0 (flags = 0x1)
+0  ---------------------------------------------O                            (45 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.NavigationEntryChanged recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.NavigationEntryCommitted recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.OnVisibilityChanged recorded 2 samples, mean = 2.0 (flags = 0x1)
+0  -O                                                                        (1 = 50.0%)
+1  ... 
+4  -O                                                                        (1 = 50.0%) {50.0%}
+5  ... 
+
+Histogram: WebContentsObserver.OnVisibilityWillChange recorded 2 samples, mean = 0.0 (flags = 0x1)
+0  --O                                                                       (2 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.PrimaryMainDocumentElementAvailable recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.RenderFrameCreated recorded 9 samples, mean = 0.9 (flags = 0x1)
+0  --------O                                                                 (8 = 88.9%)
+1  ... 
+8  -O                                                                        (1 = 11.1%) {88.9%}
+10 ... 
+
+Histogram: WebContentsObserver.RenderFrameDeleted recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.RenderViewReady recorded 8 samples, mean = 0.0 (flags = 0x1)
+0  --------O                                                                 (8 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.TitleWasSet recorded 5 samples, mean = 0.0 (flags = 0x1)
+0  -----O                                                                    (5 = 100.0%)
+1  ... 
+
+Histogram: WebContentsObserver.TitleWasSetForMainFrame recorded 5 samples, mean = 0.0 (flags = 0x1)
+0  -----O                                                                    (5 = 100.0%)
+1  ... 
+
+Histogram: WebCore.Scripts.V8CrowdsourcedCompileHints.ModelQuality recorded 1 samples, mean = 0.0 (flags = 0x1)
+0  -O                                                                        (1 = 100.0%)
+1  ... 
+
+Histogram: WebDatabase.InitResult recorded 2 samples, mean = 0.0 (flags = 0x1)
+0  --O                                                                       (2 = 100.0%)
+1  ... 
+
+Histogram: WebUI.ColorsStylesheetServingDuration recorded 4 samples, mean = 10.0 (flags = 0x1)
+0   O                                                                         (0 = 0.0%)
+1   -O                                                                        (1 = 25.0%) {0.0%}
+2   ... 
+4   -O                                                                        (1 = 25.0%) {25.0%}
+5   ... 
+17  --O                                                                       (2 = 50.0%) {50.0%}
+20  ... 
+
+Histogram: WebUI.CreatedForUrl recorded 4 samples (flags = 0x1)
+709341402  ----O                                                                     (4 = 100.0%)
+
+Histogram: WebUI.ShownUrl recorded 4 samples (flags = 0x1)
+709341402  ----O                                                                     (4 = 100.0%)
+
+Histogram: WebUI.TopChrome.Preload.Result recorded 4 samples, mean = 0.0 (flags = 0x1)
+0  ----O                                                                     (4 = 100.0%)
+1  ... 
+
+Histogram: WebUI.WebUIURLLoaderFactory.URLRequestLoadTime recorded 14 samples, mean = 4.5 (flags = 0x1)
+0   ----O                                                                     (4 = 28.6%)
+1   ---O                                                                      (3 = 21.4%) {28.6%}
+2   O                                                                         (0 = 0.0%) {50.0%}
+3   -O                                                                        (1 = 7.1%) {50.0%}
+4   -O                                                                        (1 = 7.1%) {57.1%}
+5   --O                                                                       (2 = 14.3%) {64.3%}
+6   -O                                                                        (1 = 7.1%) {78.6%}
+7   ... 
+17  -O                                                                        (1 = 7.1%) {85.7%}
+20  -O                                                                        (1 = 7.1%) {92.9%}
+24  ... 
+
+Histogram: Webapp.NavigationCapturing.Result recorded 1 samples, mean = 13.0 (flags = 0x1)
+0   ... 
+13  -O                                                                        (1 = 100.0%) {0.0%}
+14  O                                                                         (0 = 0.0%) {100.0%}
+
+Histogram: WhatsNew.StartupType recorded 2 samples, mean = 1.5 (flags = 0x1)
+0  -O                                                                        (1 = 50.0%)
+1  ... 
+3  -O                                                                        (1 = 50.0%) {50.0%}
+4  ... 
+
+
+
+
+=== VITE PREVIEW LOG ===
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4173[22m/[39m
