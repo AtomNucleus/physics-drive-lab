@@ -1,0 +1,28 @@
+name: Netlify anonymous preview
+
+on:
+  push:
+    branches:
+      - agent/visual-turn-radius-scale
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy anonymous Netlify preview
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --no-build
