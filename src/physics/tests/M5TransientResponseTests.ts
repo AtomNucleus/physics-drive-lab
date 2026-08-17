@@ -156,12 +156,50 @@ assert(Math.abs(steady.outsideTravelDelta) > 0.001, 'turn-in did not generate me
 assert(steady.roll > 0.002, `turn-in did not generate measurable body roll: ${(steady.roll * 180 / Math.PI).toFixed(3)} deg`);
 assert(steady.yawRate > 0.03, 'turn-in did not generate meaningful yaw rate');
 
-// These are deliberately broad diagnostic guardrails for the first calibration pass.
-// The tighter M5 sequencing targets are added after measuring this branch in CI.
-assert(Number.isFinite(turnInTiming.tire25), 'front tire force never reached 25% of steady state');
-assert(Number.isFinite(turnInTiming.roll25), 'body roll never reached 25% of steady state');
-assert(finalReleaseRoll < steady.roll * 0.35, 'body did not substantially settle after steering release');
-assert(maxReleaseRoll < steady.roll * 1.75, 'steering release produced an excessive opposite/transient roll spike');
+// M5 turn-in target: the rack may move immediately, but the tire contact patch must
+// take a set before the 2.4-ton chassis acquires its cornering attitude. These bounds
+// deliberately measure normalized response rather than reducing the final roll angle.
+assert(
+  turnInTiming.tire50 >= 0.016 && turnInTiming.tire50 <= 0.050,
+  `front tires should build to 50% over a short carcass transient, got ${(turnInTiming.tire50 * 1000).toFixed(1)} ms`
+);
+assert(
+  turnInTiming.tire50 < turnInTiming.roll50,
+  `front tire force must lead chassis roll: tire50=${turnInTiming.tire50.toFixed(3)}s roll50=${turnInTiming.roll50.toFixed(3)}s`
+);
+assert(
+  turnInFractions.at50ms.roll < 0.12,
+  `body flops over too early: ${(turnInFractions.at50ms.roll * 100).toFixed(1)}% of steady roll at 50 ms`
+);
+assert(
+  turnInFractions.at100ms.travel > 0.12 && turnInFractions.at100ms.travel < 0.45,
+  `outside suspension should be actively loading, not settled, at 100 ms: ${(turnInFractions.at100ms.travel * 100).toFixed(1)}%`
+);
+assert(
+  turnInFractions.at100ms.roll > 0.20 && turnInFractions.at100ms.roll < 0.45,
+  `body should still be loading at 100 ms: ${(turnInFractions.at100ms.roll * 100).toFixed(1)}% of steady roll`
+);
+assert(
+  turnInFractions.at250ms.travel > 0.75 && turnInFractions.at250ms.travel < 1.25,
+  `outside suspension did not settle into a cornering attitude by 250 ms: ${(turnInFractions.at250ms.travel * 100).toFixed(1)}%`
+);
+assert(
+  turnInFractions.at250ms.roll > 0.80 && turnInFractions.at250ms.roll < 1.20,
+  `body did not settle into a controlled cornering attitude by 250 ms: ${(turnInFractions.at250ms.roll * 100).toFixed(1)}%`
+);
+
+// Release target is the reverse sequence: tire lateral force sheds first while the
+// already-loaded suspension and body unwind, then both settle without a snap-back.
+assert(
+  releaseFractions.at50ms.tire < 0.25 && releaseFractions.at50ms.travel > 0.70 && releaseFractions.at50ms.roll > 0.65,
+  `steering release sequence is wrong at 50 ms: tire=${releaseFractions.at50ms.tire.toFixed(2)} travel=${releaseFractions.at50ms.travel.toFixed(2)} roll=${releaseFractions.at50ms.roll.toFixed(2)}`
+);
+assert(
+  releaseFractions.at250ms.tire < 0.15 && releaseFractions.at250ms.travel < 0.20 && releaseFractions.at250ms.roll < 0.10,
+  `car did not unwind cleanly by 250 ms: tire=${releaseFractions.at250ms.tire.toFixed(2)} travel=${releaseFractions.at250ms.travel.toFixed(2)} roll=${releaseFractions.at250ms.roll.toFixed(2)}`
+);
+assert(finalReleaseRoll < steady.roll * 0.05, 'body retained roll after steering release');
+assert(maxReleaseRoll < steady.roll * 1.20, 'steering release produced an excessive roll spike');
 
 console.log(JSON.stringify({
   speedKmh: speedMs * 3.6,
@@ -179,5 +217,5 @@ console.log(JSON.stringify({
     maxRollDeg: maxReleaseRoll * 180 / Math.PI,
     finalRollDeg: finalReleaseRoll * 180 / Math.PI,
   },
-  status: 'diagnostic-passed',
+  status: 'passed',
 }, null, 2));
