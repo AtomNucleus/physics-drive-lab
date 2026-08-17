@@ -1,289 +1,156 @@
 # 2025 BMW M5 Validation Suite
 
-The M5 validation suite is the quantitative physics-regression loop for the G90 simulation.
+This is the quantitative physics-regression loop for the G90 M5 simulation. Its purpose is to measure whether the normal vehicle simulation produces defensible results under repeatable inputs—not to make tests pass by adding special behavior.
 
-Its job is not to make the vehicle look realistic. Its job is to measure whether the normal simulation produces defensible vehicle-dynamics results under repeatable inputs.
+## Non-negotiable rule
 
-## Rule: validation never drives the answer
+Validation may prescribe initial state, driver throttle/brake/steering, tire-state parameters already supported by the model, assists already supported by the model, and road geometry/material.
 
-Validation code may prescribe:
+Validation must never prescribe chassis pose/yaw, tire force, hidden grip, yaw damping, body-roll animation, acceleration/braking multipliers, test-specific steering inside the physics model, or invisible stability assistance.
 
-- initial position, heading and speed
-- throttle, brake and steering commands
-- road friction, grade, wetness and bump geometry
-- tire-state parameters already supported by the model
-- ABS/TCS mode selections already supported by the model
-
-Validation code must never prescribe:
-
-- chassis position or yaw during a maneuver
-- tire force
-- hidden grip
-- yaw damping
-- body-roll animation
-- acceleration/braking multipliers
-- test-specific steering corrections inside the physics model
-- invisible stability assistance
-
-The closed-loop skidpad driver adjusts only the driver's throttle, brake and steering command. It does not alter the vehicle state.
-
-## Run the full suite
+## Run the suite
 
 ```bash
 npm run test:m5-validation
 ```
 
-This runs the normal quantitative suite and exits non-zero only for blocking physics invariants/numerical failures. A mismatch with an external performance reference is still recorded as `FAIL`, but does not prevent the framework from generating the evidence needed to diagnose it.
+This always writes evidence to `artifacts/m5-validation/`. External benchmark failures remain in the report. Blocking physical invariants return a non-zero status after artifacts are generated.
 
-To make every `FAIL` return a non-zero process status:
+Strict mode makes any `FAIL` non-zero:
 
 ```bash
 npm run test:m5-validation:strict
 ```
 
-## List or run individual tests
+## Run individual tests
+
+Core deterministic tests:
 
 ```bash
-npm run test:m5-validation:list
 npx tsx src/physics/validation/M5ValidationSuite.ts --test=acceleration
-npx tsx src/physics/validation/M5ValidationSuite.ts --test=skidpad,step-steer
+npx tsx src/physics/validation/M5ValidationSuite.ts --test=determinism,static-loads,mass-properties-moments
+npx tsx src/physics/validation/M5ValidationSuite.ts --test=rapid-reversal,slalom,lift-throttle
 ```
 
-Available test IDs:
+Hardened maneuver tests:
 
-- `determinism`
-- `static-loads`
-- `mass-properties-moments`
-- `acceleration`
-- `braking`
-- `skidpad`
-- `step-steer`
-- `rapid-reversal`
-- `slalom`
-- `bump-response`
-- `lift-throttle`
-- `energy-sanity`
-
-## Artifacts
-
-By default the suite writes to:
-
-```text
-artifacts/m5-validation/
+```bash
+npx tsx src/physics/validation/M5ValidationIndividual.ts --test=braking
+npx tsx src/physics/validation/M5ValidationIndividual.ts --test=skidpad
+npx tsx src/physics/validation/M5ValidationIndividual.ts --test=step-steer
+npx tsx src/physics/validation/M5ValidationIndividual.ts --test=bump-response
+npx tsx src/physics/validation/M5ValidationIndividual.ts --test=energy-sanity
 ```
 
-Key outputs:
+List the hardened IDs:
 
-- `m5-validation-report.json` — machine-readable complete report
+```bash
+npx tsx src/physics/validation/M5ValidationIndividual.ts --list
+```
+
+## Outputs
+
+The full run creates:
+
+- `m5-validation-report.json` — complete machine-readable report
 - `m5-validation-report.md` — human-readable report
-- `m5-validation-metrics.csv` — flattened metric/status table
-- `telemetry/*.csv` — per-test 120 Hz telemetry
-- `skidpad-sweep.csv` — steady-state radius/G/load/slip sweep
-- `acceleration-speed.svg`
-- `acceleration-loads.svg`
-- `braking-100kmh.svg`
-- `skidpad-steering-vs-lateral-g.svg`
-- `step-steer-80kmh.svg`
-- `bump-response.svg`
+- `m5-validation-metrics.csv` — flattened metrics/status table
+- `telemetry/*.csv` — 120 Hz per-test telemetry
+- `skidpad-sweep.csv` — fixed-radius speed/G/load/slip sweep
+- SVG plots for acceleration, braking, skidpad, step steer and bump response
 
-Choose another directory with:
+CI uploads the whole directory as the `m5-validation-suite` artifact even when a blocking test fails.
 
-```bash
-npx tsx src/physics/validation/M5ValidationSuite.ts --artifacts=artifacts/my-run
-```
+## Regression comparison
 
-## Before/after regression comparison
-
-Run a new suite against a previously saved JSON report:
+A saved report can be supplied as a baseline:
 
 ```bash
-npx tsx src/physics/validation/M5ValidationSuite.ts \
+npx tsx src/physics/validation/M5ValidationRunner.ts \
+  --base=artifacts/m5-validation/base \
   --baseline=artifacts/baselines/m5-validation-report.json
 ```
 
-The new report includes percentage deltas for matching numeric metrics. The baseline is descriptive evidence, not permission to preserve wrong physics. A known-good internal regression can protect behavior while real-world references remain unavailable, but an external mismatch should still be investigated.
+The report emits before/after deltas for matching numeric metrics. A baseline protects regressions; it never overrides a real-world mismatch.
 
-## What is measured now
+## What is measured
 
-### Deterministic harness
+### Harness and environment
 
-- fixed 120 Hz timestep
-- automatic reset and settling
-- identical scripted input replay
-- configurable friction, grade, wetness, split-μ and bump profiles
+- fixed 120 Hz timestep and automatic reset/settle
+- deterministic replay
+- configurable friction, grade, wetness, split-μ and smooth bump profiles
 - tire temperature/pressure/wear hooks
 - ABS/TCS mode hooks
 
-### Vehicle and chassis
+### Vehicle/chassis
 
-- position and world/body velocity
-- body-local acceleration
-- lateral/longitudinal/vertical G
-- yaw/pitch/roll
-- yaw/pitch/roll rate and angular acceleration
+- position and body/world velocity
+- raw and filtered acceleration
+- yaw/pitch/roll, rates and angular acceleration
 - sideslip
 - gear/RPM and assist activity
 
-### Controls / steering
+### Four wheels
 
-- throttle, brake and normalized steering command
-- all four road-wheel angles
-- steering-wheel angle when a physical steering model exposes it
-- rack position when a physical steering model exposes it
-
-PR #27 does not yet contain the separate physical steering-rack PR. On that base, steering-wheel angle is explicitly labeled `derived-overall-ratio` using BMW's published 14.2:1 overall ratio, and rack position remains null. The derived angle must not be presented as simulated rack telemetry.
-
-### Four wheels (FL, FR, RL, RR)
-
-- Fz / Fx / Fy
-- slip angle and slip ratio
-- wheel angular velocity and wheel speed
-- suspension displacement, velocity and compression
-- spring, damper, bump-stop and anti-roll-bar forces
-- camber and toe when available
-- road-wheel steer angle
-- contact state
-- aligning moment / pneumatic trail
-- temperature / pressure / wear
-- local surface friction
-- grip utilization
-
-## Current engineering tests
-
-### Static axle loading
-
-Checks:
-
-- `ΣFz ≈ mg`
-- configured front/rear distribution
-- left/right static symmetry
-- residual speed at rest
+FL/FR/RL/RR telemetry includes Fz/Fx/Fy, slip angle/ratio, omega, steering, suspension displacement/velocity, actual unsprung hub position/velocity/acceleration, spring/damper/bump-stop/hard-stop/ARB forces, chassis-side suspension reaction, tire normal load, camber, aligning moment, pneumatic trail, grip utilization, temperature, pressure, wear and contact state.
 
 ### CG / inertia / moment closure
 
-Checks the analytical rigid-body invariant:
+The suite checks static axle distribution and the rigid-body relation:
 
 ```text
 τ = r × F
 α = I⁻¹(τ − ω × Iω)
 ```
 
-and also reconstructs live tire/contact yaw moment during an 80 km/h steering transient. This is intended to catch a bad CG origin, force arm, coordinate transform or inertia tensor before anyone tries to tune grip.
+It reconstructs live tire/contact yaw moment and compares it with measured chassis angular acceleration.
 
 ### Acceleration
 
-Measures:
-
-- 0–30 km/h
-- 0–50 km/h
-- true-start 0–60 mph
-- 0–100 km/h
-- 0–120 km/h
-- quarter mile and trap speed
-- peak longitudinal G
-- wheel slip
-- pitch and tire loads
-
-Launch uses the normal launch-control, powertrain, differential, tire and TCS paths.
+Measures 0–30/50/100/120 km/h, true-start 0–60 mph, quarter mile/trap, longitudinal G, pitch, slip and wheel loads through the normal launch-control/powertrain/differential/tire/TCS path.
 
 ### Braking
 
-Measures:
+Runs 100–0 km/h, 70–0 mph and 100–0 mph after first accelerating through the normal driveline. A stopping distance is only emitted if the vehicle actually reaches ≤1 km/h. Failure to stop under full brake is a blocking physics invariant, not a distance benchmark.
 
-- 100–0 km/h
-- 70–0 mph
-- 100–0 mph
-- stopping time
-- peak/average deceleration
-- ABS activity
-- wheel slip/load transfer
-- pitch
+### Skidpad / roll / understeer
 
-### Skidpad / understeer / roll
+The authoritative external comparison uses a 45.72 m radius, matching Car and Driver's 300-ft-diameter skidpad. A point counts only if the scripted driver holds speed and radius within ±8% and sideslip stays below 8°. The framework also supports the requested 20/30/50/100 m radius architecture.
 
-Runs 20 m, 30 m, 45.72 m, 50 m and 100 m radii. The 45.72 m radius corresponds to Car and Driver's 300-ft diameter skidpad.
-
-Measures:
-
-- steady lateral G
-- actual radius
-- speed
-- road-wheel steering demand
-- estimated/simulated steering-wheel demand
-- yaw rate and sideslip
-- roll
-- individual Fz/Fy/slip angle
-- road-wheel understeer gradient
-- roll gradient
-
-Only peak skidpad G currently has a direct real-world G90 reference in the suite. Understeer and roll gradient remain `REFERENCE DATA NEEDED`.
+Outputs include lateral G, radius, road-wheel steering demand, estimated steering-wheel demand, yaw, sideslip, roll, individual loads/forces/slips, roll gradient and understeer gradient.
 
 ### Step steer
 
-Runs at 30, 50, 80 and 100 km/h and measures:
+Runs 30/50/80/100 km/h and measures steering/slip/yaw onset, 10–90% yaw rise, overshoot, settling time and yaw-rate gain. The PR #27 base does not yet include PR #26's physical steering rack, so rack inertia is not fabricated; road-wheel/tire/chassis response is measured and rack fields remain unavailable/derived where explicitly labelled.
 
-- steering response onset
-- tire-slip onset
-- yaw-response delay
-- 10–90% yaw rise time
-- yaw overshoot
-- settling time after release
-- yaw-rate gain
-- tire loads / roll / lateral G
+### Rapid reversal / slalom
 
-The required causal order is steering → tire slip/force → chassis yaw/load transfer/roll, not instant body rotation.
-
-### Rapid reversal and slalom
-
-Exercises load reversal, suspension travel, tire-force sign changes and numerical stability without hidden ESC or yaw damping.
+Exercises repeated force/load reversal and numerical stability without hidden ESC or yaw damping. Slalom spacings are 18/22/30 m.
 
 ### Bump / unsprung response
 
-Uses a smooth raised-cosine road bump and supports left-wheel and full-width profiles. Separate starting positions allow a front or rear axle encounter without forcing the other axle onto the bump first.
-
-Estimates:
-
-- wheel-hop frequency
-- body-heave frequency
-- wheel-response time
-- chassis-response time
-
-The qualitative invariant is road → wheel/unsprung mass → spring/damper → chassis.
+Uses single-wheel and full-width smooth road bumps. Telemetry contains actual unsprung hub state plus tire-normal and suspension chassis-force reactions. If wheel-to-chassis timing cannot be separated at the 120 Hz sample resolution, the result is a `WARNING`, not a false pass.
 
 ### Lift-off / throttle-on
 
-Records natural yaw/load/slip redistribution on lift and combined-slip behavior when power is added in a corner. No lift-off oversteer is forced.
+Records natural load/slip/yaw redistribution and combined-slip behavior. No lift-off oversteer is forced.
 
-### Energy and low-speed sanity
+### Energy / low-speed sanity
 
-Guards against:
-
-- no-throttle coasting gaining kinetic energy
-- the historical low-speed turn acceleration bug
-- steering at rest creating spontaneous yaw or vehicle motion
-- NaN/Infinity
-- force on an airborne tire
-- negative Fz
-- extreme suspension travel/velocity
-- unbounded angular velocity
+Checks kinetic energy every physics step while coasting, reproduces the historical no-throttle low-speed turning case, and checks steering at rest for spontaneous speed/yaw.
 
 ## Reference hierarchy
 
-Reference data lives in `src/physics/validation/M5ReferenceData.ts`, separate from test logic.
+Reference data lives separately in `src/physics/validation/M5ReferenceData.ts`.
 
-The report distinguishes:
-
-- `hard` — direct external measurement/specification
-- `engineering-plausibility` — derived or literature-supported expectation
+- `hard` — direct BMW or instrumented numerical source
+- `engineering-plausibility` — derived/literature-supported expectation
 - `internal-regression` — deterministic behavior protected while external data is missing
 
-If a direct value is unavailable, the result must say `NO REFERENCE DATA` / `REFERENCE DATA NEEDED`.
-
-Current external anchors are BMW Group PressClub and Car and Driver instrumented results. Missing G90 data includes understeer gradient, roll gradient, step-steer/yaw response, dynamic wheel loads, suspension travel versus G, pitch gradient, wheel-hop/heave frequencies and lift/throttle transient telemetry.
+Unknown G90 values stay `NO REFERENCE DATA` / `REFERENCE DATA NEEDED`; they are never invented to make the report look complete.
 
 ## Development loop
-
-Use this sequence for physics work:
 
 ```text
 real-world measurement
@@ -294,4 +161,4 @@ real-world measurement
 → regression comparison
 ```
 
-Do not change a coefficient simply because a metric is red. First inspect the causal chain that produced it.
+Do not change a coefficient merely because a metric is red. First determine which part of the causal chain is wrong.
