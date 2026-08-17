@@ -9,6 +9,7 @@ import { updateDigitalSteeringInput } from '../DigitalSteeringInput';
 const DT = 1 / 120;
 const START_SPEED_MS = 30 / 3.6;
 const DEG = 180 / Math.PI;
+const FREE_ROLL_SWITCH_MS = 2.6;
 
 const zeroInputs: ControlInputs = {
   throttle: 0,
@@ -100,7 +101,8 @@ function runCorner(label: string, steerProvider: SteerProvider, durationSec: num
 
 function runTenKmhFullLockDiagnostic() {
   const sim = makeRollingM5(10 / 3.6);
-  const settleSteps = Math.round(0.75 / DT);
+  const transientWindowSteps = Math.round(0.75 / DT);
+  const steadyWindowStart = Math.round(2.0 / DT);
   const totalSteps = Math.round(4.0 / DT);
 
   let entrySpeedKmh = 0;
@@ -119,6 +121,22 @@ function runTenKmhFullLockDiagnostic() {
   const damperVelocityPeak = [0, 0, 0, 0];
   const airborneToggles = [0, 0, 0, 0];
   const previousAirborne = [false, false, false, false];
+
+  let steadyHeaveMin = Infinity;
+  let steadyHeaveMax = -Infinity;
+  let steadyRollMin = Infinity;
+  let steadyRollMax = -Infinity;
+  let steadyRollRatePeakDegS = 0;
+  const steadyTravelMin = [Infinity, Infinity, Infinity, Infinity];
+  const steadyTravelMax = [-Infinity, -Infinity, -Infinity, -Infinity];
+  const steadyLoadMin = [Infinity, Infinity, Infinity, Infinity];
+  const steadyLoadMax = [-Infinity, -Infinity, -Infinity, -Infinity];
+  const freeRollBoundaryCrossings = [0, 0, 0, 0];
+  const previousBoundarySide = [0, 0, 0, 0];
+  const longitudinalForceSignFlips = [0, 0, 0, 0];
+  const previousLongForceSign = [0, 0, 0, 0];
+  let steadyRollRateReversals = 0;
+  let previousRollRateSign = 0;
   let heaveVelocityReversals = 0;
   let previousHeaveVelocitySign = 0;
 
@@ -127,13 +145,32 @@ function runTenKmhFullLockDiagnostic() {
     if (step === 0) entrySpeedKmh = state.speedKmh;
     finalSpeedKmh = state.speedKmh;
 
+    const hardpoints = sim.vehicle.getHardpointsBody();
     for (let i = 0; i < 4; i++) {
       const airborne = state.wheels[i].isAirborne;
       if (step > 0 && airborne !== previousAirborne[i]) airborneToggles[i]++;
       previousAirborne[i] = airborne;
+
+      const hp = hardpoints[i];
+      const contactPointBody = { x: hp.x, y: -config.centerOfGravityHeight, z: hp.z };
+      const pointVelocity = sim.vehicle.rigidBody.getPointVelocityBody(contactPointBody);
+      const steer = state.wheels[i].steerAngle;
+      const wheelLongitudinalSpeed = pointVelocity.x * Math.sin(steer) + pointVelocity.z * Math.cos(steer);
+      const boundarySide = Math.abs(wheelLongitudinalSpeed) < FREE_ROLL_SWITCH_MS ? -1 : 1;
+      if (previousBoundarySide[i] !== 0 && boundarySide !== previousBoundarySide[i]) {
+        freeRollBoundaryCrossings[i]++;
+      }
+      previousBoundarySide[i] = boundarySide;
+
+      const fx = state.wheels[i].forceVectorLong;
+      const forceSign = Math.abs(fx) > 80 ? Math.sign(fx) : 0;
+      if (forceSign !== 0 && previousLongForceSign[i] !== 0 && forceSign !== previousLongForceSign[i]) {
+        longitudinalForceSignFlips[i]++;
+      }
+      if (forceSign !== 0) previousLongForceSign[i] = forceSign;
     }
 
-    if (step < settleSteps) continue;
+    if (step < transientWindowSteps) continue;
 
     heaveMin = Math.min(heaveMin, state.heave);
     heaveMax = Math.max(heaveMax, state.heave);
@@ -144,11 +181,7 @@ function runTenKmhFullLockDiagnostic() {
     verticalGMax = Math.max(verticalGMax, state.verticalG);
 
     const heaveVelocitySign = Math.abs(state.vy) > 0.006 ? Math.sign(state.vy) : 0;
-    if (
-      heaveVelocitySign !== 0 &&
-      previousHeaveVelocitySign !== 0 &&
-      heaveVelocitySign !== previousHeaveVelocitySign
-    ) {
+    if (heaveVelocitySign !== 0 && previousHeaveVelocitySign !== 0 && heaveVelocitySign !== previousHeaveVelocitySign) {
       heaveVelocityReversals++;
     }
     if (heaveVelocitySign !== 0) previousHeaveVelocitySign = heaveVelocitySign;
@@ -160,6 +193,27 @@ function runTenKmhFullLockDiagnostic() {
       loadMin[i] = Math.min(loadMin[i], wheel.forceVectorNorm);
       loadMax[i] = Math.max(loadMax[i], wheel.forceVectorNorm);
       damperVelocityPeak[i] = Math.max(damperVelocityPeak[i], Math.abs(wheel.damperVelocity));
+    }
+
+    if (step < steadyWindowStart) continue;
+
+    steadyHeaveMin = Math.min(steadyHeaveMin, state.heave);
+    steadyHeaveMax = Math.max(steadyHeaveMax, state.heave);
+    steadyRollMin = Math.min(steadyRollMin, state.roll);
+    steadyRollMax = Math.max(steadyRollMax, state.roll);
+    steadyRollRatePeakDegS = Math.max(steadyRollRatePeakDegS, Math.abs(state.rollRate) * DEG);
+    const rollRateSign = Math.abs(state.rollRate) > 0.01 ? Math.sign(state.rollRate) : 0;
+    if (rollRateSign !== 0 && previousRollRateSign !== 0 && rollRateSign !== previousRollRateSign) {
+      steadyRollRateReversals++;
+    }
+    if (rollRateSign !== 0) previousRollRateSign = rollRateSign;
+
+    for (let i = 0; i < 4; i++) {
+      const wheel = state.wheels[i];
+      steadyTravelMin[i] = Math.min(steadyTravelMin[i], wheel.verticalTravelM);
+      steadyTravelMax[i] = Math.max(steadyTravelMax[i], wheel.verticalTravelM);
+      steadyLoadMin[i] = Math.min(steadyLoadMin[i], wheel.forceVectorNorm);
+      steadyLoadMax[i] = Math.max(steadyLoadMax[i], wheel.forceVectorNorm);
     }
   }
 
@@ -176,18 +230,20 @@ function runTenKmhFullLockDiagnostic() {
     damperVelocityPeakMps: damperVelocityPeak,
     airborneToggles,
     heaveVelocityReversals,
+    steady: {
+      heavePeakToPeakMm: (steadyHeaveMax - steadyHeaveMin) * 1000,
+      rollPeakToPeakDeg: (steadyRollMax - steadyRollMin) * DEG,
+      rollRatePeakDegS: steadyRollRatePeakDegS,
+      rollRateReversals: steadyRollRateReversals,
+      wheelTravelPeakToPeakMm: steadyTravelMax.map((max, i) => (max - steadyTravelMin[i]) * 1000),
+      tireLoadPeakToPeakN: steadyLoadMax.map((max, i) => max - steadyLoadMin[i]),
+    },
+    freeRollBoundaryCrossings,
+    longitudinalForceSignFlips,
   };
 }
 
-// With the physical rack no longer shrinking at speed, 40% input produces roughly
-// the same ~13-degree road-wheel angle that the old 45% speed-capped case exercised.
-// Keep this as the ordinary tight-road-turn handling check; it should stay below
-// gross front sliding and build the expected yaw without relying on a hidden cap.
 const moderate = runCorner('moderate-raw', () => 0.40, 2.0);
-
-// Full steering is intentionally also visible. A simulator must allow the driver
-// to over-command the front tires; it must not silently cap steering to protect
-// them from understeer.
 const rawFullDigital = runCorner('raw-full-digital', () => 1.0, 1.2);
 
 let digitalInput = 0;
@@ -215,7 +271,6 @@ assert(moderate.peakFrontSlipDeg < 9.0, `moderate corner gross-slid front tires:
 assert(moderate.frontSkidSamples === 0, `moderate corner emitted front skid state for ${moderate.frontSkidSamples} samples`);
 assert(moderate.meanYawResponseRatio > 0.62, `moderate corner yaw response too low: ${moderate.meanYawResponseRatio.toFixed(3)}`);
 assert(moderate.peakRearSlipDeg < 9.0, `moderate corner gross-slid rear tires: ${moderate.peakRearSlipDeg.toFixed(2)} deg`);
-
 assert(heldDigital.peakSteerInput > 0.99, `held digital steering must preserve full authority, got ${heldDigital.peakSteerInput.toFixed(3)}`);
 assert(heldDigital.peakFrontSlipDeg < 30, `held full steering became numerically unstable: ${heldDigital.peakFrontSlipDeg.toFixed(2)} deg`);
 assert(heldDigital.meanYawResponseRatio > 0.55, `held full steering lost plausible yaw response: ${heldDigital.meanYawResponseRatio.toFixed(3)}`);
