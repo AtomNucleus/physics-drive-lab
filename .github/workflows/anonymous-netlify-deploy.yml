@@ -1,16 +1,16 @@
 name: Anonymous Netlify Deploy
-# temporary safe-result M5 physical oversteer preview
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
-      - agent/m5-transient-behavior
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
@@ -23,21 +23,4 @@ jobs:
       - run: npm install
       - run: npm run build
       - name: Deploy anonymously to Netlify
-        shell: bash
-        run: |
-          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('/tmp/netlify.json', 'utf8'));
-          const safe = {
-            site_url: data.site_url,
-            deploy_id: data.deploy_id,
-            password: data.password || null
-          };
-          fs.writeFileSync('.ci-netlify-preview.json', JSON.stringify(safe, null, 2) + '\n');
-          NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-netlify-preview.json
-          git commit -m "Record safe Netlify preview result"
-          git push origin HEAD:agent/m5-transient-behavior
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
