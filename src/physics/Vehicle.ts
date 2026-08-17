@@ -10,6 +10,10 @@ import { DriverAidsSystem } from './DriverAids';
 import { AerodynamicsSystem } from './Aero';
 import { TelemetrySystem } from './Telemetry';
 import { ISurfaceProvider, ProvingGroundSurfaceProvider } from './SurfaceProvider';
+import {
+  ChassisMassProperties,
+  deriveChassisMassProperties,
+} from './ChassisMassProperties';
 
 export function projectTireShearOntoSurface(forceWorld: Vec3, surfaceNormal: Vec3): Vec3 {
   const normal = PhysicsMath.vec3Normalize(surfaceNormal);
@@ -28,6 +32,7 @@ export function wheelContactAuthorityForUprightness(uprightness: number): number
 export class Vehicle {
   public config: VehicleConfig;
   public rigidBody: RigidBody;
+  public chassisMassProperties: ChassisMassProperties;
   public suspension: SuspensionSystem;
   public wheels: [WheelDynamics, WheelDynamics, WheelDynamics, WheelDynamics];
   public powertrain: Powertrain;
@@ -52,35 +57,19 @@ export class Vehicle {
     this.config = { ...config };
     this.surfaceProvider = surfaceProvider || new ProvingGroundSurfaceProvider();
 
-    // 1. Calculate Moments of Inertia from mass, wheelbase, track width, and CG height.
-    // Body axes in this simulation are X=lateral (pitch axis), Y=vertical (yaw axis),
-    // Z=longitudinal (roll axis). Keep the principal inertias aligned to those axes.
-    const m = this.config.mass;
-    const L = this.config.wheelbase;
-    const W = this.config.trackWidth;
+    // 1. Build a physical chassis mass model. The rigid-body origin is the actual
+    // center of gravity, and the principal inertias are derived from mass second
+    // moments rather than arbitrary per-axis multipliers.
+    this.chassisMassProperties = deriveChassisMassProperties(this.config as any);
     const H = this.config.centerOfGravityHeight;
-
-    // Approximate sprung chassis as a cuboid for pitch/roll. Yaw is different: using
-    // wheelbase as though it were the complete body length substantially underestimates
-    // the inertia of a long, heavy road car. A standard passenger-car approximation is
-    // Iyy ~= m * lf * lr, where lf/lr are CG-to-axle distances. It preserves the real
-    // effect of both wheelbase and static weight distribution without inventing an
-    // arbitrary yaw damping term. For a 54.5/45.5 G90 M5 this is ~5.33e3 kg*m^2 rather
-    // than the previous ~2.58e3 kg*m^2, so once the rear breaks loose the chassis carries
-    // realistic rotational momentum and the driver must catch/unwind it physically.
-    const frontAxleDistance = L * (1.0 - this.config.weightDistributionFront);
-    const rearAxleDistance = L * this.config.weightDistributionFront;
-    const Ixx = (m / 12) * (L * L + H * H) * 1.5; // Pitch inertia
-    const Iyy = m * frontAxleDistance * rearAxleDistance; // Yaw inertia
-    const Izz = (m / 12) * (W * W + H * H) * 1.6; // Roll inertia
 
     this.rigidBody = new RigidBody(
       {
-        mass: m,
-        inertia: PhysicsMath.vec3(Ixx, Iyy, Izz),
+        mass: this.chassisMassProperties.mass,
+        inertia: PhysicsMath.vec3Clone(this.chassisMassProperties.inertia),
         centerOfGravityHeight: H,
       },
-      PhysicsMath.vec3(0, H + 0.35, 0),
+      PhysicsMath.vec3(0, H, 0),
       0
     );
 
@@ -175,7 +164,7 @@ export class Vehicle {
       absMode: this.config.absMode,
       tcsMode: this.config.tcsMode,
       wheelbase: this.config.wheelbase,
-      trackWidth: this.config.trackWidth,
+      trackWidth: this.chassisMassProperties.frontTrack,
       ackermannRatio: this.config.ackermannRatio,
       maxSteerAngle: this.config.maxSteerAngle,
       steerSpeed: this.config.steerSpeed,
@@ -208,6 +197,13 @@ export class Vehicle {
 
   public setConfig(newConfig: VehicleConfig) {
     this.config = { ...newConfig };
+    this.chassisMassProperties = deriveChassisMassProperties(this.config as any);
+    this.rigidBody.config = {
+      mass: this.chassisMassProperties.mass,
+      inertia: PhysicsMath.vec3Clone(this.chassisMassProperties.inertia),
+      centerOfGravityHeight: newConfig.centerOfGravityHeight,
+    };
+
     this.powertrain.config = {
       maxTorque: newConfig.maxTorque,
       idleRpm: newConfig.idleRpm,
@@ -255,7 +251,7 @@ export class Vehicle {
       absMode: newConfig.absMode,
       tcsMode: newConfig.tcsMode,
       wheelbase: newConfig.wheelbase,
-      trackWidth: newConfig.trackWidth,
+      trackWidth: this.chassisMassProperties.frontTrack,
       ackermannRatio: newConfig.ackermannRatio,
       maxSteerAngle: newConfig.maxSteerAngle,
       steerSpeed: newConfig.steerSpeed,
@@ -304,7 +300,9 @@ export class Vehicle {
 
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
     const H = this.config.centerOfGravityHeight;
-    this.rigidBody.position = PhysicsMath.vec3(x, H + 0.35, z);
+    // RigidBody.position is the physical center of gravity, not a visual or
+    // suspension reference point.
+    this.rigidBody.position = PhysicsMath.vec3(x, H, z);
     this.rigidBody.velocity = PhysicsMath.vec3(0, 0, 0);
     this.rigidBody.angularVelocity = PhysicsMath.vec3(0, 0, 0);
     this.rigidBody.orientation = PhysicsMath.quatFromEuler(0, yaw, 0);
@@ -330,20 +328,26 @@ export class Vehicle {
   }
 
   /**
-   * Get 4 suspension top-mount hardpoints in body local space
+   * Get 4 suspension top-mount hardpoints relative to the physical CG.
    */
   public getHardpointsBody(): [Vec3, Vec3, Vec3, Vec3] {
-    const W = this.config.trackWidth * 0.5;
-    const L = this.config.wheelbase;
-    const frontDist = L * (1.0 - this.config.weightDistributionFront);
-    const rearDist = L * this.config.weightDistributionFront;
+    const frontHalfTrack = this.chassisMassProperties.frontTrack * 0.5;
+    const rearHalfTrack = this.chassisMassProperties.rearTrack * 0.5;
+    const frontDist = this.chassisMassProperties.cgToFrontAxle;
+    const rearDist = this.chassisMassProperties.cgToRearAxle;
+    // The former rigid-body origin was this pickup plane, 0.35 m above the CG.
+    // Keep the physical top-mount height while expressing it correctly about the CG.
+    const pickupHeightAboveCg = Math.max(
+      0,
+      Number((this.config as any).suspensionPickupHeightAboveCg ?? 0.35)
+    );
 
     // +X is vehicle-left in the right-handed (+X left, +Y up, +Z forward) body frame.
     return [
-      PhysicsMath.vec3(W, 0, frontDist),  // FL
-      PhysicsMath.vec3(-W, 0, frontDist), // FR
-      PhysicsMath.vec3(W, 0, -rearDist),  // RL
-      PhysicsMath.vec3(-W, 0, -rearDist), // RR
+      PhysicsMath.vec3(frontHalfTrack, pickupHeightAboveCg, frontDist),  // FL
+      PhysicsMath.vec3(-frontHalfTrack, pickupHeightAboveCg, frontDist), // FR
+      PhysicsMath.vec3(rearHalfTrack, pickupHeightAboveCg, -rearDist),  // RL
+      PhysicsMath.vec3(-rearHalfTrack, pickupHeightAboveCg, -rearDist), // RR
     ];
   }
 
@@ -525,8 +529,14 @@ export class Vehicle {
       const suspState = this.suspension.states[i];
       const hpBody = hardpointsBody[i];
 
-      // Ground velocity at wheel contact patch expressed in body coords
-      const contactPointBody = PhysicsMath.vec3(hpBody.x, -this.config.centerOfGravityHeight, hpBody.z);
+      // Ground velocity at wheel contact patch expressed in body coords. The point
+      // is now genuinely relative to the physical CG, so chassis yaw/roll/pitch
+      // velocity feeds directly back into tire slip at each corner.
+      const contactPointBody = PhysicsMath.vec3(
+        hpBody.x,
+        -this.config.centerOfGravityHeight,
+        hpBody.z
+      );
       const vContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
 
       // Rotate velocity into wheel heading coordinate frame (steer angle about Y)
@@ -593,18 +603,10 @@ export class Vehicle {
         );
         const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
 
-        // The rigid-body translation reference is the suspension-pickup plane,
-        // 0.35 m above the configured physical CG. Apply the same linear contact
-        // force, but evaluate its roll/pitch moment about a point shifted upward by
-        // that reference-to-CG offset. This gives tire shear the configured 0.52 m
-        // ground-to-CG lever arm instead of the accidental ~0.87 m lever arm that
-        // previously exaggerated high-speed load transfer and body roll.
-        const contactMomentPointWorld = PhysicsMath.vec3(
-          contactWorld.x,
-          contactWorld.y + 0.35,
-          contactWorld.z
-        );
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactMomentPointWorld);
+        // Apply the complete road reaction at the actual contact patch. RigidBody's
+        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
+        // around the physical mass center with no artificial yaw/roll/pitch force.
+        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
@@ -741,8 +743,8 @@ export class Vehicle {
       yaw: euler.yaw,
       pitch: euler.pitch * this.config.bodyPitchMultiplier,
       roll: euler.roll * this.config.bodyRollMultiplier,
-      // Heave is suspension/body motion relative to the local road, not world altitude.
-      heave: pos.y - cgSurface.elevation - (this.config.centerOfGravityHeight + 0.35),
+      // Heave is CG motion relative to the local road, not world altitude.
+      heave: pos.y - cgSurface.elevation - this.config.centerOfGravityHeight,
       vx: localVel.x,
       vy: localVel.y,
       vz: localVel.z,
