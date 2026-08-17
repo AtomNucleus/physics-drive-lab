@@ -73,6 +73,19 @@ jobs:
             artifacts/m5-chassis-steering-step.svg
           if-no-files-found: error
 
+      - name: M5 quantitative validation suite
+        id: m5_validation
+        continue-on-error: true
+        run: npm run test:m5-validation
+
+      - name: Upload M5 validation report and telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-validation-suite
+          path: artifacts/m5-validation/**
+          if-no-files-found: error
+
       - name: M5 driver-controlled oversteer recovery regression
         run: npm run test:m5-oversteer
 
@@ -84,3 +97,10 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+      - name: Enforce M5 validation blocking invariants
+        if: always() && steps.m5_validation.outcome == 'failure'
+        run: |
+          echo "M5 validation suite reported a blocking physics invariant failure."
+          echo "Download the m5-validation-suite artifact for the report, telemetry and graphs."
+          exit 1
