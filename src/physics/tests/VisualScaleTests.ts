@@ -121,7 +121,8 @@ assert(minDiameterCarLengths > 7.8 && minDiameterCarLengths < 7.9, `20 m radius 
 assert(maxDiameterCarLengths > 9.0 && maxDiameterCarLengths < 9.1, `23 m radius scale ratio invalid: ${maxDiameterCarLengths}`);
 
 // Measure the real bundled asset bytes, then pass those measured dimensions through
-// the same body-scale normalization used at runtime.
+// the same body-scale guard used at runtime. The compact G90 is already within 7 mm
+// of the 5.096 m reference, so the guard should verify it without a needless rescale.
 const bundledBounds = readBundledM5Bounds();
 assert(bundledBounds.lengthM > 3.5 && bundledBounds.lengthM < 7, `bundled M5 length is implausible: ${bundledBounds.lengthM}`);
 assert(bundledBounds.widthM > 1.5 && bundledBounds.widthM < 3, `bundled M5 width is implausible: ${bundledBounds.widthM}`);
@@ -131,7 +132,10 @@ measuredM5.add(new THREE.Mesh(
   new THREE.MeshBasicMaterial()
 ));
 const scaleReport = fitM5VisualToRealScale(measuredM5);
-approx(scaleReport.finalLengthM, BMW_M5_G90_LENGTH_M, 1e-6, 'normalized bundled M5 body length');
+const bodyLengthErrorM = Math.abs(scaleReport.finalLengthM - BMW_M5_G90_LENGTH_M);
+const bodyLengthErrorPercent = (bodyLengthErrorM / BMW_M5_G90_LENGTH_M) * 100;
+assert(bodyLengthErrorM <= 0.01, `bundled M5 body-scale error exceeds 10 mm: ${bodyLengthErrorM} m`);
+approx(scaleReport.appliedScale, 1, 1e-12, 'already-correct bundled M5 should not be rescaled');
 
 console.log(JSON.stringify({
   speedKmh,
@@ -150,7 +154,9 @@ console.log(JSON.stringify({
     turnDiameterCarLengths: [minDiameterCarLengths, maxDiameterCarLengths],
     bundledM5SourceBoundsM: bundledBounds,
     bundledM5AppliedScale: scaleReport.appliedScale,
-    normalizedBodyLengthM: scaleReport.finalLengthM,
+    bundledM5BodyLengthErrorM: bodyLengthErrorM,
+    bundledM5BodyLengthErrorPercent: bodyLengthErrorPercent,
+    verifiedBodyLengthM: scaleReport.finalLengthM,
   },
   status: 'passed',
 }, null, 2));
