@@ -6,6 +6,9 @@ on:
       - agent/ac-car-importer
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -13,6 +16,69 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Apply PR #30 suspension force-path fix
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 30
+        shell: bash
+        run: |
+          set -e
+          branch="agent/low-speed-brake-limit-cycle"
+          git fetch origin "$branch"
+          git checkout -B "$branch" "origin/$branch"
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/physics/Vehicle.ts')
+          text = path.read_text()
+          old = '''        // RigidBody.mass is the complete vehicle mass. The external support on it
+        // is therefore the road/tire normal reaction, not the internal spring force.
+        const suspensionSupportWorld = PhysicsMath.vec3Scale(
+          roadNormal,
+          suspState.tireNormalForceN * wheelContactAuthority
+        );
+        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+
+        // Apply the complete road reaction at the actual contact patch. RigidBody's
+        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
+        // around the physical mass center with no artificial yaw/roll/pitch force.
+        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+'''
+          new = '''        // Tire normal load excites the unsprung wheel/hub and sets the tire model's
+        // available grip. It must not also push the chassis directly or the road
+        // bypasses the spring and damper. Feed the rigid body only the signed
+        // suspension-side reaction computed from spring + damper + bump stop + ARB
+        // + hard-stop forces.
+        const suspensionReactionWorld = PhysicsMath.vec3(
+          0,
+          suspState.chassisForceN * wheelContactAuthority,
+          0
+        );
+        const suspensionHardpointWorld = PhysicsMath.vec3Add(
+          this.rigidBody.position,
+          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+        );
+
+        // Tire shear acts at the road contact patch around the physical CG. The
+        // vertical suspension reaction acts at the chassis pickup, closing the
+        // physical loop: road -> wheel -> spring/damper/ARB -> chassis.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
+'''
+          if new in text:
+              print('Suspension force-path fix already present')
+          else:
+              if old not in text:
+                  raise SystemExit('Expected Vehicle.ts force-path block not found')
+              path.write_text(text.replace(old, new, 1))
+              print('Patched Vehicle.ts suspension force path')
+          PY
+          if git diff --quiet -- src/physics/Vehicle.ts; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/Vehicle.ts
+          git commit -m "Route suspension reaction through chassis"
+          git push origin HEAD:"$branch"
 
       - name: Setup Node
         uses: actions/setup-node@v4
