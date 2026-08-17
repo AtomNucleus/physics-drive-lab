@@ -61,17 +61,18 @@ export class Simulation {
     this.suspensionKinematics.rebuild();
 
     // Rebuild rigid-body properties from the selected vehicle's actual mass and
-    // geometry. Presets are merged onto DEFAULT_VEHICLE_CONFIG in the UI, so using
-    // inherited explicit inertia numbers would make a 2050 kg luxury sedan retain
-    // the 1540 kg GT's rotational inertia. Geometry-derived values keep every preset
-    // dynamically consistent with its own physical dimensions and mass.
+    // geometry. Yaw uses the same axle/CG model as Vehicle construction. The old
+    // runtime path used the wheelbase as a cuboid body length, which could silently
+    // halve a long heavy sedan's yaw inertia after a preset or tuning change.
     const m = Math.max(1, newConfig.mass);
     const L = newConfig.wheelbase;
     const W = newConfig.trackWidth;
     const H = newConfig.centerOfGravityHeight;
+    const frontAxleDistance = L * (1.0 - newConfig.weightDistributionFront);
+    const rearAxleDistance = L * newConfig.weightDistributionFront;
 
     const pitchInertia = (m / 12) * (L * L + H * H) * 1.5;
-    const yawInertia = (m / 12) * (L * L + W * W) * 1.1;
+    const yawInertia = m * frontAxleDistance * rearAxleDistance;
     const rollInertia = (m / 12) * (W * W + H * H) * 1.6;
 
     this.vehicle.rigidBody.config = {
