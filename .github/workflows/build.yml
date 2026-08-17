@@ -101,6 +101,44 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Deploy PR #30 anonymously to Netlify
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 30
+        id: netlify_preview
+        shell: bash
+        run: |
+          mkdir -p artifacts/netlify-preview
+          set +e
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json 2> /tmp/netlify.err
+          status=$?
+          set -e
+          STATUS="$status" node - <<'NODE'
+          const fs = require('fs');
+          const status = Number(process.env.STATUS);
+          let result;
+          if (status === 0) {
+            const data = JSON.parse(fs.readFileSync('/tmp/netlify.json', 'utf8'));
+            result = {
+              status: 'success',
+              site_url: data.site_url || data.deploy_url || null,
+              deploy_id: data.deploy_id || null,
+              password: data.password || null
+            };
+          } else {
+            const stderr = fs.existsSync('/tmp/netlify.err') ? fs.readFileSync('/tmp/netlify.err', 'utf8').slice(-5000) : '';
+            result = { status: 'failure', exit_code: status, stderr };
+          }
+          fs.writeFileSync('artifacts/netlify-preview/result.json', JSON.stringify(result, null, 2) + '\n');
+          NODE
+          exit "$status"
+
+      - name: Upload PR #30 Netlify preview result
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.number == 30
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr30-netlify-preview
+          path: artifacts/netlify-preview/result.json
+          if-no-files-found: error
+
       - name: Enforce M5 validation blocking invariants
         if: always() && steps.m5_validation.outcome == 'failure'
         run: |
