@@ -68,17 +68,23 @@ function highPassRms(values: number[], halfWindow = 8) {
 }
 
 type ScenarioMode = 'neutral-coast' | 'automatic-creep' | 'automatic-speed-hold';
+type ScenarioOptions = {
+  tcsOff?: boolean;
+  openDifferential?: boolean;
+};
 
-function runScenario(mode: ScenarioMode) {
+function runScenario(mode: ScenarioMode, options: ScenarioOptions = {}) {
   const automaticDrive = mode !== 'neutral-coast';
   const sim = makeAtTenKmh(automaticDrive);
+  if (options.tcsOff) sim.vehicle.driverAids.config.tcsMode = 'OFF';
+  if (options.openDifferential) sim.vehicle.differential.config.type = 'OPEN';
+
   const totalSteps = 120 * 6;
   const steadyStart = 120 * 2;
 
   const speed: number[] = [];
   const roll: number[] = [];
   const heave: number[] = [];
-  const verticalG: number[] = [];
   const wheelTravel = [[], [], [], []] as number[][];
   const hubY = [[], [], [], []] as number[][];
   const tireLoad = [[], [], [], []] as number[][];
@@ -90,6 +96,7 @@ function runScenario(mode: ScenarioMode) {
   const previousAirborne = [false, false, false, false];
   let throttleMin = Infinity;
   let throttleMax = -Infinity;
+  let tcsSamples = 0;
 
   for (let step = 0; step < totalSteps; step++) {
     const currentSpeedMs = Math.abs(sim.vehicle.rigidBody.getLocalVelocity().z);
@@ -104,6 +111,7 @@ function runScenario(mode: ScenarioMode) {
     throttleMax = Math.max(throttleMax, throttle);
 
     const state = sim.stepExplicit({ ...baseInputs, throttle }, 1);
+    if (state.tcsActive) tcsSamples++;
 
     for (let i = 0; i < 4; i++) {
       const force = state.wheels[i].forceVectorLong;
@@ -123,7 +131,6 @@ function runScenario(mode: ScenarioMode) {
     speed.push(state.speedKmh);
     roll.push(state.roll * DEG);
     heave.push(state.heave * 1000);
-    verticalG.push(state.verticalG);
     for (let i = 0; i < 4; i++) {
       wheelTravel[i].push(state.wheels[i].verticalTravelM * 1000);
       hubY[i].push(state.wheels[i].hubWorldPos.y * 1000);
@@ -135,7 +142,11 @@ function runScenario(mode: ScenarioMode) {
 
   const result = {
     mode,
+    options,
     gear: sim.vehicle.powertrain.gear,
+    differentialType: sim.vehicle.differential.config.type,
+    tcsMode: sim.vehicle.driverAids.config.tcsMode,
+    tcsSamples,
     throttleRange: [throttleMin, throttleMax],
     speedKmh: { min: Math.min(...speed), max: Math.max(...speed), p2p: range(speed) },
     roll: {
@@ -168,12 +179,21 @@ function runScenario(mode: ScenarioMode) {
 const neutral = runScenario('neutral-coast');
 const creep = runScenario('automatic-creep');
 const powered = runScenario('automatic-speed-hold');
+const poweredTcsOff = runScenario('automatic-speed-hold', { tcsOff: true });
+const poweredOpenDiff = runScenario('automatic-speed-hold', { openDifferential: true });
+const poweredOpenDiffTcsOff = runScenario('automatic-speed-hold', {
+  openDifferential: true,
+  tcsOff: true,
+});
 
 console.log(JSON.stringify({
-  scenario: '2025 M5 10 km/h full-lock live-drivetrain jiggle diagnostic',
+  scenario: '2025 M5 10 km/h full-lock live-drivetrain jiggle isolation diagnostic',
   neutral,
   creep,
   powered,
+  poweredTcsOff,
+  poweredOpenDiff,
+  poweredOpenDiffTcsOff,
 }, null, 2));
 
-console.log('PoweredFullLockJiggleTests: DIAGNOSTIC PASS');
+console.log('PoweredFullLockJiggleTests: ISOLATION DIAGNOSTIC PASS');
