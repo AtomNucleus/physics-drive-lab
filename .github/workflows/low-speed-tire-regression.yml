@@ -63,6 +63,16 @@ jobs:
       - name: PR18 anti-roll + suspension kinematics integration
         run: npm run test:kinematics-arb
 
+      - name: Surface ARB integration diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          OUTPUT="$(npm run test:kinematics-arb 2>&1)"
+          OUTPUT="${OUTPUT//$'\n'/ }"
+          echo "::notice title=ARB integration diagnostics::$OUTPUT"
+          exit 0
+
       - name: Steering direction regression
         run: npm run test:steering-direction
 
@@ -90,9 +100,6 @@ jobs:
       - name: M5 drive-mode regression
         run: npm run test:m5-rwd
 
-      # PR #18 permanent coverage must remain green with geometry-derived wheel
-      # orientation active. It verifies signed equal/opposite ARB reactions, no
-      # artificial jacking, physical-CG tire-force moments, wheel loading and recovery.
       - name: High-speed anti-roll handling regression
         run: npm run test:high-speed
 
@@ -108,8 +115,6 @@ jobs:
       - name: Production build
         run: npm run build
 
-      # Keep repository-wide typechecking visible while preserving the established
-      # physics workflow behavior for any unrelated baseline typing issues.
       - name: TypeScript baseline check
         continue-on-error: true
         run: npm run lint
