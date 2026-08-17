@@ -94,7 +94,11 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   steeringRackDampingNmsPerRad: 46,
   steeringRackFrictionNm: 4.5,
   steeringRackMaxAngularSpeedRadS: 3.2,
-  steeringRackMaxAngularAccelRadS2: 180,
+  // Keep steady steering authority separate from transient rack response. The first
+  // 180 rad/s^2 pass could move the road wheel too far in a single 120 Hz step once
+  // column stiffness was raised enough to resist highway SAT. 90 rad/s^2 preserves
+  // finite turn-in while leaving equilibrium road-wheel angle unchanged.
+  steeringRackMaxAngularAccelRadS2: 90,
 
   // Effective driver/column stiffness is intentionally much lower than a literal
   // steel steering-column torsion rate because it represents the driver's hands,
