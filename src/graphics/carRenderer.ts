@@ -466,9 +466,10 @@ export class CarRenderer {
     this.rootGroup.position.set(state.x, state.elevationHeight, state.z);
     this.rootGroup.rotation.y = state.yaw;
 
-    // The visual shell rotates around the same CG used by the rigid body instead of
-    // orbiting around road level during a wipeout.
-    const chassisCgOffset = config.centerOfGravityHeight + 0.35;
+    // The renderer now uses the exact same physical CG as the 6-DOF rigid body.
+    // Meshes are authored in road-relative coordinates, so translate them by the
+    // CG height after placing the rotation pivot at the CG.
+    const chassisCgOffset = config.centerOfGravityHeight;
     this.chassisPivotGroup.position.set(0, state.heave + chassisCgOffset, 0);
     this.chassisPivotGroup.rotation.set(state.pitch, 0, state.roll, 'YXZ');
     this.chassisGroup.position.set(0, -chassisCgOffset, 0);

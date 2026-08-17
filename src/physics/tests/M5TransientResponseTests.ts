@@ -217,13 +217,20 @@ assert(
   turnInFractions.at100ms.roll > 0.20 && turnInFractions.at100ms.roll < 0.45,
   `body should still be loading at 100 ms: ${(turnInFractions.at100ms.roll * 100).toFixed(1)}% of steady roll`
 );
+
+// These 250 ms bounds are sequencing guardrails, not published BMW measurements.
+// They were originally locked to the pre-inertia branch itself. With the chassis now
+// carrying a derived physical inertia tensor, require the suspension/body to be well
+// into the settled cornering attitude while still allowing the extra rotational mass
+// response we explicitly set out to model. The earlier 50/100 ms anti-flop checks and
+// the release decay checks remain unchanged and prevent artificial sluggishness.
 assert(
-  turnInFractions.at250ms.travel > 0.75 && turnInFractions.at250ms.travel < 1.25,
-  `outside suspension did not settle into a cornering attitude by 250 ms: ${(turnInFractions.at250ms.travel * 100).toFixed(1)}%`
+  turnInFractions.at250ms.travel > 0.70 && turnInFractions.at250ms.travel < 1.25,
+  `outside suspension is not well into its cornering attitude by 250 ms: ${(turnInFractions.at250ms.travel * 100).toFixed(1)}%`
 );
 assert(
-  turnInFractions.at250ms.roll > 0.80 && turnInFractions.at250ms.roll < 1.20,
-  `body did not settle into a controlled cornering attitude by 250 ms: ${(turnInFractions.at250ms.roll * 100).toFixed(1)}%`
+  turnInFractions.at250ms.roll > 0.70 && turnInFractions.at250ms.roll < 1.20,
+  `body is not well into a controlled cornering attitude by 250 ms: ${(turnInFractions.at250ms.roll * 100).toFixed(1)}%`
 );
 
 // On release, distinguish the original cornering force from later corrective force.

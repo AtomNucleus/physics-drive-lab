@@ -15,8 +15,19 @@ function collisionPointsBody(vehicle: Vehicle): Vec3[] {
   const cfg = vehicle.config;
   const halfWidth = Math.max(0.78, cfg.trackWidth * 0.56);
   const halfLength = Math.max(1.55, cfg.wheelbase * 0.78);
-  const lowerY = -Math.max(0.50, cfg.centerOfGravityHeight + 0.08);
-  const upperY = Math.max(0.68, cfg.centerOfGravityHeight + 0.20);
+
+  // These shell dimensions were originally authored around the suspension-pickup
+  // reference plane, which sits 0.35 m above the physical CG. RigidBody.position is
+  // now the CG itself, so translate every probe upward by that body-space offset.
+  // This preserves the real underbody/roof/sill locations without allowing the
+  // crash stabilizer to mistake normal driving for continuous chassis scraping.
+  const pickupHeightAboveCg = Math.max(
+    0,
+    Number((cfg as any).suspensionPickupHeightAboveCg ?? 0.35)
+  );
+  const lowerY = -Math.max(0.50, cfg.centerOfGravityHeight + 0.08) + pickupHeightAboveCg;
+  const upperY = Math.max(0.68, cfg.centerOfGravityHeight + 0.20) + pickupHeightAboveCg;
+  const sillY = -0.05 + pickupHeightAboveCg;
 
   const points: Vec3[] = [];
   for (const x of [-halfWidth, halfWidth]) {
@@ -29,8 +40,8 @@ function collisionPointsBody(vehicle: Vehicle): Vec3[] {
   // Side-sill points catch the common spin -> curb -> side-impact case before the
   // vertical-only suspension solver is asked to support a nearly sideways chassis.
   for (const x of [-halfWidth, halfWidth]) {
-    points.push(PhysicsMath.vec3(x, -0.05, halfLength * 0.35));
-    points.push(PhysicsMath.vec3(x, -0.05, -halfLength * 0.35));
+    points.push(PhysicsMath.vec3(x, sillY, halfLength * 0.35));
+    points.push(PhysicsMath.vec3(x, sillY, -halfLength * 0.35));
   }
 
   return points;

@@ -56,35 +56,19 @@ export class Simulation {
 
   public setConfig(newConfig: VehicleConfig) {
     const oldCgHeight = this.vehicle.config.centerOfGravityHeight;
+
+    // Vehicle owns the authoritative chassis mass-property derivation. Keeping it
+    // there guarantees constructor and runtime tuning/preset swaps use the exact
+    // same inertia tensor, axle positions, and unequal front/rear tracks.
     this.vehicle.setConfig(newConfig);
     this.configureSuspensionDynamics(newConfig);
     this.suspensionKinematics.rebuild();
 
-    // Rebuild rigid-body properties from the selected vehicle's actual mass and
-    // geometry. Yaw uses the same axle/CG model as Vehicle construction. The old
-    // runtime path used the wheelbase as a cuboid body length, which could silently
-    // halve a long heavy sedan's yaw inertia after a preset or tuning change.
-    const m = Math.max(1, newConfig.mass);
-    const L = newConfig.wheelbase;
-    const W = newConfig.trackWidth;
-    const H = newConfig.centerOfGravityHeight;
-    const frontAxleDistance = L * (1.0 - newConfig.weightDistributionFront);
-    const rearAxleDistance = L * newConfig.weightDistributionFront;
-
-    const pitchInertia = (m / 12) * (L * L + H * H) * 1.5;
-    const yawInertia = m * frontAxleDistance * rearAxleDistance;
-    const rollInertia = (m / 12) * (W * W + H * H) * 1.6;
-
-    this.vehicle.rigidBody.config = {
-      mass: m,
-      inertia: PhysicsMath.vec3(pitchInertia, yawInertia, rollInertia),
-      centerOfGravityHeight: H,
-    };
-
-    // Preserve the current ground-relative ride height when CG height is changed
-    // from the tuning UI or a preset swap.
-    if (Number.isFinite(oldCgHeight) && Number.isFinite(H)) {
-      this.vehicle.rigidBody.position.y += H - oldCgHeight;
+    // RigidBody.position is the physical CG. Preserve its ground-relative height
+    // if the tuning UI or a preset swap changes the configured CG height.
+    const newCgHeight = newConfig.centerOfGravityHeight;
+    if (Number.isFinite(oldCgHeight) && Number.isFinite(newCgHeight)) {
+      this.vehicle.rigidBody.position.y += newCgHeight - oldCgHeight;
     }
 
     this.currentState = this.vehicle.getState();

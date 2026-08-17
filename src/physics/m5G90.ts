@@ -2,11 +2,31 @@ import type { VehicleConfig } from '../types';
 
 /** 2025 BMW M5 (G90) instrumented-test calibration. */
 export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any> = {
+  // Car and Driver's instrumented car measured 5,251 lb with 54.5% on the front axle.
+  // BMW publishes a 3,006 mm wheelbase and 1,684 / 1,660 mm front/rear tracks. Keep
+  // the existing measured-test wheelbase conversion so benchmark history remains
+  // continuous, but use the actual unequal axle tracks for mass moments and wheel
+  // hardpoints. trackWidth remains the front-track compatibility value used by the
+  // steering system when a single track is required.
   mass: 2381.8135,
   weightDistributionFront: 0.545,
   centerOfGravityHeight: 0.52,
   wheelbase: 3.00482,
-  trackWidth: 1.67259,
+  trackWidth: 1.684,
+  trackWidthFront: 1.684,
+  trackWidthRear: 1.660,
+
+  // The PHEV battery is explicitly represented as low-mounted mass in the inertia
+  // derivation instead of lowering an arbitrary roll-inertia multiplier. BMW states
+  // that the high-voltage battery is mounted in the underbody and lowers the CG, but
+  // does not publish the complete pack mass. 280 kg is therefore an engineering
+  // estimate used only to distribute the already-measured total mass vertically;
+  // total mass and the configured 0.52 m CG remain authoritative.
+  batteryMassKg: 280,
+  batteryCgHeight: 0.23,
+  batteryPackThickness: 0.14,
+  chassisMassHeight: 0.90,
+
   wheelRadius: 0.369,
   wheelInertia: 2.10,
   unsprungMassCorner: 55,
