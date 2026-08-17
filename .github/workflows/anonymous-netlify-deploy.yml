@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: physical M5 chassis inertia + CG validation
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - preview/m5-real-chassis-inertia-netlify
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
