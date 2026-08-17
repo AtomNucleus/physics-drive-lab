@@ -158,21 +158,14 @@ export class WheelDynamics {
   ): TireForceOutput {
     if (dt <= 0) return this.lastTireOutput;
 
-    // Contact-patch deflection and transient force are stored in wheel-local axes.
-    // When the steering rack rotates a stationary loaded tire, those state vectors
-    // must be re-expressed in the new wheel frame. Without this transformation the
-    // same stored rubber shear is incorrectly rotated in body space, injecting
-    // lateral force/yaw energy every steering update.
     const steerDelta = this.steerAngle - this.previousSteerAngle;
     if (Math.abs(steerDelta) > 1e-10) {
       const c = Math.cos(steerDelta);
       const s = Math.sin(steerDelta);
-
       const oldDefLong = this.lowSpeedLongDeflection;
       const oldDefLat = this.lowSpeedLatDeflection;
       this.lowSpeedLongDeflection = oldDefLong * c + oldDefLat * s;
       this.lowSpeedLatDeflection = -oldDefLong * s + oldDefLat * c;
-
       const oldFx = this.transientFx;
       const oldFy = this.transientFy;
       this.transientFx = oldFx * c + oldFy * s;
@@ -185,13 +178,6 @@ export class WheelDynamics {
     const roadOmega = longitudinalVelocity / this.radius;
     const isFreeRolling = Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20;
 
-    // A free, loaded wheel approaches rolling without longitudinal slip as speed
-    // falls, but that constraint must arrive continuously. The old solver switched
-    // instantaneously at 2.6 m/s (9.36 km/h), exactly in the reported full-lock
-    // shake regime. Individual inside/outside wheels repeatedly crossed that speed
-    // boundary while cornering, alternately zeroing and re-enabling longitudinal
-    // slip force. Blend the constraint over a broad physical crawl-speed band
-    // instead. Drive or brake torque immediately removes this free-roll authority.
     const freeRollFullConstraintMs = 1.40;
     const freeRollDynamicMs = 3.40;
     const freeRollLinear = PhysicsMath.clamp(
@@ -206,9 +192,6 @@ export class WheelDynamics {
     const freeRollDynamicAuthority = 1 - freeRollConstraintAuthority;
 
     if (isFreeRolling) {
-      // Track road speed progressively rather than teleporting omega at a threshold.
-      // Higher constraint authority represents the small longitudinal contact force
-      // required to keep an unpowered wheel rolling; wheel inertia remains present.
       const trackingRate = PhysicsMath.lerp(55, 220, freeRollConstraintAuthority);
       const trackingAlpha = 1 - Math.exp(-trackingRate * dt);
       this.angularVelocity += (roadOmega - this.angularVelocity) * trackingAlpha;
@@ -216,17 +199,9 @@ export class WheelDynamics {
 
     const wheelSurfaceSpeed = this.angularVelocity * this.radius;
     const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
-
-    // Keep crawl-speed steering in the stable contact-patch/brush regime longer.
-    // Around 6 km/h the previous 1.80 m/s endpoint made the model ~98% dynamic,
-    // causing the lateral solution to chatter exactly at the handoff. Blend from
-    // static brush behavior at ~1.3 km/h to the full dynamic tire by ~10.8 km/h.
     const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
     const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
 
-    // A regularization floor prevents near-zero velocity from turning a tiny
-    // wheel-speed mismatch into an enormous slip ratio. Free-rolling slip authority
-    // fades continuously toward zero instead of disappearing at one speed sample.
     const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
     const unconstrainedSlipRatio = PhysicsMath.clamp(
       (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
@@ -235,8 +210,6 @@ export class WheelDynamics {
     );
     this.rawSlipRatio = unconstrainedSlipRatio * freeRollDynamicAuthority;
 
-    // Positive lateral velocity means the contact patch is moving to the right;
-    // tire force must develop to the left, hence the negative slip-angle sign.
     const angleSpeedFloor = 0.9;
     this.rawSlipAngle = -Math.atan2(
       lateralVelocity,
@@ -258,19 +231,12 @@ export class WheelDynamics {
         0.025,
         this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength
       );
-
-      // Dynamic relaxation must be based on actual tire travel, not an artificial
-      // multi-metre-per-second floor while parked.
       const relaxationTravel = Math.max(0.02, rollingSpeed) * dt;
       const lateralSlipAlpha = 1 - Math.exp(-relaxationTravel / lateralSigma);
       const longitudinalSlipAlpha = 1 - Math.exp(-relaxationTravel / longitudinalSigma);
       this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * lateralSlipAlpha;
       this.relaxationSlipRatio +=
         (this.rawSlipRatio - this.relaxationSlipRatio) * longitudinalSlipAlpha;
-
-      // As the rolling constraint takes authority, unload any old longitudinal
-      // relaxation state smoothly. This prevents stale slip from surviving after
-      // the wheel has already synchronized with the road.
       if (freeRollConstraintAuthority > 0) {
         const constraintSlipDecay = Math.exp(-80 * freeRollConstraintAuthority * dt);
         this.relaxationSlipRatio *= constraintSlipDecay;
@@ -292,8 +258,6 @@ export class WheelDynamics {
       isLeft: this.isLeft,
     });
 
-    // Low-speed brush/static-friction regime. Rubber shear is stored as a small
-    // contact-patch deflection and force is limited by static friction.
     const longPatchSlipSpeed = wheelSurfaceSpeed - longitudinalVelocity;
     const latPatchSlipSpeed = -lateralVelocity;
     const staticWeight = 1 - dynamicBlend;
@@ -302,9 +266,6 @@ export class WheelDynamics {
       const dynamicStateDecay = Math.exp(-18 * dynamicBlend * dt);
       this.lowSpeedLongDeflection *= dynamicStateDecay;
       this.lowSpeedLatDeflection *= dynamicStateDecay;
-
-      // Constraint authority continuously sheds longitudinal bristle shear while
-      // retaining full lateral brush behavior for parking and tight turns.
       const constraintBristleDecay = Math.exp(-90 * freeRollConstraintAuthority * dt);
       this.lowSpeedLongDeflection *= constraintBristleDecay;
       this.lowSpeedLongDeflection +=
@@ -312,9 +273,6 @@ export class WheelDynamics {
       this.lowSpeedLatDeflection += latPatchSlipSpeed * dt * staticWeight;
     }
 
-    // Approximate a performance-road tire's contact patch as ~15 mm of elastic
-    // shear at full static load. Damping is derived from loaded corner mass;
-    // ~0.72 critical damping keeps the 120 Hz chassis/contact system stable.
     const bristleStiffness = Math.max(140000, fz / 0.015);
     const effectiveCornerMass = Math.max(80, fz / 9.81);
     const criticalBristleDamping = 2 * Math.sqrt(bristleStiffness * effectiveCornerMass);
@@ -324,12 +282,8 @@ export class WheelDynamics {
       (this.lowSpeedLongDeflection * bristleStiffness + longPatchSlipSpeed * bristleDamping) *
       freeRollDynamicAuthority;
     let staticFy = this.lowSpeedLatDeflection * bristleStiffness + latPatchSlipSpeed * bristleDamping;
-
     const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);
 
-    // Rubber shear from a completed spin relaxes over time once there is no longer
-    // meaningful contact-patch motion or applied axle torque. This prevents old
-    // bristle deflection from becoming a persistent low-speed oscillation source.
     const patchNearlySettled =
       fz >= 20 &&
       rollingSpeed < 0.55 &&
@@ -372,9 +326,6 @@ export class WheelDynamics {
     const forceTravel = Math.max(0.02, rollingSpeed) * dt;
     const dynamicLateralForceAlpha = 1 - Math.exp(-forceTravel / lateralForceSigma);
     const dynamicLongitudinalForceAlpha = 1 - Math.exp(-forceTravel / longitudinalForceSigma);
-
-    // Static friction reacts much faster than the sprung chassis. A slow force lag
-    // here behaves like phase delay and can create a self-excited parking shimmy.
     const lowSpeedForceAlpha = 1 - Math.exp(-110 * dt);
     const lateralForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLateralForceAlpha, dynamicBlend);
     const longitudinalForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLongitudinalForceAlpha, dynamicBlend);
@@ -387,12 +338,8 @@ export class WheelDynamics {
     this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
 
-    // Rolling resistance must not disappear below an arbitrary speed threshold.
-    // A tanh regularization preserves normal rolling resistance while tending to
-    // zero smoothly at exact rest, avoiding sign-flip chatter around zero speed.
     const rrMagnitude = Math.max(0, rollingResistance) * fz;
     const rrForce = -Math.tanh(longitudinalVelocity / 0.08) * rrMagnitude;
-
     let fx = this.transientFx + rrForce;
     let fy = this.transientFy;
 
@@ -406,24 +353,12 @@ export class WheelDynamics {
       this.transientFy *= scale;
     }
 
-    // Only contact-patch slip force reacts through the wheel's rotational DOF.
-    // Rolling resistance is already represented as an equivalent dissipative
-    // chassis force. Feeding it back as tire reaction torque would double-couple
-    // it, spin a free wheel up, and numerically return the lost energy to the car.
     const contactFxForWheelTorque = fx - rrForce;
     const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
     const brakeSign = Math.sign(spinReference);
     const tireReactionTorque = contactFxForWheelTorque * this.radius;
     const nonBrakeTorque = driveTorque - tireReactionTorque;
     const brakeCanHold = brakeRequest > Math.abs(nonBrakeTorque) + 2.0;
-
-    // A service brake is a static-friction torque constraint at zero wheel speed,
-    // not a signed torque source that is allowed to integrate the wheel through
-    // zero and then reverse it. Once brake capacity exceeds the opposing axle /
-    // tire torque in the final walking-speed phase, lock the rotational DOF at
-    // zero while the tire contact patch continues to generate the chassis force
-    // that removes the remaining vehicle speed. This is the physical equivalent
-    // of the caliper holding the disc against converter/driveline creep.
     const staticBrakeHold =
       brakeCanHold &&
       Math.abs(longitudinalVelocity) < 1.20 &&
@@ -441,14 +376,15 @@ export class WheelDynamics {
       );
       const omegaBefore = this.angularVelocity;
       this.angularVelocity += angularAccel * dt;
+      const beforeError = omegaBefore - roadOmega;
+      const afterError = this.angularVelocity - roadOmega;
 
-      // A free wheel may not numerically shoot through its rolling solution because
-      // its tiny rotational inertia was hit by one large tire-force sample. Instead
-      // of an exact speed-mode projection, damp only the overshoot and then apply
-      // the same continuous constraint authority used by the slip/force states.
-      if (isFreeRolling) {
-        const beforeError = omegaBefore - roadOmega;
-        const afterError = this.angularVelocity - roadOmega;
+      // Preserve the established low-torque/brake crossing guard for non-free-roll
+      // states. This is independent of the former 2.6 m/s mode switch and prevents
+      // a lightly loaded/braked wheel from numerically overshooting road speed.
+      if (!isFreeRolling && Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+        this.angularVelocity = roadOmega;
+      } else if (isFreeRolling) {
         if (beforeError * afterError < 0) {
           this.angularVelocity = PhysicsMath.lerp(this.angularVelocity, roadOmega, 0.72);
         }
@@ -457,10 +393,6 @@ export class WheelDynamics {
         this.angularVelocity += (roadOmega - this.angularVelocity) * postTrackingAlpha;
       }
 
-      // If the brake has enough capacity to hold the wheel, it may bring rotation
-      // to zero but may not numerically accelerate it into the opposite direction.
-      // Tire or drive torque can re-start the wheel on a later step if it truly
-      // exceeds brake capacity.
       if (
         brakeCanHold &&
         Math.abs(spinReference) > 1e-6 &&
@@ -475,12 +407,6 @@ export class WheelDynamics {
       }
     }
 
-    // A freely rolling loaded wheel at essentially zero chassis speed is a static
-    // no-slip constraint. Letting a several-kN residual tire force integrate through
-    // the tiny wheel inertia can kick omega by multiple rad/s every 120 Hz step,
-    // creating a numerical reaction-torque chatter after a spin. Project only this
-    // quiescent, unpowered/unbraked case to the road speed; genuine acceleration,
-    // braking, wheelspin and rolling behavior are unaffected.
     const quiescentFreeRolling =
       fz >= 20 &&
       Math.abs(longitudinalVelocity) < 0.35 &&
@@ -497,8 +423,6 @@ export class WheelDynamics {
     this.rotationAngle += this.angularVelocity * dt;
     if (Math.abs(this.rotationAngle) > Math.PI * 1000) this.rotationAngle %= Math.PI * 2;
 
-    // Heat, wear and visible skid state are based on actual dissipative slip power,
-    // not normalized slip values that become misleading near zero road speed.
     const slipEnergy = Math.abs(fx * longPatchSlipSpeed) + Math.abs(fy * lateralVelocity);
     const heatIn = slipEnergy * 0.00005;
     const cooling = (this.temperature - 25) * (0.020 + Math.abs(longitudinalVelocity) * 0.0025);
@@ -513,11 +437,6 @@ export class WheelDynamics {
 
     const transientResultant = Math.hypot(fx, fy);
     const gripUtilization = limit > 0 ? PhysicsMath.clamp(transientResultant / limit, 0, 1.5) : 0;
-    // Visible smoke/skid marks require gross road sliding, not ordinary
-    // force-generating slip near the tire's cornering peak. The lateral threshold
-    // is intentionally beyond ordinary ~7-9 degree cornering slip so a normal turn
-    // can load the tire hard without puffing smoke; genuine >12 degree sliding,
-    // lockup and wheelspin still cross the dissipative energy gates below.
     const grossSlide = estimateGrossTireSlide(
       longitudinalVelocity,
       lateralVelocity,
