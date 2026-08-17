@@ -345,11 +345,25 @@ export class WheelDynamics {
       blendedFrictionLimit * blendedFrictionLimit - lateralForReserve * lateralForReserve
     ));
     const driveDemandAbs = Math.abs(driveForceDemand);
-    const driveAdhesionSpeedLinear = PhysicsMath.clamp((5.0 - rollingSpeed) / 1.5, 0, 1);
+
+    // Solver-domain selection must depend on the road/contact speed, not the wheel
+    // surface speed that this constraint is trying to stabilize. Using wheel speed
+    // created a circular switch: omega overshot -> adhesion switched off -> slip
+    // force kicked omega harder -> adhesion switched back on. Road speed is the
+    // independent kinematic condition and keeps the handoff continuous.
+    const driveAdhesionRoadSpeed = Math.abs(longitudinalVelocity);
+    const driveAdhesionSpeedLinear = PhysicsMath.clamp(
+      (5.0 - driveAdhesionRoadSpeed) / 1.5,
+      0,
+      1
+    );
     const driveAdhesionSpeedAuthority =
       driveAdhesionSpeedLinear * driveAdhesionSpeedLinear * (3 - 2 * driveAdhesionSpeedLinear);
-    const adhesionFullDemand = longitudinalAdhesionCapacity * 0.58;
-    const adhesionReleaseDemand = longitudinalAdhesionCapacity * 0.82;
+
+    // Restrict static drive adhesion to clearly sub-limit torque. Full-throttle
+    // launch and intentional wheelspin remain entirely on the dynamic tire model.
+    const adhesionFullDemand = longitudinalAdhesionCapacity * 0.35;
+    const adhesionReleaseDemand = longitudinalAdhesionCapacity * 0.58;
     const driveAdhesionTorqueAuthority = adhesionReleaseDemand > adhesionFullDemand + 1
       ? PhysicsMath.clamp(
           (adhesionReleaseDemand - driveDemandAbs) /
@@ -391,9 +405,6 @@ export class WheelDynamics {
       this.transientFx *= constraintForceDecay;
     }
     if (driveAdhesionAuthority > 0) {
-      // Static friction is an algebraic constraint, not a delayed force source.
-      // Blend directly toward the torque-balancing reaction as the constraint
-      // becomes authoritative. This also preserves a smooth handoff at its edge.
       this.transientFx = PhysicsMath.lerp(
         this.transientFx,
         driveForceDemand,
@@ -432,8 +443,6 @@ export class WheelDynamics {
     if (staticBrakeHold) {
       this.angularVelocity = 0;
     } else if (driveAdhesionAuthority >= 0.995) {
-      // In the fully adhered state, tire static friction exactly balances axle
-      // torque and the rolling constraint determines wheel speed.
       this.angularVelocity = roadOmega;
     } else {
       const brakeTorque = brakeRequest * brakeSign;
@@ -459,8 +468,6 @@ export class WheelDynamics {
       }
 
       if (driveAdhesionAuthority > 0) {
-        // Partial authority is the smooth transition between the algebraic
-        // adhesion solve and the fully dynamic slip solve.
         this.angularVelocity = PhysicsMath.lerp(
           this.angularVelocity,
           roadOmega,
