@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { DriverAidsSystem } from '../DriverAids';
 import { DifferentialSystem } from '../Differential';
+import { calculateAntiRollBarForces } from '../Suspension';
 import { TireModel, type TireModelConfig } from '../TireModel';
 
 const DT = 1 / 120;
@@ -75,6 +76,26 @@ function testCamberThrustPointsInwardAndMirrors() {
   assert(left.fy < 0, `negative camber on left tire must thrust inward/right, got Fy=${left.fy}`);
   assert(right.fy > 0, `negative camber on right tire must thrust inward/left, got Fy=${right.fy}`);
   assert(Math.abs(left.fy + right.fy) < 1e-9, `equal mirrored camber thrust must cancel: left=${left.fy}, right=${right.fy}`);
+}
+
+function testAntiRollBarSignAndConservationInvariant() {
+  const rate = 46000;
+  const leftCompressed = calculateAntiRollBarForces(0.030, -0.010, rate);
+  assert(leftCompressed.differentialTravelM > 0, 'left-more-compressed case must have positive differential travel');
+  assert(leftCompressed.leftChassisForceN > 0, 'positive differential travel must produce positive left chassis ARB reaction');
+  assert(leftCompressed.rightChassisForceN < 0, 'positive differential travel must produce negative right chassis ARB reaction');
+  assert(Math.abs(leftCompressed.leftChassisForceN + leftCompressed.rightChassisForceN) < 1e-12, 'ARB reactions must be exactly equal and opposite');
+  assert(Math.abs(leftCompressed.leftChassisForceN - rate * leftCompressed.differentialTravelM) < 1e-12, 'ARB left force must equal rate times differential travel');
+
+  const rightCompressed = calculateAntiRollBarForces(-0.010, 0.030, rate);
+  assert(rightCompressed.differentialTravelM < 0, 'right-more-compressed case must have negative differential travel');
+  assert(rightCompressed.leftChassisForceN < 0, 'negative differential travel must reverse left chassis ARB reaction');
+  assert(rightCompressed.rightChassisForceN > 0, 'negative differential travel must reverse right chassis ARB reaction');
+  assert(Math.abs(leftCompressed.leftChassisForceN + rightCompressed.leftChassisForceN) < 1e-12, 'mirrored ARB travel must mirror force magnitude');
+
+  const heave = calculateAntiRollBarForces(0.025, 0.025, rate);
+  assert(heave.differentialTravelM === 0, 'equal bump must have zero differential travel');
+  assert(heave.leftChassisForceN === 0 && heave.rightChassisForceN === 0, 'equal bump/heave must create zero ARB force');
 }
 
 function seedDirection(aids: DriverAidsSystem, wheelOmega: number) {
@@ -167,6 +188,7 @@ function testDifferentialPowerCoastDirectionInvariant() {
 const tests: Array<[string, () => void]> = [
   ['Ackermann left/right mirror invariant', testAckermannMirrorInvariant],
   ['camber thrust inward/mirror invariant', testCamberThrustPointsInwardAndMirrors],
+  ['anti-roll bar sign/conservation invariant', testAntiRollBarSignAndConservationInvariant],
   ['ABS forward/reverse invariant', testAbsForwardReverseSymmetry],
   ['TCS forward/reverse invariant', testTcsForwardReverseSymmetry],
   ['differential power/coast invariant', testDifferentialPowerCoastDirectionInvariant],
