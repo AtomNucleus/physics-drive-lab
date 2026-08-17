@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# temporary self-reporting M5 recovery regression suite
+# temporary self-reporting M5 recovery regression suite v2
 
 on:
   push:
