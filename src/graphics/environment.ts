@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { WheelState } from '../types';
 import { ProvingGroundSurfaceProvider } from '../physics/SurfaceProvider';
+import {
+  GROUND_MINOR_GRID_M,
+  GROUND_TEXTURE_TILE_M,
+  MAIN_TEST_LANE_HALF_WIDTH_M,
+  MAIN_TEST_LANE_WIDTH_M,
+  PROVING_GROUND_SIZE_M,
+} from './worldScale';
 
 export class EnvironmentManager {
   public scene: THREE.Scene;
@@ -52,8 +59,8 @@ export class EnvironmentManager {
   }
 
   private buildGround(): THREE.Mesh {
-    // 2500m x 2500m literal flat plane. No hidden terrain geometry.
-    const groundGeo = new THREE.PlaneGeometry(2600, 2600, 1, 1);
+    // Literal metre-scale flat plane. No hidden terrain geometry.
+    const groundGeo = new THREE.PlaneGeometry(PROVING_GROUND_SIZE_M, PROVING_GROUND_SIZE_M, 1, 1);
     groundGeo.rotateX(-Math.PI / 2);
 
     // Procedural Asphalt Texture using Canvas
@@ -74,10 +81,13 @@ export class EnvironmentManager {
       ctx.fillRect(x, y, 1.5, 1.5);
     }
 
-    // Grid lines
-    ctx.strokeStyle = '#2d3137';
+    // Ground grid is a real ruler: 5 m minor spacing inside a 20 m texture tile.
+    // The old texture produced 2.5 m lines without documenting the distance cue.
+    const pixelsPerMeter = 512 / GROUND_TEXTURE_TILE_M;
+    const minorGridStepPx = GROUND_MINOR_GRID_M * pixelsPerMeter;
+    ctx.strokeStyle = '#30353c';
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 512; i += 64) {
+    for (let i = minorGridStepPx; i < 512; i += minorGridStepPx) {
       ctx.beginPath();
       ctx.moveTo(i, 0);
       ctx.lineTo(i, 512);
@@ -88,11 +98,15 @@ export class EnvironmentManager {
       ctx.lineTo(512, i);
       ctx.stroke();
     }
+    ctx.strokeStyle = '#3a4048';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, 510, 510);
 
     const groundTex = new THREE.CanvasTexture(canvas);
     groundTex.wrapS = THREE.RepeatWrapping;
     groundTex.wrapT = THREE.RepeatWrapping;
-    groundTex.repeat.set(130, 130);
+    const tileRepeats = PROVING_GROUND_SIZE_M / GROUND_TEXTURE_TILE_M;
+    groundTex.repeat.set(tileRepeats, tileRepeats);
 
     const groundMat = new THREE.MeshStandardMaterial({
       map: groundTex,
@@ -147,10 +161,11 @@ export class EnvironmentManager {
       markingsGroup.add(dash);
     }
 
-    // Runway boundary lines are segmented so they can follow the same crest/dip.
-    for (const x of [-18, 18]) {
+    // Match the visible main test-lane edges to the same |x| <= 6.5 m high-grip
+    // zone used by SurfaceProvider. The old +/-18 m lines visually implied a 36 m road.
+    for (const x of [-MAIN_TEST_LANE_HALF_WIDTH_M, MAIN_TEST_LANE_HALF_WIDTH_M]) {
       for (let z = -496; z <= 496; z += 8) {
-        const lineGeo = new THREE.PlaneGeometry(0.55, 8.2);
+        const lineGeo = new THREE.PlaneGeometry(0.38, 8.2);
         lineGeo.rotateX(-Math.PI / 2);
         const line = new THREE.Mesh(lineGeo, whiteMat);
         const road = this.surfaceProvider.sampleSurface(x, z);
@@ -162,7 +177,7 @@ export class EnvironmentManager {
 
     // Drag Strip Staging Line & 1/4 Mile Finish Lines (at 0m, 100m, 200m, 402.3m)
     const addTrapLine = (zPos: number, labelColor: THREE.Material) => {
-      const trapGeo = new THREE.PlaneGeometry(36, 1.8);
+      const trapGeo = new THREE.PlaneGeometry(MAIN_TEST_LANE_WIDTH_M, 1.8);
       trapGeo.rotateX(-Math.PI / 2);
       const trap = new THREE.Mesh(trapGeo, labelColor);
       const road = this.surfaceProvider.sampleSurface(0, zPos);
@@ -176,7 +191,8 @@ export class EnvironmentManager {
     addTrapLine(201.16, yellowMat); // 1/8 Mile trap
     addTrapLine(402.34, redMat); // 1/4 Mile (402m) Finish Trap
 
-    // 2. Large Dynamic Skidpad Rings (Left & Right)
+    // 2. Meter-calibrated skidpad rings. The red 20 m ring is intentionally close
+    // to the reported 50 km/h turn radius so the player has an immediate visual ruler.
     const createRing = (radius: number, centerX: number, centerZ: number, mat: THREE.Material) => {
       const ringGeo = new THREE.RingGeometry(radius - 0.4, radius + 0.4, 64);
       ringGeo.rotateX(-Math.PI / 2);
@@ -186,6 +202,7 @@ export class EnvironmentManager {
     };
 
     // Skidpad Arena 1 (Left, Dry High Grip, Center X: -85, Z: 60)
+    createRing(20, -85, 60, redMat);
     createRing(30, -85, 60, yellowMat);
     createRing(50, -85, 60, whiteMat);
     createRing(75, -85, 60, whiteMat);
@@ -204,6 +221,7 @@ export class EnvironmentManager {
     wetSurface.position.set(85, 0.012, -60);
     markingsGroup.add(wetSurface);
 
+    createRing(20, 85, -60, redMat);
     createRing(30, 85, -60, yellowMat);
     createRing(50, 85, -60, whiteMat);
     createRing(75, 85, -60, whiteMat);
@@ -243,7 +261,7 @@ export class EnvironmentManager {
     const yellowLightMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
     const greenLightMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
 
-    // Gantry Overhead Arch
+    // Gantry Overhead Arch spans the wider proving-ground apron; it is not a road-width ruler.
     const pillarGeo = new THREE.BoxGeometry(0.5, 6.5, 0.5);
     const p1 = new THREE.Mesh(pillarGeo, metalMat);
     p1.position.set(-18, 3.25, 0);

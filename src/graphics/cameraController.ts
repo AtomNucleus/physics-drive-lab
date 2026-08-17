@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CameraMode, VehicleState } from '../types';
+import { targetVerticalFov } from './cameraProjection';
 
 export class CameraController {
   public camera: THREE.PerspectiveCamera;
@@ -8,7 +9,7 @@ export class CameraController {
   // Smoothed camera target and positions
   private currentPos: THREE.Vector3 = new THREE.Vector3(0, 4, -8);
   private currentLookAt: THREE.Vector3 = new THREE.Vector3(0, 1, 4);
-  private currentFov: number = 62;
+  private currentFov: number = 52;
 
   // Orbit controls
   private orbitAngle: number = 0;
@@ -20,6 +21,9 @@ export class CameraController {
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
+    this.currentFov = targetVerticalFov('chase', 0, camera.aspect);
+    this.camera.fov = this.currentFov;
+    this.camera.updateProjectionMatrix();
     this.setupMouseEvents();
   }
 
@@ -78,14 +82,15 @@ export class CameraController {
 
     let targetPos = new THREE.Vector3();
     let targetLookAt = new THREE.Vector3();
-    let targetFov = 62;
+
+    // Three.js PerspectiveCamera.fov is VERTICAL FOV. Author the driving cameras
+    // in horizontal FOV and convert using the live viewport aspect ratio so a
+    // metre has the same perspective scale on 16:9, ultrawide, and mobile.
+    const targetFov = targetVerticalFov(this.mode, speedKmh, this.camera.aspect);
 
     switch (this.mode) {
       case 'chase': {
-        // High speed FOV widening (60 -> 76 deg)
-        targetFov = 62 + Math.min(16, (speedKmh / 200) * 16);
-
-        // Position behind car with dynamic lookahead
+        // Position behind car with dynamic lookahead.
         const chaseDist = 6.8 + Math.min(2.0, speedKmh * 0.012);
         const chaseHeight = 2.4 - state.pitch * 1.5; // pitch compensation
 
@@ -105,7 +110,6 @@ export class CameraController {
       }
 
       case 'close': {
-        targetFov = 66 + Math.min(14, (speedKmh / 200) * 14);
         const chaseDist = 4.6;
         const chaseHeight = 1.45;
 
@@ -122,7 +126,6 @@ export class CameraController {
       }
 
       case 'hood': {
-        targetFov = 72 + Math.min(18, (speedKmh / 200) * 18);
         // Rigidly attached to hood
         targetPos = carPos
           .clone()
@@ -137,7 +140,6 @@ export class CameraController {
       }
 
       case 'cockpit': {
-        targetFov = 75;
         // Driver's eye view inside cabin (-0.35 left, 0.95 high, 0.1 forward)
         const driverOffset = right.clone().multiplyScalar(-0.35).add(forward.clone().multiplyScalar(0.1));
         targetPos = carPos
@@ -154,7 +156,6 @@ export class CameraController {
       }
 
       case 'drift': {
-        targetFov = 68;
         // Wide high-angle cinematic camera highlighting tire smoke
         const slipDir = state.vx > 0 ? 1 : -1;
         const angleOffset = right.clone().multiplyScalar(slipDir * 3.8);
@@ -169,7 +170,6 @@ export class CameraController {
       }
 
       case 'orbit': {
-        targetFov = 60;
         const radius = this.orbitDistance;
         const ox = Math.sin(this.orbitAngle) * Math.cos(this.orbitPitch) * radius;
         const oy = Math.sin(this.orbitPitch) * radius;
