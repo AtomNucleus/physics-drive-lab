@@ -185,22 +185,31 @@ export class WheelDynamics {
     const roadOmega = longitudinalVelocity / this.radius;
     const isFreeRolling = Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20;
 
-    // Below ~9 km/h an unpowered, unbraked loaded tire should behave as a rolling
-    // no-slip constraint in the longitudinal direction. Explicitly integrating the
-    // several-kN tire reaction through ~2 kg*m^2 of wheel inertia at 120 Hz can
-    // otherwise overshoot road speed by >10 rad/s in one step and feed a violent
-    // force/yaw chatter back into the chassis. Preserve full wheel-slip dynamics as
-    // soon as drive or brake torque is applied, and above the crawl-speed regime.
-    const lowSpeedFreeRollingConstraint =
-      isFreeRolling && Math.abs(longitudinalVelocity) < 2.6;
-    if (lowSpeedFreeRollingConstraint) {
-      this.angularVelocity = roadOmega;
-      this.rawSlipRatio = 0;
-      this.relaxationSlipRatio = 0;
-      this.lowSpeedLongDeflection = 0;
-      this.transientFx = 0;
-    } else if (isFreeRolling) {
-      const trackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
+    // A free, loaded wheel approaches rolling without longitudinal slip as speed
+    // falls, but that constraint must arrive continuously. The old solver switched
+    // instantaneously at 2.6 m/s (9.36 km/h), exactly in the reported full-lock
+    // shake regime. Individual inside/outside wheels repeatedly crossed that speed
+    // boundary while cornering, alternately zeroing and re-enabling longitudinal
+    // slip force. Blend the constraint over a broad physical crawl-speed band
+    // instead. Drive or brake torque immediately removes this free-roll authority.
+    const freeRollFullConstraintMs = 1.40;
+    const freeRollDynamicMs = 3.40;
+    const freeRollLinear = PhysicsMath.clamp(
+      (freeRollDynamicMs - Math.abs(longitudinalVelocity)) /
+        (freeRollDynamicMs - freeRollFullConstraintMs),
+      0,
+      1
+    );
+    const freeRollConstraintAuthority = isFreeRolling
+      ? freeRollLinear * freeRollLinear * (3 - 2 * freeRollLinear)
+      : 0;
+    const freeRollDynamicAuthority = 1 - freeRollConstraintAuthority;
+
+    if (isFreeRolling) {
+      // Track road speed progressively rather than teleporting omega at a threshold.
+      // Higher constraint authority represents the small longitudinal contact force
+      // required to keep an unpowered wheel rolling; wheel inertia remains present.
+      const trackingRate = PhysicsMath.lerp(55, 220, freeRollConstraintAuthority);
       const trackingAlpha = 1 - Math.exp(-trackingRate * dt);
       this.angularVelocity += (roadOmega - this.angularVelocity) * trackingAlpha;
     }
@@ -216,15 +225,15 @@ export class WheelDynamics {
     const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
 
     // A regularization floor prevents near-zero velocity from turning a tiny
-    // wheel-speed mismatch into an enormous slip ratio.
+    // wheel-speed mismatch into an enormous slip ratio. Free-rolling slip authority
+    // fades continuously toward zero instead of disappearing at one speed sample.
     const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
-    this.rawSlipRatio = lowSpeedFreeRollingConstraint
-      ? 0
-      : PhysicsMath.clamp(
-          (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
-          -3,
-          3
-        );
+    const unconstrainedSlipRatio = PhysicsMath.clamp(
+      (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
+      -3,
+      3
+    );
+    this.rawSlipRatio = unconstrainedSlipRatio * freeRollDynamicAuthority;
 
     // Positive lateral velocity means the contact patch is moving to the right;
     // tire force must develop to the left, hence the negative slip-angle sign.
@@ -256,10 +265,15 @@ export class WheelDynamics {
       const lateralSlipAlpha = 1 - Math.exp(-relaxationTravel / lateralSigma);
       const longitudinalSlipAlpha = 1 - Math.exp(-relaxationTravel / longitudinalSigma);
       this.relaxationSlipAngle += (this.rawSlipAngle - this.relaxationSlipAngle) * lateralSlipAlpha;
-      if (lowSpeedFreeRollingConstraint) {
-        this.relaxationSlipRatio = 0;
-      } else {
-        this.relaxationSlipRatio += (this.rawSlipRatio - this.relaxationSlipRatio) * longitudinalSlipAlpha;
+      this.relaxationSlipRatio +=
+        (this.rawSlipRatio - this.relaxationSlipRatio) * longitudinalSlipAlpha;
+
+      // As the rolling constraint takes authority, unload any old longitudinal
+      // relaxation state smoothly. This prevents stale slip from surviving after
+      // the wheel has already synchronized with the road.
+      if (freeRollConstraintAuthority > 0) {
+        const constraintSlipDecay = Math.exp(-80 * freeRollConstraintAuthority * dt);
+        this.relaxationSlipRatio *= constraintSlipDecay;
       }
     }
 
@@ -288,11 +302,13 @@ export class WheelDynamics {
       const dynamicStateDecay = Math.exp(-18 * dynamicBlend * dt);
       this.lowSpeedLongDeflection *= dynamicStateDecay;
       this.lowSpeedLatDeflection *= dynamicStateDecay;
-      if (lowSpeedFreeRollingConstraint) {
-        this.lowSpeedLongDeflection = 0;
-      } else {
-        this.lowSpeedLongDeflection += longPatchSlipSpeed * dt * staticWeight;
-      }
+
+      // Constraint authority continuously sheds longitudinal bristle shear while
+      // retaining full lateral brush behavior for parking and tight turns.
+      const constraintBristleDecay = Math.exp(-90 * freeRollConstraintAuthority * dt);
+      this.lowSpeedLongDeflection *= constraintBristleDecay;
+      this.lowSpeedLongDeflection +=
+        longPatchSlipSpeed * dt * staticWeight * freeRollDynamicAuthority;
       this.lowSpeedLatDeflection += latPatchSlipSpeed * dt * staticWeight;
     }
 
@@ -304,9 +320,9 @@ export class WheelDynamics {
     const criticalBristleDamping = 2 * Math.sqrt(bristleStiffness * effectiveCornerMass);
     const bristleDamping = PhysicsMath.clamp(criticalBristleDamping * 0.72, 8000, 32000);
 
-    let staticFx = lowSpeedFreeRollingConstraint
-      ? 0
-      : this.lowSpeedLongDeflection * bristleStiffness + longPatchSlipSpeed * bristleDamping;
+    let staticFx =
+      (this.lowSpeedLongDeflection * bristleStiffness + longPatchSlipSpeed * bristleDamping) *
+      freeRollDynamicAuthority;
     let staticFy = this.lowSpeedLatDeflection * bristleStiffness + latPatchSlipSpeed * bristleDamping;
 
     const patchSlipSpeed = Math.hypot(longPatchSlipSpeed, lateralVelocity);
@@ -363,10 +379,10 @@ export class WheelDynamics {
     const lateralForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLateralForceAlpha, dynamicBlend);
     const longitudinalForceAlpha = PhysicsMath.lerp(lowSpeedForceAlpha, dynamicLongitudinalForceAlpha, dynamicBlend);
 
-    if (lowSpeedFreeRollingConstraint) {
-      this.transientFx = 0;
-    } else {
-      this.transientFx += (blendedTargetFx - this.transientFx) * longitudinalForceAlpha;
+    this.transientFx += (blendedTargetFx - this.transientFx) * longitudinalForceAlpha;
+    if (freeRollConstraintAuthority > 0) {
+      const constraintForceDecay = Math.exp(-70 * freeRollConstraintAuthority * dt);
+      this.transientFx *= constraintForceDecay;
     }
     this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
@@ -395,62 +411,67 @@ export class WheelDynamics {
     // chassis force. Feeding it back as tire reaction torque would double-couple
     // it, spin a free wheel up, and numerically return the lost energy to the car.
     const contactFxForWheelTorque = fx - rrForce;
-    if (lowSpeedFreeRollingConstraint) {
-      this.angularVelocity = roadOmega;
+    const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
+    const brakeSign = Math.sign(spinReference);
+    const tireReactionTorque = contactFxForWheelTorque * this.radius;
+    const nonBrakeTorque = driveTorque - tireReactionTorque;
+    const brakeCanHold = brakeRequest > Math.abs(nonBrakeTorque) + 2.0;
+
+    // A service brake is a static-friction torque constraint at zero wheel speed,
+    // not a signed torque source that is allowed to integrate the wheel through
+    // zero and then reverse it. Once brake capacity exceeds the opposing axle /
+    // tire torque in the final walking-speed phase, lock the rotational DOF at
+    // zero while the tire contact patch continues to generate the chassis force
+    // that removes the remaining vehicle speed. This is the physical equivalent
+    // of the caliper holding the disc against converter/driveline creep.
+    const staticBrakeHold =
+      brakeCanHold &&
+      Math.abs(longitudinalVelocity) < 1.20 &&
+      Math.abs(this.angularVelocity) < 4.5;
+
+    if (staticBrakeHold) {
+      this.angularVelocity = 0;
     } else {
-      const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
-      const brakeSign = Math.sign(spinReference);
-      const tireReactionTorque = contactFxForWheelTorque * this.radius;
-      const nonBrakeTorque = driveTorque - tireReactionTorque;
-      const brakeCanHold = brakeRequest > Math.abs(nonBrakeTorque) + 2.0;
+      const brakeTorque = brakeRequest * brakeSign;
+      const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
+      const angularAccel = PhysicsMath.clamp(
+        (nonBrakeTorque - brakeTorque) / effectiveRotationalInertia,
+        -4500,
+        4500
+      );
+      const omegaBefore = this.angularVelocity;
+      this.angularVelocity += angularAccel * dt;
 
-      // A service brake is a static-friction torque constraint at zero wheel speed,
-      // not a signed torque source that is allowed to integrate the wheel through
-      // zero and then reverse it. Once brake capacity exceeds the opposing axle /
-      // tire torque in the final walking-speed phase, lock the rotational DOF at
-      // zero while the tire contact patch continues to generate the chassis force
-      // that removes the remaining vehicle speed. This is the physical equivalent
-      // of the caliper holding the disc against converter/driveline creep.
-      const staticBrakeHold =
-        brakeCanHold &&
-        Math.abs(longitudinalVelocity) < 1.20 &&
-        Math.abs(this.angularVelocity) < 4.5;
-
-      if (staticBrakeHold) {
-        this.angularVelocity = 0;
-      } else {
-        const brakeTorque = brakeRequest * brakeSign;
-        const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
-        const angularAccel = PhysicsMath.clamp(
-          (nonBrakeTorque - brakeTorque) / effectiveRotationalInertia,
-          -4500,
-          4500
-        );
-        const omegaBefore = this.angularVelocity;
-        this.angularVelocity += angularAccel * dt;
-
+      // A free wheel may not numerically shoot through its rolling solution because
+      // its tiny rotational inertia was hit by one large tire-force sample. Instead
+      // of an exact speed-mode projection, damp only the overshoot and then apply
+      // the same continuous constraint authority used by the slip/force states.
+      if (isFreeRolling) {
         const beforeError = omegaBefore - roadOmega;
         const afterError = this.angularVelocity - roadOmega;
-        if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
-          this.angularVelocity = roadOmega;
+        if (beforeError * afterError < 0) {
+          this.angularVelocity = PhysicsMath.lerp(this.angularVelocity, roadOmega, 0.72);
         }
+        const postTrackingRate = PhysicsMath.lerp(35, 180, freeRollConstraintAuthority);
+        const postTrackingAlpha = 1 - Math.exp(-postTrackingRate * dt);
+        this.angularVelocity += (roadOmega - this.angularVelocity) * postTrackingAlpha;
+      }
 
-        // If the brake has enough capacity to hold the wheel, it may bring rotation
-        // to zero but may not numerically accelerate it into the opposite direction.
-        // Tire or drive torque can re-start the wheel on a later step if it truly
-        // exceeds brake capacity.
-        if (
-          brakeCanHold &&
-          Math.abs(spinReference) > 1e-6 &&
-          Math.sign(this.angularVelocity) !== Math.sign(spinReference)
-        ) {
-          this.angularVelocity = 0;
-        }
+      // If the brake has enough capacity to hold the wheel, it may bring rotation
+      // to zero but may not numerically accelerate it into the opposite direction.
+      // Tire or drive torque can re-start the wheel on a later step if it truly
+      // exceeds brake capacity.
+      if (
+        brakeCanHold &&
+        Math.abs(spinReference) > 1e-6 &&
+        Math.sign(this.angularVelocity) !== Math.sign(spinReference)
+      ) {
+        this.angularVelocity = 0;
+      }
 
-        if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
-          const sync = 1 - Math.exp(-14 * dt);
-          this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
-        }
+      if (Math.abs(longitudinalVelocity) < 1.0 && Math.abs(driveTorque) < 15 && brakeRequest < 15) {
+        const sync = 1 - Math.exp(-14 * dt);
+        this.angularVelocity += (roadOmega - this.angularVelocity) * sync;
       }
     }
 
