@@ -24,6 +24,24 @@ function makeOversteeringM5() {
   assert.equal(config.driftAssist ?? 0, 0, 'recovery test must not enable drift assist');
   const sim = new Simulation(config);
   sim.reset(0, 0, 0);
+
+  // Protect the chassis physics itself. Recovery must not be made easy by giving a
+  // 2.38-ton, 3.00-m-wheelbase sedan the yaw inertia of a much shorter object.
+  // For the simplified passenger-car model, Izz ~= m * lf * lr where the static
+  // axle loads determine CG-to-axle distances. The G90 calibration is ~5.33 kN*m*s^2.
+  const lf = config.wheelbase * (1 - config.weightDistributionFront);
+  const lr = config.wheelbase * config.weightDistributionFront;
+  const expectedYawInertia = config.mass * lf * lr;
+  const actualYawInertia = sim.vehicle.rigidBody.config.inertia.y;
+  assert(
+    Math.abs(actualYawInertia - expectedYawInertia) / expectedYawInertia < 1e-9,
+    `M5 yaw inertia does not match axle/CG model: actual=${actualYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
+  );
+  assert(
+    actualYawInertia > 4800 && actualYawInertia < 6000,
+    `M5 yaw inertia outside plausible heavy-sedan guardrail: ${actualYawInertia.toFixed(1)} kg*m^2`
+  );
+
   for (let i = 0; i < 300; i++) sim.stepExplicit(neutral, 1);
   const speedMs = 25;
   sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, speedMs);
@@ -37,10 +55,10 @@ function makeOversteeringM5() {
     const rearSlip = 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle));
     if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
-  return { sim, inductionSec: inductionSteps * dt };
+  return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: actualYawInertia };
 }
 function runDigitalDriverRecovery() {
-  const { sim, inductionSec } = makeOversteeringM5();
+  const { sim, inductionSec, yawInertiaKgM2 } = makeOversteeringM5();
   let digitalInput = 0.18;
   let released = false;
   let releaseTimeSec: number | null = null;
@@ -60,7 +78,7 @@ function runDigitalDriverRecovery() {
     peakCounterSteerDeg = Math.max(peakCounterSteerDeg, -state.actualSteerAngle * DEG);
     if (wanted.has(i)) samples.push(sample(sim, i * dt, digitalInput));
   }
-  return { inductionSec, releaseTimeSec, peakCounterInput, peakCounterSteerDeg, samples };
+  return { inductionSec, yawInertiaKgM2, releaseTimeSec, peakCounterInput, peakCounterSteerDeg, samples };
 }
 const result = runDigitalDriverRecovery();
 const at = (seconds: number) => {
