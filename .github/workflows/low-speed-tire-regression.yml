@@ -66,6 +66,9 @@ jobs:
       - name: Steering direction regression
         run: npm run test:steering-direction
 
+      - name: Physical steering dynamics regression
+        run: npm run test:steering-dynamics
+
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
 
