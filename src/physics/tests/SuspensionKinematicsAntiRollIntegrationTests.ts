@@ -56,6 +56,31 @@ const staticCamber = [
   Number((config as any).camberStaticRear ?? -1.2),
 ];
 
+// SuspensionSystem evaluates ARB force from displacement at the BEGINNING of the
+// fixed step, then integrates the unsprung masses and stores their END-of-step
+// displacement. During a zero crossing those two displacement samples can have
+// opposite signs even though the applied ARB force is correct. Reconstruct the
+// exact beginning-of-step displacement used by SuspensionSystem so this integration
+// test checks the force against its real input rather than a one-step-newer state.
+const readArbInputDisplacements = () => {
+  const hardpointsBody = sim.vehicle.getHardpointsBody();
+  const bodyPosition = sim.vehicle.rigidBody.position;
+  const bodyOrientation = sim.vehicle.rigidBody.orientation;
+  const pickupOffset = 0.12;
+  const minDisplacement = -0.12;
+  const maxDisplacement = 0.14;
+
+  return sim.vehicle.suspension.states.map((corner, index) => {
+    const hardpointWorldOffset = PhysicsMath.quatRotateVec3(bodyOrientation, hardpointsBody[index]);
+    const hardpointWorld = PhysicsMath.vec3Add(bodyPosition, hardpointWorldOffset);
+    return PhysicsMath.clamp(
+      corner.hubPositionWorldY - hardpointWorld.y + pickupOffset + config.suspensionRestLength,
+      minDisplacement,
+      maxDisplacement
+    );
+  });
+};
+
 for (let step = 0; step < 120 * 2.4; step++) {
   const t = step * DT;
   // Smooth left/right maneuver: enough lateral load to exercise PR #18's bars and
@@ -65,6 +90,10 @@ for (let step = 0; step < 120 * 2.4; step++) {
     : t < 1.6
       ? -0.07 * Math.sin(Math.PI * (t - 0.8) / 0.8)
       : 0;
+
+  const arbInputTravel = readArbInputDisplacements();
+  const frontArbInputDiff = arbInputTravel[0] - arbInputTravel[1];
+  const rearArbInputDiff = arbInputTravel[2] - arbInputTravel[3];
 
   const state = sim.stepExplicit({ ...zeroInputs, steer }, 1);
   const susp = sim.vehicle.suspension.states;
@@ -78,23 +107,23 @@ for (let step = 0; step < 120 * 2.4; step++) {
   assert(Math.abs(frontArbNet) < 1e-6, `front ARB created net vertical bias: ${frontArbNet} N`);
   assert(Math.abs(rearArbNet) < 1e-6, `rear ARB created net vertical bias: ${rearArbNet} N`);
 
-  if (Math.abs(frontDiff) > 1e-5) {
+  if (Math.abs(frontArbInputDiff) > 1e-5) {
     assert(
-      Math.sign(susp[0].antiRollBarForceN) === Math.sign(frontDiff),
-      `front ARB force sign disagreed with differential travel: diff=${frontDiff}, force=${susp[0].antiRollBarForceN}`
+      Math.sign(susp[0].antiRollBarForceN) === Math.sign(frontArbInputDiff),
+      `front ARB force sign disagreed with evaluated differential travel: diff=${frontArbInputDiff}, force=${susp[0].antiRollBarForceN}`
     );
     assert(
-      Math.sign(susp[1].antiRollBarForceN) === -Math.sign(frontDiff),
+      Math.sign(susp[1].antiRollBarForceN) === -Math.sign(frontArbInputDiff),
       'front inside/outside ARB reactions stopped being equal-and-opposite'
     );
   }
-  if (Math.abs(rearDiff) > 1e-5) {
+  if (Math.abs(rearArbInputDiff) > 1e-5) {
     assert(
-      Math.sign(susp[2].antiRollBarForceN) === Math.sign(rearDiff),
-      `rear ARB force sign disagreed with differential travel: diff=${rearDiff}, force=${susp[2].antiRollBarForceN}`
+      Math.sign(susp[2].antiRollBarForceN) === Math.sign(rearArbInputDiff),
+      `rear ARB force sign disagreed with evaluated differential travel: diff=${rearArbInputDiff}, force=${susp[2].antiRollBarForceN}`
     );
     assert(
-      Math.sign(susp[3].antiRollBarForceN) === -Math.sign(rearDiff),
+      Math.sign(susp[3].antiRollBarForceN) === -Math.sign(rearArbInputDiff),
       'rear inside/outside ARB reactions stopped being equal-and-opposite'
     );
   }
