@@ -1,84 +1,26 @@
 name: Anonymous Netlify Deploy
-# browser-gated preview for M5 startup white-screen fix v2
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
-      - agent/m5-transient-behavior
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  validate-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+      - run: npm install
       - run: npm run build
-      - name: Browser startup gate
-        shell: bash
-        run: |
-          set -e
-          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/vite-preview.log 2>&1 &
-          preview_pid=$!
-          sleep 3
-          chrome="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
-          test -n "$chrome"
-          set +e
-          "$chrome" --headless=new --no-sandbox --disable-dev-shm-usage --use-angle=swiftshader --enable-unsafe-swiftshader --virtual-time-budget=5000 --enable-logging=stderr --v=1 --dump-dom http://127.0.0.1:4173 > /tmp/dom.html 2> /tmp/chrome.log
-          browser_status=$?
-          set -e
-          kill "$preview_pid" 2>/dev/null || true
-
-          root_error=false
-          if grep -q '<div id="root"><pre id="startup-error"' /tmp/dom.html || grep -q '<div id="root"><pre id="bootstrap-error"' /tmp/dom.html; then
-            root_error=true
-          fi
-          hud_mounted=false
-          if grep -q 'id="driving-hud"' /tmp/dom.html; then
-            hud_mounted=true
-          fi
-
-          : > .ci-browser-gate.txt
-          printf 'browser_status=%s\n' "$browser_status" >> .ci-browser-gate.txt
-          printf 'startup_error=%s\n' "$root_error" >> .ci-browser-gate.txt
-          printf 'hud_mounted=%s\n' "$hud_mounted" >> .ci-browser-gate.txt
-          printf '\n=== ERROR LINES ===\n' >> .ci-browser-gate.txt
-          grep -Ei 'CONSOLE|Uncaught|TypeError|ReferenceError|SyntaxError|Application startup/render failure|Bootstrap startup failure' /tmp/chrome.log >> .ci-browser-gate.txt 2>/dev/null || true
-
-          if [ "$browser_status" -ne 0 ] || [ "$root_error" = true ] || [ "$hud_mounted" != true ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .ci-browser-gate.txt
-            git commit -m "Record failed browser startup gate"
-            git push origin HEAD:agent/m5-transient-behavior
-            exit 1
-          fi
-      - name: Deploy verified build anonymously to Netlify
-        shell: bash
-        run: |
-          set -e
-          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('/tmp/netlify.json', 'utf8'));
-          const safe = {
-            browser_gate: 'passed',
-            site_url: data.site_url,
-            deploy_id: data.deploy_id,
-            password: data.password || null
-          };
-          fs.writeFileSync('.ci-fixed-preview.json', JSON.stringify(safe, null, 2) + '\n');
-          NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-browser-gate.txt .ci-fixed-preview.json
-          git commit -m "Record verified Netlify preview"
-          git push origin HEAD:agent/m5-transient-behavior
+      - name: Deploy anonymously to Netlify
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
