@@ -91,6 +91,11 @@ const fractionAt = (
   return Math.abs(samples[index][key]) / Math.max(1e-9, Math.abs(target));
 };
 
+const sampleAt = (samples: Sample[], timeSec: number): Sample => {
+  const index = Math.max(0, Math.min(samples.length - 1, Math.round(timeSec / dt) - 1));
+  return samples[index];
+};
+
 const turnInTiming = {
   tire25: firstTimeAtFraction(turnIn, 'frontFy', steady.frontFy, 0.25),
   tire50: firstTimeAtFraction(turnIn, 'frontFy', steady.frontFy, 0.50),
@@ -135,21 +140,46 @@ const releaseFractions = {
     tire: releaseFractionAt('frontFy', steady.frontFy, 0.05),
     travel: releaseFractionAt('outsideTravelDelta', steady.outsideTravelDelta, 0.05),
     roll: releaseFractionAt('roll', steady.roll, 0.05),
+    yaw: sampleAt(release, 0.05).yawRate / Math.max(1e-9, steady.yawRate),
   },
   at100ms: {
     tire: releaseFractionAt('frontFy', steady.frontFy, 0.10),
     travel: releaseFractionAt('outsideTravelDelta', steady.outsideTravelDelta, 0.10),
     roll: releaseFractionAt('roll', steady.roll, 0.10),
+    yaw: sampleAt(release, 0.10).yawRate / Math.max(1e-9, steady.yawRate),
   },
   at250ms: {
     tire: releaseFractionAt('frontFy', steady.frontFy, 0.25),
     travel: releaseFractionAt('outsideTravelDelta', steady.outsideTravelDelta, 0.25),
     roll: releaseFractionAt('roll', steady.roll, 0.25),
+    yaw: sampleAt(release, 0.25).yawRate / Math.max(1e-9, steady.yawRate),
   },
 };
 
 const maxReleaseRoll = Math.max(...release.map((s) => s.roll));
 const finalReleaseRoll = mean(release.slice(-30).map((s) => s.roll));
+
+// Emit the trace before the guardrails so a failed calibration is still diagnosable
+// from CI instead of hiding the exact tire/suspension/chassis sequence behind the
+// first assertion that happens to trip.
+console.log(JSON.stringify({
+  speedKmh: speedMs * 3.6,
+  steerInput,
+  yawInertiaKgM2: sim.vehicle.rigidBody.config.inertia.y,
+  steady: {
+    frontFyN: steady.frontFy,
+    outsideTravelDeltaM: steady.outsideTravelDelta,
+    rollDeg: steady.roll * 180 / Math.PI,
+    yawRateDegS: steady.yawRate * 180 / Math.PI,
+  },
+  turnInTimingSec: turnInTiming,
+  turnInFractions,
+  releaseFractions,
+  release: {
+    maxRollDeg: maxReleaseRoll * 180 / Math.PI,
+    finalRollDeg: finalReleaseRoll * 180 / Math.PI,
+  },
+}, null, 2));
 
 assert(steady.frontFy > 1500, `turn-in did not generate meaningful front lateral force: ${steady.frontFy.toFixed(0)} N`);
 assert(Math.abs(steady.outsideTravelDelta) > 0.001, 'turn-in did not generate measurable outside suspension compression');
@@ -188,8 +218,8 @@ assert(
   `body did not settle into a controlled cornering attitude by 250 ms: ${(turnInFractions.at250ms.roll * 100).toFixed(1)}%`
 );
 
-// Release target is the reverse sequence: tire lateral force sheds first while the
-// already-loaded suspension and body unwind, then both settle without a snap-back.
+// Release target is the reverse sequence: tire lateral force sheds before the
+// already-loaded suspension/body, then both settle without a sustained snap-back.
 assert(
   releaseFractions.at50ms.tire < 0.25 && releaseFractions.at50ms.travel > 0.70 && releaseFractions.at50ms.roll > 0.65,
   `steering release sequence is wrong at 50 ms: tire=${releaseFractions.at50ms.tire.toFixed(2)} travel=${releaseFractions.at50ms.travel.toFixed(2)} roll=${releaseFractions.at50ms.roll.toFixed(2)}`
@@ -201,21 +231,4 @@ assert(
 assert(finalReleaseRoll < steady.roll * 0.05, 'body retained roll after steering release');
 assert(maxReleaseRoll < steady.roll * 1.20, 'steering release produced an excessive roll spike');
 
-console.log(JSON.stringify({
-  speedKmh: speedMs * 3.6,
-  steerInput,
-  steady: {
-    frontFyN: steady.frontFy,
-    outsideTravelDeltaM: steady.outsideTravelDelta,
-    rollDeg: steady.roll * 180 / Math.PI,
-    yawRateDegS: steady.yawRate * 180 / Math.PI,
-  },
-  turnInTimingSec: turnInTiming,
-  turnInFractions,
-  releaseFractions,
-  release: {
-    maxRollDeg: maxReleaseRoll * 180 / Math.PI,
-    finalRollDeg: finalReleaseRoll * 180 / Math.PI,
-  },
-  status: 'passed',
-}, null, 2));
+console.log('M5TransientResponseTests: PASS');
