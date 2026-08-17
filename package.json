@@ -34,8 +34,8 @@
     "test:m5-chassis": "tsx src/physics/tests/M5ChassisDynamicsTests.ts",
     "test:m5-oversteer": "tsx src/physics/tests/M5OversteerRecoveryDiagnostic.ts",
     "test:high-speed": "tsx src/physics/tests/HighSpeedAntiRollTests.ts",
-    "test:m5-validation": "tsx src/physics/validation/M5ValidationSuite.ts",
-    "test:m5-validation:strict": "tsx src/physics/validation/M5ValidationSuite.ts --strict",
+    "test:m5-validation": "tsx src/physics/validation/M5ValidationSuite.ts --test=determinism,static-loads,mass-properties-moments,acceleration,rapid-reversal,slalom,lift-throttle --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts",
+    "test:m5-validation:strict": "tsx src/physics/validation/M5ValidationSuite.ts --test=determinism,static-loads,mass-properties-moments,acceleration,rapid-reversal,slalom,lift-throttle --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts --strict",
     "test:m5-validation:list": "tsx src/physics/validation/M5ValidationSuite.ts --list"
   },
   "dependencies": {
@@ -62,6 +62,6 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "@types/express": "^5.0.0"
   }
 }
