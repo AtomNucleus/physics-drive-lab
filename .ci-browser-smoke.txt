@@ -12,20 +12,202 @@ browser_status=0
     <meta property="og:description" content="An application built with Google AI Studio.">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
-    <script type="module" crossorigin="" src="/assets/index-hjcA0wiN.js"></script>
+    <script type="module" crossorigin="" src="/assets/index-C2wCpZ02.js"></script>
     <link rel="stylesheet" crossorigin="" href="/assets/index-C1c5r_6x.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><pre id="startup-error" style="margin: 0px; min-height: 100vh; padding: 20px; box-sizing: border-box; background: rgb(17, 24, 39); color: rgb(252, 165, 165); white-space: pre-wrap; font-family: monospace;">Application failed to start:
+TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at r3 (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:4354:11920)
+    at Uh (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:48589)
+    at $h (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:71455)
+    at gg (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:81848)
+    at Xg (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:117716)
+    at PS (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:116756)
+    at yf (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:116586)
+    at Gg (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:113359)
+    at sx (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:48:125237)
+    at MessagePort.V (http://127.0.0.1:4173/assets/index-C2wCpZ02.js:25:1607)</pre></div>
+    <script>
+      (() => {
+        const escapeHtml = (value) => String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;');
+        const showStartupFailure = (message) => {
+          const root = document.getElementById('root');
+          if (!root || root.childNodes.length > 0) return;
+          root.innerHTML = `<pre id="bootstrap-error" style="margin:0;min-height:100vh;padding:20px;box-sizing:border-box;background:#111827;color:#fca5a5;white-space:pre-wrap;font-family:monospace">${escapeHtml(message)}</pre>`;
+        };
+        window.addEventListener('error', (event) => {
+          const detail = event.error?.stack || event.message || 'Unknown startup error';
+          console.error('Bootstrap startup failure', detail);
+          setTimeout(() => showStartupFailure(`Application failed before React mounted:\n${detail}`), 0);
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+          const reason = event.reason?.stack || event.reason?.message || event.reason || 'Unknown rejected promise';
+          console.error('Bootstrap unhandled rejection', reason);
+          setTimeout(() => showStartupFailure(`Application startup promise failed:\n${reason}`), 0);
+        });
+        setTimeout(() => showStartupFailure('Application did not mount within 4 seconds. Check the browser console for the startup error.'), 4000);
+      })();
+    </script>
   
 
 </body></html>
 
 
-=== CHROME LOG TAIL ===
-1  ... 
+=== ERROR LINES ===
+[2266:2288:0817/140859.564702:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2288:0817/140859.575888:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2303:2303:0817/140859.686534:VERBOSE1:gen/media/gpu/vaapi/va_stubs.cc:665] dlerror() says:
+[2266:2288:0817/140859.818672:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2288:0817/140859.903527:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2294:0817/140859.973265:VERBOSE1:components/component_updater/component_installer.cc:477] StartRegistration for Certificate Error Assistant
+[2266:2266:0817/140900.141868:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2266:0817/140900.142463:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2288:0817/140900.144028:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2288:0817/140900.144051:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2266:0817/140900.146461:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2266:0817/140900.152745:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2266:0817/140900.226917:VERBOSE1:components/component_updater/component_installer.cc:548] FinishRegistration for Certificate Error Assistant
+[2266:2266:0817/140900.269193:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2266:0817/140900.273357:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2288:0817/140900.274972:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2266:0817/140900.360293:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.Properties.GetAll: object_path= /org/freedesktop/UPower/devices/DisplayDevice: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[2266:2266:0817/140900.362179:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2288:0817/140900.363019:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2266:0817/140900.404672:VERBOSE1:components/segmentation_platform/internal/signals/signal_filter_processor.cc:61] Segmentation platform started observing IOS.CredentialExtension.IsEnabled.Startup
+[2266:2266:0817/140900.429136:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2288:0817/140900.429965:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2266:2266:0817/140900.519972:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2266:2266:0817/140900.932671:VERBOSE1:components/signin/core/browser/account_reconcilor.cc:592] AccountReconcilor::OnAccountsInCookieUpdated: CookieJar 0 accounts, Reconcilor's state is 1, Error was 
+[2266:2266:0817/140900.934897:VERBOSE1:components/signin/core/browser/account_reconcilor.cc:823] AccountReconcilor::CalculateIfMultiloginReconcileIsDone: Error was 
+Histogram: Startup.LoadTime.RecordedProcessCreation recorded 1 samples, mean = 1.0 (flags = 0x1)
+[2266:2266:0817/140901.040286:VERBOSE1:components/signin/core/browser/account_reconcilor.cc:592] AccountReconcilor::OnAccountsInCookieUpdated: CookieJar 0 accounts, Reconcilor's state is 1, Error was 
+[2266:2266:0817/140901.040339:VERBOSE1:components/signin/core/browser/account_reconcilor.cc:823] AccountReconcilor::CalculateIfMultiloginReconcileIsDone: Error was 
+[2266:2266:0817/140901.680003:INFO:CONSOLE:48] "TypeError: Cannot read properties of undefined (reading 'toFixed')", source: http://127.0.0.1:4173/assets/index-C2wCpZ02.js (48)
+[2266:2266:0817/140901.680153:INFO:CONSOLE:4355] "Application startup/render failure TypeError: Cannot read properties of undefined (reading 'toFixed') [object Object]", source: http://127.0.0.1:4173/assets/index-C2wCpZ02.js (4355)
+[2266:2266:0817/140901.908617:VERBOSE1:components/signin/core/browser/account_reconcilor.cc:823] AccountReconcilor::CalculateIfMultiloginReconcileIsDone: Error was 
+Histogram: HttpCache.NoVarySearch.SnapshotLoadError recorded 1 samples, mean = 4.0 (flags = 0x1)
+Histogram: NQE.RTT.Error.Absolute recorded 9 samples, mean = 18.6 (flags = 0x1)
+Histogram: NQE.RTT.Error.IsZero recorded 9 samples, mean = 0.0 (flags = 0x1)
+Histogram: NQE.RTT.Error.Negative recorded 5 samples, mean = 18.8 (flags = 0x1)
+Histogram: NQE.RTT.Error.Positive recorded 4 samples, mean = 18.2 (flags = 0x1)
+Histogram: Net.DNS.DnsTask.SvcbHttpsTransactionError recorded 10 samples, mean = 0.0 (flags = 0x1)
+Histogram: Net.DNS.HTTPSSVC.RecordHttps.Insecure.ExpectNoerror.DnsRcode recorded 12 samples, mean = 2.2 (flags = 0x1)
+Histogram: Net.DNS.HTTPSSVC.RecordHttps.Insecure.ExpectNoerror.Parsable recorded 3 samples, mean = 1.0 (flags = 0x1)
+Histogram: Net.DNS.HTTPSSVC.RecordHttps.Insecure.ExpectNoerror.ResolveTimeAddress recorded 12 samples, mean = 9.9 (flags = 0x1)
+Histogram: Net.DNS.HTTPSSVC.RecordHttps.Insecure.ExpectNoerror.ResolveTimeExperimental recorded 12 samples, mean = 10.5 (flags = 0x1)
+Histogram: Net.DNS.HTTPSSVC.RecordHttps.Insecure.ExpectNoerror.ResolveTimeRatio recorded 12 samples, mean = 14.2 (flags = 0x1)
+Histogram: Net.DNS.ResolveError.Slow recorded 1 samples (flags = 0x1)
+Histogram: Net.NetworkTransaction.StreamRequestErrorCode4 recorded 1 samples (flags = 0x1)
+Histogram: Net.QuicChromiumClientStream.HandleOnCloseConnectionError recorded 4 samples (flags = 0x1)
+Histogram: Net.QuicChromiumClientStream.HandleOnCloseNetError recorded 4 samples (flags = 0x1)
+Histogram: Net.QuicChromiumClientStream.HandleOnCloseStreamError recorded 4 samples (flags = 0x1)
+Histogram: Net.QuicSession.CloseAllSessionsError recorded 4 samples (flags = 0x1)
+Histogram: Net.QuicSession.CloseSessionOnError recorded 5 samples (flags = 0x1)
+Histogram: Net.QuicSession.ConnectionCloseErrorCodeClient recorded 5 samples (flags = 0x1)
+Histogram: Net.QuicSession.ConnectionCloseErrorCodeClient.HandshakeConfirmed recorded 5 samples (flags = 0x1)
+Histogram: Net.QuicSession.ConnectionCloseErrorCodeClientGoogle recorded 3 samples (flags = 0x1)
+Histogram: Net.QuicSession.ConnectionCloseErrorCodeClientGoogle.HandshakeConfirmed recorded 3 samples (flags = 0x1)
+Histogram: Net.QuicSession.StreamCloseErrorCodeClient.HandshakeConfirmed recorded 0 samples (flags = 0x1)
+Histogram: Net.SSL_Connection_Error recorded 9 samples (flags = 0x1)
+Histogram: Net.SharedDictionaryStore.DeleteExpiredDictionaries.Error recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Net.SharedDictionaryStore.GetDictionaries.Error recorded 3 samples, mean = 0.0 (flags = 0x1)
+Histogram: Net.SpdySession.ClosedOnError recorded 6 samples (flags = 0x1)
+Histogram: Net.SpdySessionErrorDetails2 recorded 1 samples, mean = 15.0 (flags = 0x1)
+Histogram: SimpleCache.Http.SyncOpenPlatformFileError recorded 1 samples, mean = 4.0
+Histogram: Startup.LoadTime.RecordedProcessCreation recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Autofill.Address.IsEnabled.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Autofill.Ai.OptIn.Status.Startup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Autofill.Bnpl.IssuersSyncedCount.Startup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Autofill.CreditCard.IsEnabled.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Autofill.IsEnabled.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Autofill.PaymentMethods.CardBenefitsIsEnabled.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Autofill.PaymentMethods.CvcStorageIsEnabled.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Bookmarks.Storage.TimeToLoadAtStartup2 recorded 1 samples, mean = 250.0 (flags = 0x1)
+Histogram: BrowserRenderProcessHost.SpareProcessStartupTime recorded 3 samples, mean = 140.7 (flags = 0x1)
+Histogram: Commerce.PriceTracking.DanglingUserSubscriptionCountAtStartup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Enterprise.CloudPolicy.HasPreferenceMappingErrors recorded 4 samples, mean = 0.0 (flags = 0x1)
+Histogram: Gaia.AuthFetcher.ListAccounts.NetErrorCodes recorded 1 samples (flags = 0x1)
+Histogram: Glic.ProfileEnablement.DisabledReason.Startup recorded 3 samples, mean = 0.3 (flags = 0x1)
+Histogram: Glic.ProfileEnablement.IsEnabled.Startup recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Hardware.Display.Count.OnStartup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindow.FirstPaint recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindow.FirstPaint.Temperature.Other recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindow.ShowRequestedToFirstPaint recorded 1 samples, mean = 581.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindow.ShowRequestedToFirstPaint.Temperature.Other recorded 1 samples, mean = 581.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindowToReloadButton.FirstPaintGap recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.BrowserWindowToReloadButton.FirstPaintGap.Temperature.Other recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.ReloadButton.FirstContentfulPaint recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.ReloadButton.FirstContentfulPaint.Temperature.Other recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.ReloadButton.FirstPaint recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: InitialWebUI.Startup.ReloadButton.FirstPaint.Temperature.Other recorded 1 samples, mean = 1651.0 (flags = 0x1)
+Histogram: Input.Digitizer.MaxTouchPointsSupportedBySystemAtStartup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OSCrypt.FreedesktopSecretKeyProvider.NoService.ErrorDetail recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityRequestDebounced.Startup recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityRequestPrimaryAccountExists.Startup recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityRequestStatus.Startup recorded 4 samples, mean = 1.5 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_cobrowse_eligible recorded 2 samples, mean = 1.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_deep_search_eligible recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_eligible recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_fusebox_eligible recorded 2 samples, mean = 1.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_image_generation_eligible recorded 2 samples, mean = 1.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.is_pdf_upload_eligible recorded 2 samples, mean = 1.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponse.Startup.session_index recorded 2 samples (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponseAccountMismatch.Startup recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Omnibox.AimEligibility.EligibilityResponseCode.Startup recorded 2 samples (flags = 0x1)
+Histogram: Omnibox.KeywordModeUsageByEngineType.ActiveOnStartup recorded 6 samples, mean = 4.5 (flags = 0x1)
+Histogram: Omnibox.KeywordModeUsageByEngineType.InactiveOnStartup recorded 3 samples, mean = 1.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.Compose recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.ContextualCueing recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.Finds recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.HistorySearch recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.PasswordChangeSubmission recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: OptimizationGuide.ModelExecution.FeatureEnabledAtStartup.WallpaperSearch recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: PageLoad.Internal.ErrorCode recorded 2 samples, mean = 1.0 (flags = 0x1)
+Histogram: PasswordManager.SyncMetadataReadError2 recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: PaymentRequest.IsCanMakePaymentAllowedByPref.Startup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: SBClientPhishing.IsErrorDocumentOnSupportedMimeType recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: SafeBrowsing.V4Store.ReadyOnStartup recorded 11 samples, mean = 0.0 (flags = 0x1)
+Histogram: Security.HttpsFirstMode.SettingEnabledAtStartup2 recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Security.HttpsFirstMode.SettingEnabledAtStartupDetailed recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: SegmentationPlatform.SyncSessions.TabsCountAtStartup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: ServiceWorker.OnBrowserStartup.SkipServiceWorkerOnFirstNavigation recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: SessionRestore.UnrecoverableWriteErrorCount recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Settings.AdvancedSpellcheck.OnStartup2 recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Settings.AutocompleteSearches.OnStartup2 recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Settings.PreloadStatus.OnStartup3 recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Settings.StartupPageLoadSettings2 recorded 1 samples, mean = 5.0 (flags = 0x1)
+Histogram: Signin.APIKeyMatchesFeatureOnStartup recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Startup.BrowserMainRunnerImplInitializeLongTime recorded 1 samples, mean = 608.0 (flags = 0x1)
+Histogram: Startup.BrowserMessageLoopFirstIdle recorded 1 samples, mean = 2209.0 (flags = 0x1)
+Histogram: Startup.BrowserMessageLoopStartTime recorded 1 samples, mean = 1072.0 (flags = 0x1)
+Histogram: Startup.BrowserWindow.FirstPaint recorded 1 samples, mean = 1560.0 (flags = 0x1)
+Histogram: Startup.BrowserWindowDisplay recorded 1 samples, mean = 1072.0 (flags = 0x1)
+Histogram: Startup.CreateFirstProfile recorded 1 samples, mean = 140.0 (flags = 0x1)
+Histogram: Startup.FirstWebContents.FinishReason recorded 1 samples, mean = 6.0 (flags = 0x1)
+Histogram: Startup.FirstWebContents.FirstContentfulPaint recorded 1 samples, mean = 2641.0 (flags = 0x1)
+Histogram: Startup.FirstWebContents.LargestContentfulPaint recorded 1 samples, mean = 2641.0 (flags = 0x1)
+Histogram: Startup.IncognitoForcedStart recorded 1 samples, mean = 3.0 (flags = 0x1)
+Histogram: Startup.LoadTime.ApplicationStartToChromeMain recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Startup.LoadTime.ProcessCreateToApplicationStart recorded 1 samples, mean = 136.0 (flags = 0x1)
+Histogram: Startup.LoadTime.RecordedProcessCreation recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Startup.PreMainMessageLoopRunImplLongTime recorded 1 samples, mean = 322.0 (flags = 0x1)
+Histogram: Startup.StartupBrowserCreator.LaunchBrowser recorded 1 samples, mean = 132.0 (flags = 0x1)
+Histogram: Storage.SharedStorage.OnShutdown.HasSqlErrors recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Storage.SharedStorage.OnShutdown.NumSqlErrors recorded 2 samples, mean = 0.0 (flags = 0x1)
+Histogram: Sync.DataTypeStoreBackendError.ReadRecords recorded 26 samples, mean = 1.0 (flags = 0x1)
+Histogram: Variations.ExtendedSafeMode.BeaconFileDeserializationError recorded 1 samples (flags = 0x1)
+Histogram: Variations.ExtendedSafeMode.BeaconFileStateAtStartup recorded 1 samples, mean = 1.0 (flags = 0x1)
+Histogram: Variations.ForcedFieldTrialsAtStartupForInternalsPage recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: Variations.SeedFetchResponseOrErrorCode recorded 1 samples (flags = 0x1)
+Histogram: WebApp.GeneratedIconFix.StartUpAttemptCount recorded 1 samples, mean = 0.0 (flags = 0x1)
+Histogram: WhatsNew.StartupType recorded 2 samples, mean = 1.5 (flags = 0x1)
 
-Histogram: WebApp.Migrations.InstallSourceAddUserInstalled recorded 1 samples, mean = 0.0 (flags = 0x1)
+
+=== CHROME LOG TAIL ===
 0  -O                                                                        (1 = 100.0%)
 1  ... 
 
@@ -69,62 +251,56 @@ Histogram: WebApp.Uninstall.NonSyncIncompleteCount recorded 1 samples, mean = 0.
 0  -O                                                                        (1 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.DOMContentLoaded recorded 8 samples, mean = 0.0 (flags = 0x1)
-0  --------O                                                                 (8 = 100.0%)
+Histogram: WebContentsObserver.DOMContentLoaded recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
 Histogram: WebContentsObserver.DidChangeVisibleSecurityState recorded 9 samples, mean = 0.0 (flags = 0x1)
 0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.DidFinishLoad recorded 8 samples, mean = 0.0 (flags = 0x1)
-0  --------O                                                                 (8 = 100.0%)
+Histogram: WebContentsObserver.DidFinishLoad recorded 9 samples, mean = 0.0 (flags = 0x1)
+0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.DidFinishNavigation recorded 9 samples, mean = 0.7 (flags = 0x1)
-0  --------O                                                                 (8 = 88.9%)
-1  ... 
-6  -O                                                                        (1 = 11.1%) {88.9%}
-7  ... 
+Histogram: WebContentsObserver.DidFinishNavigation recorded 9 samples, mean = 2.1 (flags = 0x1)
+0   -----O                                                                    (5 = 55.6%)
+1   --O                                                                       (2 = 22.2%) {55.6%}
+2   ... 
+5   -O                                                                        (1 = 11.1%) {77.8%}
+6   ... 
+12  -O                                                                        (1 = 11.1%) {88.9%}
+14  ... 
 
-Histogram: WebContentsObserver.DidFirstVisuallyNonEmptyPaint recorded 3 samples, mean = 0.0 (flags = 0x1)
-0  ---O                                                                      (3 = 100.0%)
+Histogram: WebContentsObserver.DidFirstVisuallyNonEmptyPaint recorded 4 samples, mean = 0.0 (flags = 0x1)
+0  ----O                                                                     (4 = 100.0%)
 1  ... 
 
 Histogram: WebContentsObserver.DidStartLoading recorded 9 samples, mean = 0.0 (flags = 0x1)
 0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.DidStartNavigation recorded 9 samples, mean = 2.2 (flags = 0x1)
-0   ------O                                                                   (6 = 66.7%)
-1   ... 
-3   -O                                                                        (1 = 11.1%) {66.7%}
-4   -O                                                                        (1 = 11.1%) {77.8%}
-5   ... 
-12  -O                                                                        (1 = 11.1%) {88.9%}
-14  ... 
+Histogram: WebContentsObserver.DidStartNavigation recorded 9 samples, mean = 0.2 (flags = 0x1)
+0  -------O                                                                  (7 = 77.8%)
+1  --O                                                                       (2 = 22.2%) {77.8%}
+2  ... 
 
-Histogram: WebContentsObserver.DidStartNavigation.MainFrame recorded 9 samples, mean = 2.2 (flags = 0x1)
-0   ------O                                                                   (6 = 66.7%)
-1   ... 
-3   -O                                                                        (1 = 11.1%) {66.7%}
-4   -O                                                                        (1 = 11.1%) {77.8%}
-5   ... 
-12  -O                                                                        (1 = 11.1%) {88.9%}
-14  ... 
+Histogram: WebContentsObserver.DidStartNavigation.MainFrame recorded 9 samples, mean = 0.2 (flags = 0x1)
+0  -------O                                                                  (7 = 77.8%)
+1  --O                                                                       (2 = 22.2%) {77.8%}
+2  ... 
 
-Histogram: WebContentsObserver.DidStopLoading recorded 8 samples, mean = 1.1 (flags = 0x1)
-0  -------O                                                                  (7 = 87.5%)
-1  ... 
-8  -O                                                                        (1 = 12.5%) {87.5%}
-10 ... 
+Histogram: WebContentsObserver.DidStopLoading recorded 9 samples, mean = 0.1 (flags = 0x1)
+0  --------O                                                                 (8 = 88.9%)
+1  -O                                                                        (1 = 11.1%) {88.9%}
+2  ... 
 
 Histogram: WebContentsObserver.DidUpdateNavigationHandleTiming recorded 25 samples, mean = 0.0 (flags = 0x1)
 0  -------------------------O                                                (25 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.LoadProgressChanged recorded 45 samples, mean = 0.0 (flags = 0x1)
-0  ---------------------------------------------O                            (45 = 100.0%)
+Histogram: WebContentsObserver.LoadProgressChanged recorded 52 samples, mean = 0.0 (flags = 0x1)
+0  ----------------------------------------------------O                     (52 = 100.0%)
 1  ... 
 
 Histogram: WebContentsObserver.NavigationEntryChanged recorded 1 samples, mean = 0.0 (flags = 0x1)
@@ -135,11 +311,11 @@ Histogram: WebContentsObserver.NavigationEntryCommitted recorded 9 samples, mean
 0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.OnVisibilityChanged recorded 2 samples, mean = 2.0 (flags = 0x1)
+Histogram: WebContentsObserver.OnVisibilityChanged recorded 2 samples, mean = 1.0 (flags = 0x1)
 0  -O                                                                        (1 = 50.0%)
-1  ... 
-4  -O                                                                        (1 = 50.0%) {50.0%}
-5  ... 
+1  O                                                                         (0 = 0.0%) {50.0%}
+2  -O                                                                        (1 = 50.0%) {50.0%}
+3  ... 
 
 Histogram: WebContentsObserver.OnVisibilityWillChange recorded 2 samples, mean = 0.0 (flags = 0x1)
 0  --O                                                                       (2 = 100.0%)
@@ -149,15 +325,18 @@ Histogram: WebContentsObserver.PrimaryMainDocumentElementAvailable recorded 9 sa
 0  ---------O                                                                (9 = 100.0%)
 1  ... 
 
-Histogram: WebContentsObserver.RenderFrameCreated recorded 9 samples, mean = 0.9 (flags = 0x1)
+Histogram: WebContentsObserver.RenderFrameCreated recorded 9 samples, mean = 0.4 (flags = 0x1)
 0  --------O                                                                 (8 = 88.9%)
 1  ... 
-8  -O                                                                        (1 = 11.1%) {88.9%}
-10 ... 
+4  -O                                                                        (1 = 11.1%) {88.9%}
+5  ... 
 
-Histogram: WebContentsObserver.RenderFrameDeleted recorded 9 samples, mean = 0.0 (flags = 0x1)
-0  ---------O                                                                (9 = 100.0%)
-1  ... 
+Histogram: WebContentsObserver.RenderFrameDeleted recorded 9 samples, mean = 0.6 (flags = 0x1)
+0  ------O                                                                   (6 = 66.7%)
+1  --O                                                                       (2 = 22.2%) {66.7%}
+2  O                                                                         (0 = 0.0%) {88.9%}
+3  -O                                                                        (1 = 11.1%) {88.9%}
+4  ... 
 
 Histogram: WebContentsObserver.RenderViewReady recorded 8 samples, mean = 0.0 (flags = 0x1)
 0  --------O                                                                 (8 = 100.0%)
@@ -179,14 +358,15 @@ Histogram: WebDatabase.InitResult recorded 2 samples, mean = 0.0 (flags = 0x1)
 0  --O                                                                       (2 = 100.0%)
 1  ... 
 
-Histogram: WebUI.ColorsStylesheetServingDuration recorded 4 samples, mean = 10.0 (flags = 0x1)
-0   O                                                                         (0 = 0.0%)
-1   -O                                                                        (1 = 25.0%) {0.0%}
-2   ... 
-4   -O                                                                        (1 = 25.0%) {25.0%}
-5   ... 
-17  --O                                                                       (2 = 50.0%) {50.0%}
-20  ... 
+Histogram: WebUI.ColorsStylesheetServingDuration recorded 4 samples, mean = 11.8 (flags = 0x1)
+0   ... 
+6   -O                                                                        (1 = 25.0%) {0.0%}
+7   -O                                                                        (1 = 25.0%) {25.0%}
+8   ... 
+12  -O                                                                        (1 = 25.0%) {50.0%}
+14  ... 
+20  -O                                                                        (1 = 25.0%) {75.0%}
+24  ... 
 
 Histogram: WebUI.CreatedForUrl recorded 4 samples (flags = 0x1)
 709341402  ----O                                                                     (4 = 100.0%)
@@ -198,18 +378,23 @@ Histogram: WebUI.TopChrome.Preload.Result recorded 4 samples, mean = 0.0 (flags 
 0  ----O                                                                     (4 = 100.0%)
 1  ... 
 
-Histogram: WebUI.WebUIURLLoaderFactory.URLRequestLoadTime recorded 14 samples, mean = 4.5 (flags = 0x1)
-0   ----O                                                                     (4 = 28.6%)
-1   ---O                                                                      (3 = 21.4%) {28.6%}
-2   O                                                                         (0 = 0.0%) {50.0%}
-3   -O                                                                        (1 = 7.1%) {50.0%}
-4   -O                                                                        (1 = 7.1%) {57.1%}
-5   --O                                                                       (2 = 14.3%) {64.3%}
-6   -O                                                                        (1 = 7.1%) {78.6%}
-7   ... 
-17  -O                                                                        (1 = 7.1%) {85.7%}
-20  -O                                                                        (1 = 7.1%) {92.9%}
-24  ... 
+Histogram: WebUI.WebUIURLLoaderFactory.URLRequestLoadTime recorded 14 samples, mean = 7.1 (flags = 0x1)
+0   ---O                                                                      (3 = 21.4%)
+1   --O                                                                       (2 = 14.3%) {21.4%}
+2   -O                                                                        (1 = 7.1%) {35.7%}
+3   -O                                                                        (1 = 7.1%) {42.9%}
+4   O                                                                         (0 = 0.0%) {50.0%}
+5   -O                                                                        (1 = 7.1%) {50.0%}
+6   -O                                                                        (1 = 7.1%) {57.1%}
+7   O                                                                         (0 = 0.0%) {64.3%}
+8   -O                                                                        (1 = 7.1%) {64.3%}
+10  O                                                                         (0 = 0.0%) {71.4%}
+12  -O                                                                        (1 = 7.1%) {71.4%}
+14  -O                                                                        (1 = 7.1%) {78.6%}
+17  O                                                                         (0 = 0.0%) {85.7%}
+20  -O                                                                        (1 = 7.1%) {85.7%}
+24  -O                                                                        (1 = 7.1%) {92.9%}
+29  ... 
 
 Histogram: Webapp.NavigationCapturing.Result recorded 1 samples, mean = 13.0 (flags = 0x1)
 0   ... 
