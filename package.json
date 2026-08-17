@@ -14,6 +14,7 @@
     "test:kinematics": "tsx src/physics/tests/SuspensionKinematicsTests.ts",
     "test:kinematics-arb": "tsx src/physics/tests/SuspensionKinematicsAntiRollIntegrationTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
+    "test:cornering": "tsx src/physics/tests/LowSpeedCorneringTests.ts",
     "test:tire": "tsx src/physics/tests/TireModelTests.ts",
     "test:stationary": "tsx src/physics/tests/StationarySteeringTests.ts",
     "test:mobile": "tsx src/physics/tests/MobileControlsTests.ts",
