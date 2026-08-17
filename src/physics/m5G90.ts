@@ -10,7 +10,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   wheelRadius: 0.369,
   wheelInertia: 2.10,
   unsprungMassCorner: 55,
-
   suspensionRestLength: 0.34,
   suspensionStiffness: 62000,
   suspensionDamping: 5000,
@@ -31,7 +30,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   antiSquatRear: 0.35,
   bodyRollMultiplier: 1.0,
   bodyPitchMultiplier: 1.0,
-
   tireGripFront: 1.21,
   tireGripRear: 1.20,
   tireStiffness: 15.0,
@@ -47,7 +45,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tireBasePressure: 35.0,
   optimalTireTemp: 75,
   driftAssist: 0.0,
-
   aeroDownforceFront: 0,
   aeroDownforceRear: 0,
   aeroDragCoeff: 0.35,
@@ -56,7 +53,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   groundEffectMaxDownforce: 0,
   drsEnabled: false,
   airbrakeEnabled: false,
-
   drivetrain: 'AWD',
   differentialType: 'TORQUE_VECTOR',
   centerFrontTorqueRatio: 0.40,
@@ -64,7 +60,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   diffCoastRamp: 0.48,
   diffPreloadTorque: 100,
   diffLockRatio: 0.88,
-
   maxTorque: 700,
   maxRpm: 7200,
   idleRpm: 750,
@@ -81,46 +76,35 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   forwardGearRatios: [5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
   gearRatios: [-3.97, 5.00, 3.20, 2.14, 1.72, 1.30, 1.00, 0.83, 0.64],
   finalDriveRatio: 3.31,
-
   brakeForce: 10800,
   handbrakeForce: 10000,
   brakeBiasFront: 0.60,
 
-  // BMW publishes a 14.2:1 overall steering ratio, 118.3 in wheelbase, 66.3 in
-  // front track, speed-sensitive M Servotronic assistance and variable ratio.
+  // BMW-published steering anchors: 14.2:1 overall ratio, 118.3 in wheelbase,
+  // 66.3 in front track, speed-sensitive M Servotronic, variable ratio.
   ackermannRatio: 0.90,
   steeringFrontTrackM: 1.68402,
   maxSteerAngle: 0.58,
   steeringRatioCenter: 14.2,
   steeringRatioAtLock: 12.6,
 
-  // BMW does not publish these internal rack/EPS parameters. These are explicit
-  // engineering calibration values, not claimed factory measurements.
+  // Internal rack/EPS values below are engineering calibration, not BMW data.
   steeringRackHalfTravelM: 0.070,
   steeringRackEquivalentInertiaKgm2: 5.8,
   steeringRackDampingNmsPerRad: 46,
   steeringRackFrictionNm: 4.5,
   steeringRackMaxAngularSpeedRadS: 3.2,
   steeringRackMaxAngularAccelRadS2: 180,
-
-  // Effective driver/column angular stiffness. 4 N*m/rad proved unrealistically
-  // soft once SAT and mechanical trail were closed around the rack: at 180 km/h a
-  // normal ~30 deg steering-wheel request was pulled down to only ~0.28 g. 10 keeps
-  // the requested wheel angle mechanically authoritative without bypassing road
-  // torque; rack inertia/rate and tire relaxation still create the transient delay.
-  steeringColumnTorsionStiffnessNmPerRad: 10.0,
+  steeringColumnTorsionStiffnessNmPerRad: 10.75,
   steeringColumnTorsionDampingNmsPerRad: 0.18,
   steeringDriverMaxTorqueNm: 8.0,
-
   steeringEpsParkingGain: 20.0,
   steeringEpsHighSpeedGain: 9.0,
   steeringEpsFadeSpeedMs: 27.8,
   steeringEpsMaxAssistTorqueNm: 65,
-
   steeringStopStartFraction: 0.92,
   steeringStopStiffnessNmPerRad: 9000,
   steeringStopDampingNmsPerRad: 190,
-
   steeringTieRodStiffnessNmPerRad: 180000,
   steeringRackMountStiffnessNmPerRad: 250000,
   steeringControlArmBushingStiffnessNmPerRad: 140000,
@@ -128,8 +112,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   steeringComplianceDampingNmsPerRad: 1800,
   steeringMaxComplianceRad: 0.0065,
 
-  // Legacy DriverAids values remain for direct Vehicle-only compatibility tests;
-  // Simulation runtime steering is replaced by PhysicalSteeringSystem.
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
@@ -139,7 +121,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   tcsSportSlipThreshold: 0.16,
   tcsSportResponse: 30.0,
   tcsSportGain: 2.6,
-
   launchControlEnabled: true,
   launchControlRpm: 3000,
   lowSpeedTorqueFillNm: 600,
