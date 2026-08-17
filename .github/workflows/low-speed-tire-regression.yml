@@ -39,6 +39,9 @@ jobs:
       - name: Digital steering shaping regression
         run: npm run test:digital-steering
 
+      - name: 50 kmh full-lock turn-radius diagnostic
+        run: npm run test:turn-radius
+
       - name: 6 kmh crawl-speed stability regression
         run: npm run test:crawl
 
