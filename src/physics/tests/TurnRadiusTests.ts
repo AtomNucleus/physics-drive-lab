@@ -42,8 +42,20 @@ function mean(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
 
-function runTurn(label: string, steerProvider: SteerProvider, durationSec = 2.0) {
+function runTurn(
+  label: string,
+  steerProvider: SteerProvider,
+  durationSec = 2.0,
+  fullMechanicalRack = false
+) {
   const sim = makeRollingM5();
+  if (fullMechanicalRack) {
+    // Mouse/wheel-style analog steering represents a fraction of the physical
+    // rack. BMW speed sensitivity is assistance/ratio behavior, not a smaller
+    // mechanical lock, so mirror the App's mouse-mode bypass here.
+    sim.vehicle.driverAids.config.steerSpeedReduction = 0;
+  }
+
   const radii: number[] = [];
   const geometricRadii: number[] = [];
   const speeds: number[] = [];
@@ -78,10 +90,6 @@ function runTurn(label: string, steerProvider: SteerProvider, durationSec = 2.0)
     peakLatG = Math.max(peakLatG, Math.abs(state.lateralG));
     peakFrontSlipDeg = Math.max(peakFrontSlipDeg, frontSlipDeg);
 
-    // Mouse steering at the screen edge is steer=+1. Measure the radius while
-    // the car is still genuinely near 50 km/h, after the rack has had 0.15 s to
-    // reach the commanded angle. This avoids calling the later 39-45 km/h coast
-    // radius a "50 km/h" result.
     if (step >= 18 && speedKmh >= 47.5 && speedKmh <= 50.5) {
       near50Speeds.push(speed);
       near50LatG.push(Math.abs(state.lateralG));
@@ -128,9 +136,12 @@ const shapedDigital = runTurn('held keyboard/touch full-left', (sim) => {
   return shapedInput;
 });
 
-// Mouse screen edge bypasses DigitalSteeringInput and sends the full analog
-// command. This is the exact case the user sees with Mouse steering selected.
-const fullMouseLock = runTurn('mouse screen-edge full-left (+1.0)', () => 1);
+const fullMouseLock = runTurn(
+  'mouse screen-edge full-left (+1.0, full mechanical rack)',
+  () => 1,
+  2.0,
+  true
+);
 const realM5GripLimitedRadiusAt50M =
   (START_SPEED_MS * START_SPEED_MS) / (REAL_M5_SKIDPAD_G * 9.81);
 
@@ -146,4 +157,8 @@ assert(Number.isFinite(shapedDigital.lateMeanYawRadiusM), 'digital turn radius m
 assert(Number.isFinite(fullMouseLock.lateMeanYawRadiusM), 'mouse full-lock turn radius must be finite');
 assert(fullMouseLock.peakSteerInput === 1, 'mouse full-lock diagnostic must send exactly 100% steering input');
 assert(fullMouseLock.near50.samples > 0, 'mouse full-lock diagnostic must capture samples while still near 50 km/h');
+assert(
+  fullMouseLock.near50.meanFrontSteerDeg > 30,
+  `mouse full lock must reach the physical rack, got ${fullMouseLock.near50.meanFrontSteerDeg.toFixed(2)} deg`
+);
 console.log('TurnRadiusTests: PASS');
