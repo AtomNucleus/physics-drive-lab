@@ -98,9 +98,11 @@ function runCorner(label: string, steerProvider: SteerProvider, durationSec: num
   };
 }
 
-// 45% steering at ~30 km/h is a normal tight road turn. This remains the
-// handling-quality case: it should stay below gross front sliding and build yaw.
-const moderate = runCorner('moderate-raw', () => 0.45, 2.0);
+// With the physical rack no longer shrinking at speed, 40% input produces roughly
+// the same ~13-degree road-wheel angle that the old 45% speed-capped case exercised.
+// Keep this as the ordinary tight-road-turn handling check; it should stay below
+// gross front sliding and build the expected yaw without relying on a hidden cap.
+const moderate = runCorner('moderate-raw', () => 0.40, 2.0);
 
 // Full steering is intentionally also visible. A simulator must allow the driver
 // to over-command the front tires; it must not silently cap steering to protect
