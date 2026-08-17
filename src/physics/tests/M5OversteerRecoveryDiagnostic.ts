@@ -53,7 +53,6 @@ function makeOversteeringM5() {
   sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, speedMs);
   sim.vehicle.wheels.forEach((wheel) => wheel.reset(speedMs));
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
-
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
 
   let inductionSteps = 0;
