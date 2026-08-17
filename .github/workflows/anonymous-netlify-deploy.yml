@@ -1,11 +1,12 @@
 name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+# preview: physical steering dynamics test
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
+      - agent/physical-steering-dynamics
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
