@@ -31,6 +31,9 @@ jobs:
       - name: Steering direction regression
         run: npm run test:steering-direction
 
+      - name: Low-speed cornering regression
+        run: npm run test:cornering
+
       - name: Stationary steering regression
         run: npm run test:stationary
 
