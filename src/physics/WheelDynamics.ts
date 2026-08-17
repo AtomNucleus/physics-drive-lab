@@ -196,9 +196,6 @@ export class WheelDynamics {
     const freeRollDynamicAuthority = 1 - freeRollConstraintAuthority;
 
     if (isFreeRolling) {
-      // Preserve the established dynamic free-wheel response outside the crawl
-      // handoff. Only add stronger road-speed tracking as constraint authority
-      // actually rises, so 25 m/s braking and other high-speed tests are untouched.
       const baselineTrackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
       const trackingRate = PhysicsMath.lerp(
         baselineTrackingRate,
@@ -329,6 +326,52 @@ export class WheelDynamics {
     const blendedTargetMz = target.aligningTorque * dynamicBlend;
     const blendedFrictionLimit = PhysicsMath.lerp(lowSpeedFrictionLimit, target.frictionLimit, dynamicBlend);
 
+    // A driven tire below the traction limit is in static adhesion: the contact
+    // patch supplies whatever longitudinal reaction is required to balance axle
+    // torque, while the wheel rolls with the road. Explicitly integrating that
+    // stiff algebraic constraint through a ~2 kg*m^2 wheel at 120 Hz caused the
+    // 10 km/h full-lock limit cycle: omega overshot, Fx changed sign, then the tire
+    // kicked the wheel back hundreds of times. Solve the adhesion constraint
+    // directly while there is ample friction reserve, and fade smoothly back to
+    // the normal slip model as speed or torque demand rises. Genuine wheelspin is
+    // untouched because it necessarily exceeds the adhesion reserve.
+    const driveForceDemand = driveTorque / this.radius;
+    const lateralForReserve = Math.min(
+      Math.abs(blendedTargetFy),
+      Math.max(0, blendedFrictionLimit)
+    );
+    const longitudinalAdhesionCapacity = Math.sqrt(Math.max(
+      0,
+      blendedFrictionLimit * blendedFrictionLimit - lateralForReserve * lateralForReserve
+    ));
+    const driveDemandAbs = Math.abs(driveForceDemand);
+    const driveAdhesionSpeedLinear = PhysicsMath.clamp((5.0 - rollingSpeed) / 1.5, 0, 1);
+    const driveAdhesionSpeedAuthority =
+      driveAdhesionSpeedLinear * driveAdhesionSpeedLinear * (3 - 2 * driveAdhesionSpeedLinear);
+    const adhesionFullDemand = longitudinalAdhesionCapacity * 0.58;
+    const adhesionReleaseDemand = longitudinalAdhesionCapacity * 0.82;
+    const driveAdhesionTorqueAuthority = adhesionReleaseDemand > adhesionFullDemand + 1
+      ? PhysicsMath.clamp(
+          (adhesionReleaseDemand - driveDemandAbs) /
+            (adhesionReleaseDemand - adhesionFullDemand),
+          0,
+          1
+        )
+      : 0;
+    const driveAdhesionAuthority =
+      fz > 20 &&
+      brakeRequest < 8 &&
+      driveDemandAbs > 1
+        ? driveAdhesionSpeedAuthority * driveAdhesionTorqueAuthority
+        : 0;
+
+    if (driveAdhesionAuthority > 0) {
+      const slipDecay = Math.exp(-120 * driveAdhesionAuthority * dt);
+      this.rawSlipRatio *= slipDecay;
+      this.relaxationSlipRatio *= slipDecay;
+      this.lowSpeedLongDeflection *= slipDecay;
+    }
+
     const lateralForceSigma = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
     const longitudinalForceSigma = Math.max(
       0.018,
@@ -346,6 +389,16 @@ export class WheelDynamics {
     if (freeRollConstraintAuthority > 0) {
       const constraintForceDecay = Math.exp(-70 * freeRollConstraintAuthority * dt);
       this.transientFx *= constraintForceDecay;
+    }
+    if (driveAdhesionAuthority > 0) {
+      // Static friction is an algebraic constraint, not a delayed force source.
+      // Blend directly toward the torque-balancing reaction as the constraint
+      // becomes authoritative. This also preserves a smooth handoff at its edge.
+      this.transientFx = PhysicsMath.lerp(
+        this.transientFx,
+        driveForceDemand,
+        driveAdhesionAuthority
+      );
     }
     this.transientFy += (blendedTargetFy - this.transientFy) * lateralForceAlpha;
     this.transientMz += (blendedTargetMz - this.transientMz) * lateralForceAlpha;
@@ -378,6 +431,10 @@ export class WheelDynamics {
 
     if (staticBrakeHold) {
       this.angularVelocity = 0;
+    } else if (driveAdhesionAuthority >= 0.995) {
+      // In the fully adhered state, tire static friction exactly balances axle
+      // torque and the rolling constraint determines wheel speed.
+      this.angularVelocity = roadOmega;
     } else {
       const brakeTorque = brakeRequest * brakeSign;
       const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
@@ -392,8 +449,6 @@ export class WheelDynamics {
       const afterError = this.angularVelocity - roadOmega;
 
       if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
-        // Preserve the original free-wheel overshoot guard at every speed. The bug
-        // was the speed-dependent force-state reset, not this zero-crossing clamp.
         this.angularVelocity = roadOmega;
       }
 
@@ -401,6 +456,16 @@ export class WheelDynamics {
         const postTrackingRate = 180 * freeRollConstraintAuthority;
         const postTrackingAlpha = 1 - Math.exp(-postTrackingRate * dt);
         this.angularVelocity += (roadOmega - this.angularVelocity) * postTrackingAlpha;
+      }
+
+      if (driveAdhesionAuthority > 0) {
+        // Partial authority is the smooth transition between the algebraic
+        // adhesion solve and the fully dynamic slip solve.
+        this.angularVelocity = PhysicsMath.lerp(
+          this.angularVelocity,
+          roadOmega,
+          driveAdhesionAuthority
+        );
       }
 
       if (
