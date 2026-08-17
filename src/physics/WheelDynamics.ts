@@ -178,6 +178,10 @@ export class WheelDynamics {
     const roadOmega = longitudinalVelocity / this.radius;
     const isFreeRolling = Math.abs(driveTorque) < 8 && brakeRequest < 8 && fz > 20;
 
+    // The former implementation snapped into a different longitudinal solver at
+    // 2.6 m/s (9.36 km/h). At full lock, the inside/outside front wheels repeatedly
+    // crossed that threshold and alternated between zero and dynamic longitudinal
+    // tire force. Replace the cliff with a smooth crawl-speed rolling constraint.
     const freeRollFullConstraintMs = 1.40;
     const freeRollDynamicMs = 3.40;
     const freeRollLinear = PhysicsMath.clamp(
@@ -192,7 +196,15 @@ export class WheelDynamics {
     const freeRollDynamicAuthority = 1 - freeRollConstraintAuthority;
 
     if (isFreeRolling) {
-      const trackingRate = PhysicsMath.lerp(55, 220, freeRollConstraintAuthority);
+      // Preserve the established dynamic free-wheel response outside the crawl
+      // handoff. Only add stronger road-speed tracking as constraint authority
+      // actually rises, so 25 m/s braking and other high-speed tests are untouched.
+      const baselineTrackingRate = Math.abs(longitudinalVelocity) < 5 ? 120 : 45;
+      const trackingRate = PhysicsMath.lerp(
+        baselineTrackingRate,
+        220,
+        freeRollConstraintAuthority
+      );
       const trackingAlpha = 1 - Math.exp(-trackingRate * dt);
       this.angularVelocity += (roadOmega - this.angularVelocity) * trackingAlpha;
     }
@@ -379,16 +391,14 @@ export class WheelDynamics {
       const beforeError = omegaBefore - roadOmega;
       const afterError = this.angularVelocity - roadOmega;
 
-      // Preserve the established low-torque/brake crossing guard for non-free-roll
-      // states. This is independent of the former 2.6 m/s mode switch and prevents
-      // a lightly loaded/braked wheel from numerically overshooting road speed.
-      if (!isFreeRolling && Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+      if (Math.abs(driveTorque) < 20 && brakeRequest < 20 && beforeError * afterError < 0) {
+        // Preserve the original free-wheel overshoot guard at every speed. The bug
+        // was the speed-dependent force-state reset, not this zero-crossing clamp.
         this.angularVelocity = roadOmega;
-      } else if (isFreeRolling) {
-        if (beforeError * afterError < 0) {
-          this.angularVelocity = PhysicsMath.lerp(this.angularVelocity, roadOmega, 0.72);
-        }
-        const postTrackingRate = PhysicsMath.lerp(35, 180, freeRollConstraintAuthority);
+      }
+
+      if (isFreeRolling && freeRollConstraintAuthority > 0) {
+        const postTrackingRate = 180 * freeRollConstraintAuthority;
         const postTrackingAlpha = 1 - Math.exp(-postTrackingRate * dt);
         this.angularVelocity += (roadOmega - this.angularVelocity) * postTrackingAlpha;
       }
