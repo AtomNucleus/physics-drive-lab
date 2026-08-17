@@ -67,8 +67,17 @@ export class DriverAidsSystem {
     forwardSpeedMs: number,
     dt: number
   ): { steerFL: number; steerFR: number; centerAngle: number } {
-    const speedRatio = Math.min(1.0, Math.abs(forwardSpeedMs) / 38.0);
-    const maxAllowedAngle = this.config.maxSteerAngle * (1.0 - speedRatio * this.config.steerSpeedReduction);
+    // The steering rack has a physical travel limit, not a hidden speed-dependent
+    // angle limit. Previous code progressively removed up to steerSpeedReduction of
+    // available road-wheel angle as speed rose. That made a genuine oversteer catch
+    // impossible at sufficiently high speed even when the driver requested full
+    // opposite lock. Speed may affect steering effort/ratio in a real car, but it
+    // does not teleport the mechanical rack stops inward. Keep the full physical
+    // rack range available and let tire saturation determine whether a steering
+    // command actually produces more lateral force.
+    void forwardSpeedMs;
+    const maxAllowedAngle = this.config.maxSteerAngle;
+
     // Canonical vehicle coordinates are right-handed: +X is vehicle-left, +Y is up, +Z is forward.
     // UI/control convention: positive steer means LEFT, negative steer means RIGHT.
     const targetCenterAngle = steerInput * maxAllowedAngle;
