@@ -29,9 +29,12 @@ export function fitM5VisualToRealScale(root: THREE.Group): VisualScaleReport {
   const source = dimensionsFor(root);
   const validLength = Number.isFinite(source.lengthM) && source.lengthM > 0.1;
   const rawScale = validLength ? BMW_M5_G90_LENGTH_M / source.lengthM : 1;
-  const appliedScale = Number.isFinite(rawScale) && rawScale >= 0.5 && rawScale <= 2 ? rawScale : 1;
+  const candidateScale = Number.isFinite(rawScale) && rawScale >= 0.5 && rawScale <= 2 ? rawScale : 1;
 
-  if (Math.abs(appliedScale - 1) > 0.0025) {
+  // Ignore sub-0.25% export noise. `appliedScale` reports the transform that was
+  // actually applied, not merely the candidate factor considered by the guard.
+  const appliedScale = Math.abs(candidateScale - 1) > 0.0025 ? candidateScale : 1;
+  if (appliedScale !== 1) {
     root.scale.multiplyScalar(appliedScale);
     root.updateMatrixWorld(true);
   }
