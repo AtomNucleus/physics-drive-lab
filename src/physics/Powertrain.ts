@@ -46,6 +46,9 @@ export class Powertrain {
   public wastegateOpen: boolean = false;
   public deliveredDriveshaftTorque: number = 0;
   public engineTorqueOutput: number = 0;
+  public transmittedClutchTorque: number = 0;
+  public converterSlipRadS: number = 0;
+  public converterLowLoadAuthority: number = 0;
   public launchControlActive: boolean = false;
 
   private shiftTimer: number = 0;
@@ -76,6 +79,9 @@ export class Powertrain {
     this.wastegateOpen = false;
     this.deliveredDriveshaftTorque = 0;
     this.engineTorqueOutput = 0;
+    this.transmittedClutchTorque = 0;
+    this.converterSlipRadS = 0;
+    this.converterLowLoadAuthority = 0;
     this.launchControlActive = false;
     this.shiftTimer = 0;
     this.autoBlipTimer = 0;
@@ -273,33 +279,107 @@ export class Powertrain {
     const baseClutchCapacity = this.config.maxClutchTorque || (this.config.maxTorque * 2.2);
     const maxClutchTorqueCapacity = baseClutchCapacity * clutchCapacityFraction;
     let transmittedClutchTorque = 0;
+    this.converterSlipRadS = 0;
+    this.converterLowLoadAuthority = 0;
 
     if (this.gear === 0 || clutchCapacityFraction < 0.05) {
       this.clutchEngaged = false;
       transmittedClutchTorque = 0;
     } else {
       const deltaOmega = omegaEngine - clutchPlateAngularVelocity;
+      this.converterSlipRadS = deltaOmega;
       const clutchSlipTorque = deltaOmega * 95.0;
 
-      // A torque converter can make a stopped automatic creep, but idle-speed
-      // creep is only a small fraction of full clutch capacity. The previous
-      // 42%-minimum coupling could transmit ~630 Nm engine-side at idle on the
-      // M5, which multiplies to nearly 10,000 Nm after 1st gear/final drive and
-      // can re-accelerate the car during a slow turn. Keep coast/engine-braking
-      // torque intact while capping only positive closed-throttle creep torque.
+      // Legacy clutch-like coupling remains authoritative for manuals, higher
+      // gears, launch control and meaningful accelerator demand. It preserves the
+      // already validated standing-start and high-load calibration.
       let positiveTorqueCapacity = maxClutchTorqueCapacity;
       if (hasAutomaticConverter && this.gear === 1 && effectiveThrottle <= 0.02 && deltaOmega > 0) {
         const idleCreepTorque = PhysicsMath.clamp(this.config.maxTorque * 0.03, 12, 24);
         positiveTorqueCapacity = Math.min(positiveTorqueCapacity, idleCreepTorque);
       }
-
-      transmittedClutchTorque = PhysicsMath.clamp(
+      const legacyTransmittedTorque = PhysicsMath.clamp(
         clutchSlipTorque,
         -maxClutchTorqueCapacity,
         positiveTorqueCapacity
       );
+
+      if (hasAutomaticConverter && this.gear === 1 && !this.launchControlActive) {
+        // A hydrodynamic torque converter is deliberately compliant near idle. It
+        // cannot behave like a 95 Nm/(rad/s) bidirectional clutch and then borrow
+        // hundreds of Nm from an engine whose idle speed is clamped. That old
+        // formulation let a small 4–9% throttle input alternate the converter
+        // between large drive and back-drive torque every 120 Hz frame, which
+        // multiplied through first gear/final drive into multi-kNm wheel torque.
+        //
+        // Keep this correction state-based rather than steering-based: low engine
+        // speed + low accelerator demand selects the fluid-coupling regime in any
+        // maneuver. As either load or pump speed rises, authority fades smoothly
+        // back to the calibrated high-load model.
+        const throttleFullFluid = 0.10;
+        const throttleLegacy = 0.24;
+        const throttleLinear = PhysicsMath.clamp(
+          (throttleLegacy - effectiveThrottle) / (throttleLegacy - throttleFullFluid),
+          0,
+          1
+        );
+        const throttleAuthority = throttleLinear * throttleLinear * (3 - 2 * throttleLinear);
+
+        const fluidRpmStart = this.config.idleRpm + 650;
+        const fluidRpmEnd = this.config.idleRpm + 1450;
+        const rpmLinear = PhysicsMath.clamp(
+          (fluidRpmEnd - this.engineRpm) / (fluidRpmEnd - fluidRpmStart),
+          0,
+          1
+        );
+        const rpmAuthority = rpmLinear * rpmLinear * (3 - 2 * rpmLinear);
+        const lowLoadAuthority = throttleAuthority * rpmAuthority;
+        this.converterLowLoadAuthority = lowLoadAuthority;
+
+        if (lowLoadAuthority > 0) {
+          const idleCreepTorque = PhysicsMath.clamp(this.config.maxTorque * 0.03, 12, 24);
+          const availableDriveTorque = Math.max(0, engineCombustionTorque);
+          const fluidPositiveCapacity = Math.min(
+            maxClutchTorqueCapacity,
+            idleCreepTorque + availableDriveTorque * 1.35
+          );
+
+          // Turbine-to-pump back-driving is weak with an unlocked converter near
+          // idle. Bound it independently from drive torque; this represents fluid
+          // drag/engine braking, not a rigid clutch suddenly applying 600+ Nm in
+          // reverse when turbine speed passes pump speed by one integration step.
+          const fluidBackdriveCapacity = Math.min(
+            maxClutchTorqueCapacity,
+            PhysicsMath.clamp(
+              this.config.engineBrakingTorque * 0.75 + this.config.maxTorque * 0.03,
+              30,
+              120
+            )
+          );
+
+          // A broad slip scale makes converter torque a soft hydrodynamic response
+          // instead of a numerically stiff clutch. tanh also crosses zero smoothly.
+          const fluidSlipScaleRadS = 35;
+          const fluidTransmittedTorque = deltaOmega >= 0
+            ? fluidPositiveCapacity * Math.tanh(deltaOmega / fluidSlipScaleRadS)
+            : fluidBackdriveCapacity * Math.tanh(deltaOmega / fluidSlipScaleRadS);
+
+          transmittedClutchTorque = PhysicsMath.lerp(
+            legacyTransmittedTorque,
+            fluidTransmittedTorque,
+            lowLoadAuthority
+          );
+        } else {
+          transmittedClutchTorque = legacyTransmittedTorque;
+        }
+      } else {
+        transmittedClutchTorque = legacyTransmittedTorque;
+      }
+
       this.clutchEngaged = Math.abs(deltaOmega) < 1.5;
     }
+
+    this.transmittedClutchTorque = transmittedClutchTorque;
 
     const netFlywheelTorque = engineCombustionTorque - transmittedClutchTorque;
     const flywheelInertia = Math.max(0.08, this.config.flywheelInertia);
