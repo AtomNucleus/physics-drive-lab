@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit",
     "test:conventions": "tsx src/physics/tests/PhysicsConventionTests.ts",
     "test:digital-steering": "tsx src/physics/tests/DigitalSteeringInputTests.ts",
+    "test:mouse-steering": "tsx src/physics/tests/MouseSteeringInputTests.ts",
     "test:turn-radius": "tsx src/physics/tests/TurnRadiusTests.ts",
     "test:suspension": "tsx src/physics/tests/SuspensionBehaviorTests.ts",
     "test:kinematics": "tsx src/physics/tests/SuspensionKinematicsTests.ts",
