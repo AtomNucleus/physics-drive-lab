@@ -55,6 +55,9 @@ jobs:
       - name: Tire model regression
         run: npm run test:tire
 
+      - name: M5 transient response regression
+        run: npm run test:m5-transient
+
       - name: M5 xDrive 2WD regression
         run: npm run test:m5-rwd
 
