@@ -113,11 +113,11 @@ export class DriverAidsSystem {
    * Four-channel slip-regulating ABS.
    *
    * ABS regulates normally at road speed, then its pressure-release authority is
-   * phased out smoothly below walking pace. The old hard 1.8 m/s cutoff snapped
-   * every channel straight back to full pressure while wheel/driveline states were
-   * still dynamic, which could excite a low-speed brake limit cycle. A real ABS
-   * also stops cycling near rest and hands the final stop to static service-brake
-   * torque instead of continuing slip regulation to zero speed.
+   * phased out smoothly through the final low-speed braking region. The old hard
+   * cutoff snapped every channel straight back to full pressure while wheel and
+   * driveline states were still dynamic, which could excite a brake limit cycle.
+   * The phase-out must also begin before converter creep and ABS release can form a
+   * stable crawl-speed plateau; the service brake owns the final stop.
    */
   public updateABS(
     wheelSlipRatios: [number, number, number, number],
@@ -136,10 +136,13 @@ export class DriverAidsSystem {
       return this.absPressureStates;
     }
 
-    // Fade intervention from zero at 0.70 m/s (~2.5 km/h) to full authority at
-    // 2.0 m/s (~7.2 km/h). Smoothstep keeps both pressure and its slope continuous.
-    const lowSpeedCutoutMs = 0.70;
-    const fullAuthorityMs = 2.00;
+    // Begin withdrawing pressure-release authority below ~10.8 km/h and finish
+    // by ~4.5 km/h. This is a smooth handoff, not an extra brake multiplier: the
+    // output simply approaches the driver's unmodulated service-brake request.
+    // Starting the handoff above the former ~8 km/h equilibrium prevents ABS and
+    // closed-throttle driveline creep from sustaining each other indefinitely.
+    const lowSpeedCutoutMs = 1.25;
+    const fullAuthorityMs = 3.00;
     const authorityLinear = PhysicsMath.clamp(
       (speedMagnitude - lowSpeedCutoutMs) / (fullAuthorityMs - lowSpeedCutoutMs),
       0,
