@@ -108,7 +108,7 @@ export class EnvironmentManager {
 
   private setupLighting() {
     // Soft Ambient Sky Light
-    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 0.75);
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 1.1);
     this.scene.add(hemiLight);
 
     // Main Sunlight
