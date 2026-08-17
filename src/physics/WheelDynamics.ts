@@ -365,6 +365,87 @@ export class WheelDynamics {
       this.transientFy *= scale;
     }
 
+    // Below the combined-slip limit, a driven tire is constrained by static
+    // adhesion: axle torque accelerates both the vehicle corner and the reflected
+    // wheel/driveline inertia without requiring the wheel DOF to overshoot slip
+    // equilibrium. Solving that algebraic constraint explicitly avoids the 120 Hz
+    // low-speed limit cycle while preserving the dynamic tire model at high speed
+    // and whenever torque demand approaches available grip.
+    const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
+    const contactMass = Math.max(80, fz / 9.81);
+    const staticDriveForce =
+      (driveTorque * this.radius * contactMass) /
+      Math.max(1e-6, contactMass * this.radius * this.radius + effectiveRotationalInertia);
+    const staticDriveAbs = Math.abs(staticDriveForce);
+
+    const adhesionFullSpeedMs = 4.0;
+    const adhesionReleaseSpeedMs = 6.0;
+    const roadSpeedAbs = Math.abs(longitudinalVelocity);
+    const adhesionSpeedLinear = PhysicsMath.clamp(
+      (adhesionReleaseSpeedMs - roadSpeedAbs) /
+        (adhesionReleaseSpeedMs - adhesionFullSpeedMs),
+      0,
+      1
+    );
+    const adhesionSpeedAuthority =
+      adhesionSpeedLinear * adhesionSpeedLinear * (3 - 2 * adhesionSpeedLinear);
+
+    const forceFraction = limit > 1 ? staticDriveAbs / limit : Infinity;
+    const adhesionFullForceFraction = 0.58;
+    const adhesionReleaseForceFraction = 0.88;
+    const adhesionForceLinear = PhysicsMath.clamp(
+      (adhesionReleaseForceFraction - forceFraction) /
+        (adhesionReleaseForceFraction - adhesionFullForceFraction),
+      0,
+      1
+    );
+    const adhesionForceAuthority =
+      adhesionForceLinear * adhesionForceLinear * (3 - 2 * adhesionForceLinear);
+    const driveAdhesionAuthority =
+      fz > 20 &&
+      brakeRequest < 8 &&
+      Math.abs(driveTorque) > 1 &&
+      limit > 50
+        ? adhesionSpeedAuthority * adhesionForceAuthority
+        : 0;
+
+    if (driveAdhesionAuthority > 0) {
+      // Reserve enough of the friction circle for the torque-balancing force.
+      // Because the low-speed drive force is small, this only trims lateral force
+      // when the tire is already sitting exactly on the combined-slip boundary.
+      const maxLateralWithStaticDrive = Math.sqrt(Math.max(
+        0,
+        limit * limit - staticDriveForce * staticDriveForce
+      ));
+      const staticFyTarget = PhysicsMath.clamp(
+        fy,
+        -maxLateralWithStaticDrive,
+        maxLateralWithStaticDrive
+      );
+
+      this.transientFx = PhysicsMath.lerp(
+        this.transientFx,
+        staticDriveForce,
+        driveAdhesionAuthority
+      );
+      fx = PhysicsMath.lerp(
+        fx,
+        staticDriveForce + rrForce,
+        driveAdhesionAuthority
+      );
+      this.transientFy = PhysicsMath.lerp(
+        this.transientFy,
+        staticFyTarget,
+        driveAdhesionAuthority
+      );
+      fy = PhysicsMath.lerp(fy, staticFyTarget, driveAdhesionAuthority);
+
+      const adhesionStateDecay = Math.exp(-120 * driveAdhesionAuthority * dt);
+      this.rawSlipRatio *= adhesionStateDecay;
+      this.relaxationSlipRatio *= adhesionStateDecay;
+      this.lowSpeedLongDeflection *= adhesionStateDecay;
+    }
+
     const contactFxForWheelTorque = fx - rrForce;
     const spinReference = Math.abs(this.angularVelocity) > 0.35 ? this.angularVelocity : roadOmega;
     const brakeSign = Math.sign(spinReference);
@@ -380,14 +461,29 @@ export class WheelDynamics {
       this.angularVelocity = 0;
     } else {
       const brakeTorque = brakeRequest * brakeSign;
-      const effectiveRotationalInertia = this.inertia + Math.max(0, reflectedDrivelineInertia);
       const angularAccel = PhysicsMath.clamp(
         (nonBrakeTorque - brakeTorque) / effectiveRotationalInertia,
         -4500,
         4500
       );
       const omegaBefore = this.angularVelocity;
-      this.angularVelocity += angularAccel * dt;
+      const dynamicOmegaNext = this.angularVelocity + angularAccel * dt;
+
+      if (driveAdhesionAuthority > 0) {
+        // In static adhesion, the same contact force accelerates the effective
+        // corner mass and wheel circumference together. Predict the next no-slip
+        // wheel speed rather than snapping omega to the current road speed.
+        const staticLongitudinalAccel = staticDriveForce / contactMass;
+        const staticOmegaNext = roadOmega + (staticLongitudinalAccel / this.radius) * dt;
+        this.angularVelocity = PhysicsMath.lerp(
+          dynamicOmegaNext,
+          staticOmegaNext,
+          driveAdhesionAuthority
+        );
+      } else {
+        this.angularVelocity = dynamicOmegaNext;
+      }
+
       const beforeError = omegaBefore - roadOmega;
       const afterError = this.angularVelocity - roadOmega;
 
