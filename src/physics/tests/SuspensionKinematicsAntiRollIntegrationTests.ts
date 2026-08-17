@@ -78,8 +78,10 @@ const assertArbSignMatchesFixedStep = (
   // not a physically meaningful bar load. Net axle force is still checked exactly.
   if (Math.abs(leftForce) < 1.0) return;
   const forceSign = Math.sign(leftForce);
-  const currentMatches = Math.abs(currentDiff) > 1e-5 && forceSign === Math.sign(currentDiff);
-  const previousMatches = Math.abs(previousDiff) > 1e-5 && forceSign === Math.sign(previousDiff);
+  // Once force exceeds the noise floor, even micrometre-scale travel has a valid
+  // sign. Keep only a floating-point epsilon here rather than an arbitrary 0.01 mm gate.
+  const currentMatches = Math.abs(currentDiff) > 1e-9 && forceSign === Math.sign(currentDiff);
+  const previousMatches = Math.abs(previousDiff) > 1e-9 && forceSign === Math.sign(previousDiff);
   assert(
     currentMatches || previousMatches,
     `${axle} ARB force sign disagreed with both current and previous differential travel: ` +
