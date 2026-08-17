@@ -11,13 +11,32 @@ const sideslipDeg = (sim: Simulation) => {
   return Math.atan2(v.x, Math.max(0.1, Math.abs(v.z))) * 180 / Math.PI;
 };
 
-function run(yawInertia: number, rearSteerMaxDeg = 1.5) {
+function sample(sim: Simulation, t: number) {
+  const s = sim.vehicle.getState();
+  const avg = (a: number, b: number) => (a + b) * 0.5;
+  return {
+    t,
+    speedKmh: s.speedKmh,
+    yawRateDegS: s.yawRate * 180 / Math.PI,
+    sideslipDeg: sideslipDeg(sim),
+    steerDeg: s.actualSteerAngle * 180 / Math.PI,
+    frontSlipDeg: avg(s.wheels[0].slipAngle, s.wheels[1].slipAngle) * 180 / Math.PI,
+    rearSlipDeg: avg(s.wheels[2].slipAngle, s.wheels[3].slipAngle) * 180 / Math.PI,
+    frontKappa: avg(s.wheels[0].slipRatio, s.wheels[1].slipRatio),
+    rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio),
+    frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat,
+    rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat,
+    frontFxN: s.wheels[0].forceVectorLong + s.wheels[1].forceVectorLong,
+    rearFxN: s.wheels[2].forceVectorLong + s.wheels[3].forceVectorLong,
+  };
+}
+
+function run(label: string, yawInertia: number, counterDurationSec: number, counterSteer = -0.42) {
   const config = {
     ...DEFAULT_VEHICLE_CONFIG,
     ...BMW_M5_2025_OVERRIDES,
     absMode: 'OFF',
     tcsMode: 'OFF',
-    rearSteerMaxDeg,
   } as any;
   const sim = new Simulation(config);
   sim.reset(0, 0, 0);
@@ -28,7 +47,6 @@ function run(yawInertia: number, rearSteerMaxDeg = 1.5) {
   sim.vehicle.rigidBody.config.inertia.y = yawInertia;
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
 
-  // Build a real cornering state first, then provoke rear saturation mechanically.
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
 
   let inductionSteps = 0;
@@ -39,46 +57,32 @@ function run(yawInertia: number, rearSteerMaxDeg = 1.5) {
     if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
 
-  const start = sim.vehicle.getState();
-  const recovery: Array<{ t: number; yawRate: number; sideslip: number; rearSlip: number }> = [];
-  for (let i = 0; i < 180; i++) {
-    // No throttle, no brake, no stability system: only a driver countersteer input.
-    sim.stepExplicit({ ...neutral, steer: -0.42 }, 1);
-    const state = sim.vehicle.getState();
-    recovery.push({
-      t: (i + 1) * dt,
-      yawRate: state.yawRate,
-      sideslip: sideslipDeg(sim),
-      rearSlip: 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle)),
-    });
+  const samples = [sample(sim, 0)];
+  const totalRecoverySec = 1.5;
+  const totalSteps = Math.round(totalRecoverySec / dt);
+  const wanted = new Set([0.10, 0.25, 0.50, 0.75, 1.00, 1.50].map((t) => Math.round(t / dt)));
+  for (let i = 1; i <= totalSteps; i++) {
+    const t = i * dt;
+    sim.stepExplicit({ ...neutral, steer: t <= counterDurationSec ? counterSteer : 0 }, 1);
+    if (wanted.has(i)) samples.push(sample(sim, t));
   }
   for (let i = 0; i < 120; i++) sim.stepExplicit(neutral, 1);
 
-  const at = (sec: number) => recovery[Math.min(recovery.length - 1, Math.max(0, Math.round(sec / dt) - 1))];
-  const final = sim.vehicle.getState();
   return {
+    label,
     yawInertia,
-    rearSteerMaxDeg,
+    counterDurationSec,
+    counterSteer,
     inductionSec: inductionSteps * dt,
-    startSpeedKmh: start.speedKmh,
-    startYawRateDegS: start.yawRate * 180 / Math.PI,
-    startSideslipDeg: sideslipDeg(sim),
-    startRearSlipDeg: 0.5 * (Math.abs(start.wheels[2].slipAngle) + Math.abs(start.wheels[3].slipAngle)) * 180 / Math.PI,
-    at250ms: { yawRateDegS: at(0.25).yawRate * 180 / Math.PI, sideslipDeg: at(0.25).sideslip, rearSlipDeg: at(0.25).rearSlip * 180 / Math.PI },
-    at500ms: { yawRateDegS: at(0.50).yawRate * 180 / Math.PI, sideslipDeg: at(0.50).sideslip, rearSlipDeg: at(0.50).rearSlip * 180 / Math.PI },
-    at1000ms: { yawRateDegS: at(1.00).yawRate * 180 / Math.PI, sideslipDeg: at(1.00).sideslip, rearSlipDeg: at(1.00).rearSlip * 180 / Math.PI },
-    maxRecoveryYawRateDegS: Math.max(...recovery.map((s) => Math.abs(s.yawRate))) * 180 / Math.PI,
-    finalYawRateDegS: final.yawRate * 180 / Math.PI,
-    finalSideslipDeg: sideslipDeg(sim),
-    finalSpeedKmh: final.speedKmh,
+    samples,
+    finalAfterExtra1s: sample(sim, totalRecoverySec + 1.0),
   };
 }
 
 const currentYawInertia = 2582.1142091360184;
 console.log(JSON.stringify([
-  run(currentYawInertia),
-  run(3600),
-  run(4100),
-  run(4600),
-  run(4100, 0),
+  run('current-short-counter', currentYawInertia, 0.30),
+  run('current-medium-counter', currentYawInertia, 0.55),
+  run('current-held-counter', currentYawInertia, 1.50),
+  run('higher-inertia-medium-counter', 4100, 0.55),
 ], null, 2));
