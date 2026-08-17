@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
 import {
   horizontalFovForVertical,
@@ -19,6 +22,66 @@ const assert = (condition: boolean, message: string) => {
 const approx = (actual: number, expected: number, tolerance: number, message: string) => {
   assert(Math.abs(actual - expected) <= tolerance, `${message}: expected ${expected}, got ${actual}`);
 };
+
+class CompactBoundsReader {
+  private offset = 0;
+  constructor(private readonly bytes: Uint8Array) {}
+  private take(length: number) {
+    const result = this.bytes.subarray(this.offset, this.offset + length);
+    assert(result.length === length, 'compact M5 test asset is truncated');
+    this.offset += length;
+    return result;
+  }
+  u8() { return this.take(1)[0]; }
+  u16() { const b = this.take(2); return b[0] | (b[1] << 8); }
+  i16() { const value = this.u16(); return value & 0x8000 ? value - 0x10000 : value; }
+  u32() { const b = this.take(4); return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0; }
+  f32() { const b = this.take(4); return new DataView(b.buffer, b.byteOffset, 4).getFloat32(0, true); }
+  string() { const length = this.u8(); return new TextDecoder().decode(this.take(length)); }
+  skip(length: number) { this.take(length); }
+}
+
+function readBundledM5Bounds() {
+  const assetDir = join(process.cwd(), 'public', 'assets', 'bmw-m5-g90-default');
+  const encoded = Array.from({ length: 8 }, (_, index) =>
+    readFileSync(join(assetDir, `part-${String(index).padStart(2, '0')}.b64`), 'utf8').trim()
+  ).join('').replace(/\s+/g, '');
+  const bytes = gunzipSync(Buffer.from(encoded, 'base64'));
+  const reader = new CompactBoundsReader(bytes);
+  const magic = String.fromCharCode(reader.u8(), reader.u8(), reader.u8(), reader.u8());
+  assert(magic === 'M5C2', `unexpected bundled M5 magic: ${magic}`);
+  const version = reader.u16();
+  assert(version === 2, `unexpected bundled M5 version: ${version}`);
+  const materialCount = reader.u16();
+  const meshCount = reader.u16();
+  for (let i = 0; i < materialCount; i += 1) {
+    reader.string();
+    reader.string();
+    reader.i16();
+  }
+
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let meshIndex = 0; meshIndex < meshCount; meshIndex += 1) {
+    reader.string();
+    reader.i16();
+    const vertexCount = reader.u16();
+    const indexCount = reader.u32();
+    const meshMinX = reader.f32(), meshMinY = reader.f32(), meshMinZ = reader.f32();
+    const meshMaxX = reader.f32(), meshMaxY = reader.f32(), meshMaxZ = reader.f32();
+    minX = Math.min(minX, meshMinX); minY = Math.min(minY, meshMinY); minZ = Math.min(minZ, meshMinZ);
+    maxX = Math.max(maxX, meshMaxX); maxY = Math.max(maxY, meshMaxY); maxZ = Math.max(maxZ, meshMaxZ);
+    reader.skip(vertexCount * 3 * 2);
+    reader.skip(indexCount * 2);
+  }
+
+  return {
+    widthM: maxX - minX,
+    heightM: maxY - minY,
+    lengthM: maxZ - minZ,
+    meshCount,
+  };
+}
 
 const aspect16x9 = 16 / 9;
 const aspect21x9 = 21 / 9;
@@ -57,12 +120,18 @@ const maxDiameterCarLengths = (23 * 2) / BMW_M5_G90_LENGTH_M;
 assert(minDiameterCarLengths > 7.8 && minDiameterCarLengths < 7.9, `20 m radius scale ratio invalid: ${minDiameterCarLengths}`);
 assert(maxDiameterCarLengths > 9.0 && maxDiameterCarLengths < 9.1, `23 m radius scale ratio invalid: ${maxDiameterCarLengths}`);
 
-// Validate the body-scale guard with a deliberately undersized synthetic asset.
-const mockM5 = new THREE.Group();
-mockM5.add(new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 4.6), new THREE.MeshBasicMaterial()));
-const scaleReport = fitM5VisualToRealScale(mockM5);
-approx(scaleReport.finalLengthM, BMW_M5_G90_LENGTH_M, 1e-6, 'normalized M5 body length');
-assert(scaleReport.appliedScale > 1.10 && scaleReport.appliedScale < 1.12, `unexpected body scale factor: ${scaleReport.appliedScale}`);
+// Measure the real bundled asset bytes, then pass those measured dimensions through
+// the same body-scale normalization used at runtime.
+const bundledBounds = readBundledM5Bounds();
+assert(bundledBounds.lengthM > 3.5 && bundledBounds.lengthM < 7, `bundled M5 length is implausible: ${bundledBounds.lengthM}`);
+assert(bundledBounds.widthM > 1.5 && bundledBounds.widthM < 3, `bundled M5 width is implausible: ${bundledBounds.widthM}`);
+const measuredM5 = new THREE.Group();
+measuredM5.add(new THREE.Mesh(
+  new THREE.BoxGeometry(bundledBounds.widthM, bundledBounds.heightM, bundledBounds.lengthM),
+  new THREE.MeshBasicMaterial()
+));
+const scaleReport = fitM5VisualToRealScale(measuredM5);
+approx(scaleReport.finalLengthM, BMW_M5_G90_LENGTH_M, 1e-6, 'normalized bundled M5 body length');
 
 console.log(JSON.stringify({
   speedKmh,
@@ -79,6 +148,8 @@ console.log(JSON.stringify({
     wheelVisualScale,
     mainTestLaneWidthM: MAIN_TEST_LANE_WIDTH_M,
     turnDiameterCarLengths: [minDiameterCarLengths, maxDiameterCarLengths],
+    bundledM5SourceBoundsM: bundledBounds,
+    bundledM5AppliedScale: scaleReport.appliedScale,
     normalizedBodyLengthM: scaleReport.finalLengthM,
   },
   status: 'passed',
