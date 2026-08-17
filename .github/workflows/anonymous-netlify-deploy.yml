@@ -1,11 +1,11 @@
 name: Anonymous Netlify Deploy
-# preview: PR #21 physics sign/convention guardrails
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
-      - agent/physics-sign-convention-guardrails
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
