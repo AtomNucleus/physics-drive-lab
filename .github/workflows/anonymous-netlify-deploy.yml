@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# self-reporting preview for PR #30 low-speed braking fix
+# PR #30 anonymous preview reporter
 
 on:
   push:
@@ -10,7 +10,9 @@ on:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: write
+  contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
   deploy:
@@ -22,23 +24,13 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Deploy anonymously to Netlify and record preview
+      - name: Deploy anonymously to Netlify and report URL
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('/tmp/netlify.json', 'utf8'));
-          const safe = {
-            site_url: data.site_url,
-            deploy_id: data.deploy_id,
-            password: data.password || null
-          };
-          fs.writeFileSync('.ci-netlify-preview.json', JSON.stringify(safe, null, 2) + '\n');
-          NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .ci-netlify-preview.json
-          git commit -m "Record PR #30 Netlify preview"
-          git push origin HEAD:agent/low-speed-brake-limit-cycle
+          site_url="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('/tmp/netlify.json','utf8')); process.stdout.write(d.site_url || d.deploy_url || '')")"
+          test -n "$site_url"
+          gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "Netlify preview for PR #30: $site_url"
