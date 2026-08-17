@@ -72,6 +72,12 @@ jobs:
       - name: Full tire and combined-slip regression
         run: npm run test:tire
 
+      - name: M5 transient response regression
+        run: npm run test:m5-transient
+
+      - name: M5 driver-controlled oversteer recovery regression
+        run: npm run test:m5-oversteer
+
       - name: Automatic transmission and low-speed propulsion regression
         run: npm run test:automatic
 
