@@ -1,5 +1,5 @@
 name: Anonymous Netlify Deploy
-# PR #30 anonymous preview reporter
+# PR #30 anonymous preview diagnostic reporter
 
 on:
   push:
@@ -17,20 +17,40 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Report deploy start
+        run: gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "PR #30 Netlify preview workflow started for commit $GITHUB_SHA."
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      - name: Deploy anonymously to Netlify and report URL
+      - name: Deploy anonymously to Netlify
+        id: netlify
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          set +e
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json 2> /tmp/netlify.err
+          status=$?
           set -e
-          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > /tmp/netlify.json
-          site_url="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('/tmp/netlify.json','utf8')); process.stdout.write(d.site_url || d.deploy_url || '')")"
-          test -n "$site_url"
-          gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "Netlify preview for PR #30: $site_url"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -eq 0 ]; then
+            site_url="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('/tmp/netlify.json','utf8')); process.stdout.write(d.site_url || d.deploy_url || '')")"
+            test -n "$site_url"
+            echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
+          else
+            { tail -n 50 /tmp/netlify.err; tail -n 20 /tmp/netlify.json; } | sed -E 's/(password["=: ]+)[^, }]+/\1[redacted]/Ig' > /tmp/netlify-safe-error.txt
+            exit "$status"
+          fi
+      - name: Report preview URL
+        if: success()
+        run: gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "Netlify preview for PR #30: ${{ steps.netlify.outputs.site_url }}"
+      - name: Report deploy failure
+        if: failure() && steps.netlify.outcome == 'failure'
+        shell: bash
+        run: |
+          error_text="$(tail -c 3500 /tmp/netlify-safe-error.txt 2>/dev/null || true)"
+          gh pr comment 30 --repo "$GITHUB_REPOSITORY" --body "PR #30 Netlify deploy failed. Safe error output:\n\n\`\`\`\n${error_text}\n\`\`\`"
