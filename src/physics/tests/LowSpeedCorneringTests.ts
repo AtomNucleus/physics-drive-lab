@@ -9,7 +9,8 @@ import { updateDigitalSteeringInput } from '../DigitalSteeringInput';
 const DT = 1 / 120;
 const START_SPEED_MS = 30 / 3.6;
 const DEG = 180 / Math.PI;
-const FREE_ROLL_SWITCH_MS = 2.6;
+// Diagnostic only: this is where the old solver had its hard free-roll mode switch.
+const LEGACY_FREE_ROLL_SWITCH_MS = 2.6;
 
 const zeroInputs: ControlInputs = {
   throttle: 0,
@@ -131,7 +132,7 @@ function runTenKmhFullLockDiagnostic() {
   const steadyTravelMax = [-Infinity, -Infinity, -Infinity, -Infinity];
   const steadyLoadMin = [Infinity, Infinity, Infinity, Infinity];
   const steadyLoadMax = [-Infinity, -Infinity, -Infinity, -Infinity];
-  const freeRollBoundaryCrossings = [0, 0, 0, 0];
+  const legacyBoundaryCrossings = [0, 0, 0, 0];
   const previousBoundarySide = [0, 0, 0, 0];
   const longitudinalForceSignFlips = [0, 0, 0, 0];
   const previousLongForceSign = [0, 0, 0, 0];
@@ -156,9 +157,9 @@ function runTenKmhFullLockDiagnostic() {
       const pointVelocity = sim.vehicle.rigidBody.getPointVelocityBody(contactPointBody);
       const steer = state.wheels[i].steerAngle;
       const wheelLongitudinalSpeed = pointVelocity.x * Math.sin(steer) + pointVelocity.z * Math.cos(steer);
-      const boundarySide = Math.abs(wheelLongitudinalSpeed) < FREE_ROLL_SWITCH_MS ? -1 : 1;
+      const boundarySide = Math.abs(wheelLongitudinalSpeed) < LEGACY_FREE_ROLL_SWITCH_MS ? -1 : 1;
       if (previousBoundarySide[i] !== 0 && boundarySide !== previousBoundarySide[i]) {
-        freeRollBoundaryCrossings[i]++;
+        legacyBoundaryCrossings[i]++;
       }
       previousBoundarySide[i] = boundarySide;
 
@@ -238,7 +239,7 @@ function runTenKmhFullLockDiagnostic() {
       wheelTravelPeakToPeakMm: steadyTravelMax.map((max, i) => (max - steadyTravelMin[i]) * 1000),
       tireLoadPeakToPeakN: steadyLoadMax.map((max, i) => max - steadyLoadMin[i]),
     },
-    freeRollBoundaryCrossings,
+    legacyBoundaryCrossings,
     longitudinalForceSignFlips,
   };
 }
@@ -275,5 +276,23 @@ assert(heldDigital.peakSteerInput > 0.99, `held digital steering must preserve f
 assert(heldDigital.peakFrontSlipDeg < 30, `held full steering became numerically unstable: ${heldDigital.peakFrontSlipDeg.toFixed(2)} deg`);
 assert(heldDigital.meanYawResponseRatio > 0.55, `held full steering lost plausible yaw response: ${heldDigital.meanYawResponseRatio.toFixed(3)}`);
 assert(heldDigital.finalSpeedKmh > 15, `held full steering scrubbed implausibly much speed: ${heldDigital.finalSpeedKmh.toFixed(1)} km/h`);
+
+// Permanent regression for the reported ~10 km/h full-lock "jelly" shake. The
+// initial ~0.75 s body-set transient is intentionally allowed; these limits apply
+// to the late steady portion where a real car should no longer keep pumping its
+// suspension. They are derived from the fixed deterministic M5 trace with margin.
+const maxSteadyTravelMm = Math.max(...tenKmhFullLock.steady.wheelTravelPeakToPeakMm);
+const maxSteadyLoadSwingN = Math.max(...tenKmhFullLock.steady.tireLoadPeakToPeakN);
+const totalLongitudinalForceFlips = tenKmhFullLock.longitudinalForceSignFlips.reduce((sum, count) => sum + count, 0);
+assert(tenKmhFullLock.airborneToggles.every((count) => count === 0),
+  `10 km/h full lock toggled wheel contact: ${tenKmhFullLock.airborneToggles.join(',')}`);
+assert(tenKmhFullLock.steady.rollPeakToPeakDeg < 0.30,
+  `10 km/h full lock kept rocking the body: ${tenKmhFullLock.steady.rollPeakToPeakDeg.toFixed(3)} deg p2p`);
+assert(maxSteadyTravelMm < 3.5,
+  `10 km/h full lock kept pumping suspension travel: ${maxSteadyTravelMm.toFixed(2)} mm p2p`);
+assert(maxSteadyLoadSwingN < 500,
+  `10 km/h full lock kept pumping tire load: ${maxSteadyLoadSwingN.toFixed(0)} N p2p`);
+assert(Math.max(...tenKmhFullLock.longitudinalForceSignFlips) <= 5 && totalLongitudinalForceFlips <= 8,
+  `10 km/h full lock longitudinal force chatter returned: ${tenKmhFullLock.longitudinalForceSignFlips.join(',')}`);
 
 console.log('LowSpeedCorneringTests: PASS');
