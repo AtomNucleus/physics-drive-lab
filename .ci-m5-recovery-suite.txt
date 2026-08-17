@@ -1,0 +1,230 @@
+
+===== test:m5-oversteer =====
+
+> react-example@0.0.0 test:m5-oversteer
+> tsx src/physics/tests/M5OversteerRecoveryDiagnostic.ts
+
+{
+  "scenario": "M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF",
+  "inductionSec": 0.26666666666666666,
+  "yawInertiaKgM2": 5332.76657118062,
+  "releaseTimeSec": 0.225,
+  "peakCounterInput": 0.9333333333333336,
+  "peakCounterSteerDeg": 31.051284206265933,
+  "samples": [
+    {
+      "t": 0,
+      "speedKmh": 82.38749341319173,
+      "yawRateDegS": 52.67288688202407,
+      "sideslipDeg": -8.272278779031625,
+      "driverInput": 0.18,
+      "steerDeg": 5.9309087373722855,
+      "frontSlipDeg": 10.547465805366816,
+      "rearSlipDeg": 11.568298251883785,
+      "frontKappa": 0.003460343857985695,
+      "rearKappa": -0.5587906756899745,
+      "frontFyN": 17058.80373122813,
+      "rearFyN": 4711.004895445558
+    },
+    {
+      "t": 0.1,
+      "speedKmh": 81.28162516392374,
+      "yawRateDegS": 50.40393158372378,
+      "sideslipDeg": -11.699021404816136,
+      "driverInput": -0.3733333333333333,
+      "steerDeg": -12.220046793498337,
+      "frontSlipDeg": -1.902890430960751,
+      "rearSlipDeg": 13.961293235326066,
+      "frontKappa": 0.0011776280289503716,
+      "rearKappa": -0.0009741884103049896,
+      "frontFyN": -5924.574214691829,
+      "rearFyN": 11411.101643466496
+    },
+    {
+      "t": 0.25,
+      "speedKmh": 80.23245041834889,
+      "yawRateDegS": -6.477004923613359,
+      "sideslipDeg": -15.102471172698419,
+      "driverInput": -0.7000000000000002,
+      "steerDeg": -23.161360128129324,
+      "frontSlipDeg": -10.69040822130781,
+      "rearSlipDeg": 15.12566397290404,
+      "frontKappa": -0.00815775281605457,
+      "rearKappa": 0.0024062097625450274,
+      "frontFyN": -14220.655075345789,
+      "rearFyN": 10670.806734054393
+    },
+    {
+      "t": 0.5,
+      "speedKmh": 78.69781919931778,
+      "yawRateDegS": -26.37490478490519,
+      "sideslipDeg": -4.079110156496737,
+      "driverInput": 0,
+      "steerDeg": 0.06113092505584737,
+      "frontSlipDeg": 7.033566171200801,
+      "rearSlipDeg": 3.4146037828735043,
+      "frontKappa": -0.000284284396588794,
+      "rearKappa": -0.00030023468426024853,
+      "frontFyN": 13391.191266154277,
+      "rearFyN": 10282.361808457292
+    },
+    {
+      "t": 0.75,
+      "speedKmh": 78.37082439452618,
+      "yawRateDegS": -2.1261099147817717,
+      "sideslipDeg": 1.0702371717584827,
+      "driverInput": 0,
+      "steerDeg": -0.013501543139685698,
+      "frontSlipDeg": -0.595049917774165,
+      "rearSlipDeg": -1.0733394311055384,
+      "frontKappa": 0.00005395497493939047,
+      "rearKappa": 0.000050173700388740584,
+      "frontFyN": -2831.6704443400704,
+      "rearFyN": -4330.5891154173005
+    },
+    {
+      "t": 1,
+      "speedKmh": 78.16492795367456,
+      "yawRateDegS": 0.019756787034392705,
+      "sideslipDeg": -0.16085274586279902,
+      "driverInput": 0,
+      "steerDeg": -0.002226358345629192,
+      "frontSlipDeg": -0.026161847143660252,
+      "rearSlipDeg": -0.023193817149808293,
+      "frontKappa": 0.00010639752474197106,
+      "rearKappa": 0.00011580166157491101,
+      "frontFyN": -335.424646301768,
+      "rearFyN": -277.9796645961051
+    },
+    {
+      "t": 1.5,
+      "speedKmh": 77.66225469737272,
+      "yawRateDegS": 0.10256822490834541,
+      "sideslipDeg": -0.026371785476842047,
+      "driverInput": 0,
+      "steerDeg": -0.00014139165664079324,
+      "frontSlipDeg": 0.011669978573135367,
+      "rearSlipDeg": 0.02606986568907637,
+      "frontKappa": 0.00020287744971364422,
+      "rearKappa": 0.00021076564502741236,
+      "frontFyN": -26.418998951485435,
+      "rearFyN": 13.579734233376655
+    }
+  ]
+}
+M5OversteerRecoveryTests: PASS
+
+__test:m5-oversteer_EXIT_STATUS__=0
+
+===== test:cornering =====
+
+> react-example@0.0.0 test:cornering
+> tsx src/physics/tests/LowSpeedCorneringTests.ts
+
+{
+  "scenario": "M5 low-speed cornering at ~30 km/h",
+  "moderate": {
+    "label": "moderate-raw",
+    "peakSteerInput": 0.4,
+    "meanFrontSteerDeg": 13.159512037395652,
+    "peakFrontSlipDeg": 8.672875813203515,
+    "peakRearSlipDeg": 3.465209603746328,
+    "peakLatG": 0.8397184008043582,
+    "skidSamples": 0,
+    "frontSkidSamples": 0,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 1.0999741986269933,
+    "finalSpeedKmh": 27.257115820067103
+  },
+  "rawFullDigital": {
+    "label": "raw-full-digital",
+    "peakSteerInput": 1,
+    "meanFrontSteerDeg": 33.35297164359271,
+    "peakFrontSlipDeg": 27.892807987152345,
+    "peakRearSlipDeg": 4.042459074575271,
+    "peakLatG": 0.9552240702512936,
+    "skidSamples": 73,
+    "frontSkidSamples": 73,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 0.8177888188712858,
+    "finalSpeedKmh": 22.494611210435846
+  },
+  "heldDigital": {
+    "label": "held-digital-left",
+    "peakSteerInput": 1,
+    "meanFrontSteerDeg": 33.34880319151786,
+    "peakFrontSlipDeg": 25.493222873430163,
+    "peakRearSlipDeg": 4.207908721725837,
+    "peakLatG": 0.9664617354005078,
+    "skidSamples": 65,
+    "frontSkidSamples": 65,
+    "rearSkidSamples": 0,
+    "meanYawResponseRatio": 0.9092246219807331,
+    "finalSpeedKmh": 21.66141735810457
+  }
+}
+LowSpeedCorneringTests: PASS
+
+__test:cornering_EXIT_STATUS__=0
+
+===== test:steering-direction =====
+
+> react-example@0.0.0 test:steering-direction
+> tsx src/physics/tests/SteeringDirectionTests.ts
+
+{
+  "fullRackAuthority": {
+    "maxSteerDeg": 33.231552117587746,
+    "crawlDeg": 33.231552117587746,
+    "highwayDeg": 33.231552117587746,
+    "veryFastDeg": 33.231552117587746
+  },
+  "lowSpeedAckermann": {
+    "speedKmh": 21.6,
+    "left": {
+      "insideFLDeg": 27.772801402293684,
+      "outsideFRDeg": 22.62153167531402
+    },
+    "right": {
+      "outsideFLDeg": -22.62153167531402,
+      "insideFRDeg": -27.772801402293684
+    }
+  },
+  "left": {
+    "x": 4.121531141237366,
+    "yawDeg": 34.572002097579606,
+    "leftLoadN": 4217.852600247605,
+    "rightLoadN": 19166.784035257362
+  },
+  "right": {
+    "x": -4.121531141237355,
+    "yawDeg": -34.57200209757955,
+    "leftLoadN": 19166.784035257406,
+    "rightLoadN": 4217.852600247599
+  },
+  "status": "passed"
+}
+
+__test:steering-direction_EXIT_STATUS__=0
+
+===== test:m5-transient =====
+
+> react-example@0.0.0 test:m5-transient
+> tsx src/physics/tests/M5TransientResponseTests.ts
+
+/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7
+  if (!condition) throw new Error(message);
+                        ^
+
+Error: steering release sequence is wrong at 50 ms: tire=0.44 travel=0.94 roll=0.92
+    at assert (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7:25)
+    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:193:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.23.2
+
+__test:m5-transient_EXIT_STATUS__=1
+
+__EXIT_STATUS__=1
