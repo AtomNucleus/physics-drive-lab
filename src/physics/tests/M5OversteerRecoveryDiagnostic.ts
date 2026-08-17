@@ -4,6 +4,7 @@ import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
 import { PhysicsMath } from '../math/PhysicsMath';
 import { updateDigitalSteeringInput } from '../DigitalSteeringInput';
+import { deriveChassisMassProperties } from '../ChassisMassProperties';
 
 const dt = 1 / 120;
 const DEG = 180 / Math.PI;
@@ -27,18 +28,18 @@ function makeOversteeringM5() {
 
   // Protect the chassis physics itself. Recovery must not be made easy by giving a
   // 2.38-ton, 3.00-m-wheelbase sedan the yaw inertia of a much shorter object.
-  // For the simplified passenger-car model, Izz ~= m * lf * lr where the static
-  // axle loads determine CG-to-axle distances. The G90 calibration is ~5.33 kN*m*s^2.
-  const lf = config.wheelbase * (1 - config.weightDistributionFront);
-  const lr = config.wheelbase * config.weightDistributionFront;
-  const expectedYawInertia = config.mass * lf * lr;
+  // The current chassis model derives Iz from both longitudinal axle/CG distribution
+  // and transverse mass width. Do not regress this test to the old m*lf*lr-only
+  // approximation, which implicitly concentrates all mass on the vehicle centerline.
+  const expectedMassProperties = deriveChassisMassProperties(config);
+  const expectedYawInertia = expectedMassProperties.inertia.y;
   const initialYawInertia = sim.vehicle.rigidBody.config.inertia.y;
   assert(
     Math.abs(initialYawInertia - expectedYawInertia) / expectedYawInertia < 1e-9,
-    `M5 yaw inertia does not match axle/CG model at construction: actual=${initialYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
+    `M5 yaw inertia does not match derived mass-properties model at construction: actual=${initialYawInertia.toFixed(1)}, expected=${expectedYawInertia.toFixed(1)} kg*m^2`
   );
   assert(
-    initialYawInertia > 4800 && initialYawInertia < 6000,
+    initialYawInertia > 4800 && initialYawInertia < 6500,
     `M5 yaw inertia outside plausible heavy-sedan guardrail: ${initialYawInertia.toFixed(1)} kg*m^2`
   );
 
