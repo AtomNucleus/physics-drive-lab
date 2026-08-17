@@ -8,31 +8,15 @@ import { updateDigitalSteeringInput } from '../DigitalSteeringInput';
 const dt = 1 / 120;
 const DEG = 180 / Math.PI;
 const neutral = { throttle: 0, brake: 0, steer: 0, handbrake: false, shiftUp: false, shiftDown: false };
-
 const sideslipDeg = (sim: Simulation) => {
   const v = sim.vehicle.rigidBody.getLocalVelocity();
   return Math.atan2(v.x, Math.max(0.1, Math.abs(v.z))) * DEG;
 };
-
 function sample(sim: Simulation, t: number, driverInput: number) {
   const s = sim.vehicle.getState();
   const avg = (a: number, b: number) => (a + b) * 0.5;
-  return {
-    t,
-    speedKmh: s.speedKmh,
-    yawRateDegS: s.yawRate * DEG,
-    sideslipDeg: sideslipDeg(sim),
-    driverInput,
-    steerDeg: s.actualSteerAngle * DEG,
-    frontSlipDeg: avg(s.wheels[0].slipAngle, s.wheels[1].slipAngle) * DEG,
-    rearSlipDeg: avg(s.wheels[2].slipAngle, s.wheels[3].slipAngle) * DEG,
-    frontKappa: avg(s.wheels[0].slipRatio, s.wheels[1].slipRatio),
-    rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio),
-    frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat,
-    rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat,
-  };
+  return { t, speedKmh: s.speedKmh, yawRateDegS: s.yawRate * DEG, sideslipDeg: sideslipDeg(sim), driverInput, steerDeg: s.actualSteerAngle * DEG, frontSlipDeg: avg(s.wheels[0].slipAngle, s.wheels[1].slipAngle) * DEG, rearSlipDeg: avg(s.wheels[2].slipAngle, s.wheels[3].slipAngle) * DEG, frontKappa: avg(s.wheels[0].slipRatio, s.wheels[1].slipRatio), rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio), frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat, rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat };
 }
-
 function makeOversteeringM5() {
   const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES, absMode: 'OFF', tcsMode: 'OFF' } as any;
   assert.equal(config.absMode, 'OFF');
@@ -55,7 +39,6 @@ function makeOversteeringM5() {
   }
   return { sim, inductionSec: inductionSteps * dt };
 }
-
 function runDigitalDriverRecovery() {
   const { sim, inductionSec } = makeOversteeringM5();
   let digitalInput = 0.18;
@@ -64,16 +47,12 @@ function runDigitalDriverRecovery() {
   let peakCounterInput = 0;
   let peakCounterSteerDeg = 0;
   const samples = [sample(sim, 0, digitalInput)];
-  const wantedTimes = [0.10, 0.25, 0.50, 0.75, 1.00, 1.50];
-  const wanted = new Set(wantedTimes.map((t) => Math.round(t / dt)));
+  const wanted = new Set([0.10, 0.25, 0.50, 0.75, 1.00, 1.50].map((t) => Math.round(t / dt)));
   const totalSteps = Math.round(1.5 / dt);
   for (let i = 1; i <= totalSteps; i++) {
     const stateBefore = sim.vehicle.getState();
     const yawDegS = stateBefore.yawRate * DEG;
-    if (!released && yawDegS <= 8) {
-      released = true;
-      releaseTimeSec = i * dt;
-    }
+    if (!released && yawDegS <= 8) { released = true; releaseTimeSec = i * dt; }
     const direction: -1 | 0 = released ? 0 : -1;
     digitalInput = updateDigitalSteeringInput(digitalInput, direction, stateBefore.speedMs, dt);
     peakCounterInput = Math.max(peakCounterInput, -digitalInput);
@@ -83,19 +62,13 @@ function runDigitalDriverRecovery() {
   }
   return { inductionSec, releaseTimeSec, peakCounterInput, peakCounterSteerDeg, samples };
 }
-
 const result = runDigitalDriverRecovery();
 const at = (seconds: number) => {
   const found = result.samples.find((s) => Math.abs(s.t - seconds) < dt * 0.51);
   assert(found, `missing ${seconds}s recovery sample`);
   return found;
 };
-const start = at(0);
-const t100 = at(0.10);
-const t250 = at(0.25);
-const t500 = at(0.50);
-const t750 = at(0.75);
-const t1000 = at(1.00);
+const start = at(0), t100 = at(0.10), t250 = at(0.25), t500 = at(0.50), t750 = at(0.75), t1000 = at(1.00);
 console.log(JSON.stringify({ scenario: 'M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF', ...result }, null, 2));
 assert(start.yawRateDegS > 60, `induced yaw is too mild: ${start.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(start.rearSlipDeg) > 10, `rear tire is not genuinely saturated: ${start.rearSlipDeg.toFixed(1)} deg`);
