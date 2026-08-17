@@ -88,18 +88,33 @@ const at = (seconds: number) => {
 };
 const start = at(0), t100 = at(0.10), t250 = at(0.25), t500 = at(0.50), t750 = at(0.75), t1000 = at(1.00);
 console.log(JSON.stringify({ scenario: 'M5 oversteer catch using real keyboard/touch steering path; ABS/TCS OFF', ...result }, null, 2));
-assert(start.yawRateDegS > 60, `induced yaw is too mild: ${start.yawRateDegS.toFixed(1)} deg/s`);
+
+// The heavier, physically plausible yaw inertia deliberately lowers the initial yaw
+// acceleration versus the old ~2.58k kg*m^2 chassis. The test still begins from a
+// severe, unmistakable rear slide rather than requiring the old artificially high
+// spin rate.
+assert(start.yawRateDegS > 45, `induced yaw is too mild: ${start.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(start.rearSlipDeg) > 10, `rear tire is not genuinely saturated: ${start.rearSlipDeg.toFixed(1)} deg`);
 assert(Math.abs(start.rearKappa) > 0.5, `rear wheel lock trigger is too mild: kappa=${start.rearKappa.toFixed(3)}`);
+
+// Rear traction must come back because slip comes back into the tire envelope, not
+// because of ESC, TCS, yaw damping, or injected grip.
 assert(Math.abs(t100.rearKappa) < 0.05, `rear longitudinal slip did not recover: ${t100.rearKappa.toFixed(3)}`);
 assert(Math.abs(t100.rearFyN) > 7000, `rear lateral force did not recover: ${t100.rearFyN.toFixed(0)} N`);
+
+// The driver must have access to real opposite lock, then be able to unwind it.
 assert(result.peakCounterInput > 0.8, `digital input still withholds opposite lock: ${result.peakCounterInput.toFixed(3)}`);
-assert(result.peakCounterSteerDeg > 16, `physical countersteer authority is too small: ${result.peakCounterSteerDeg.toFixed(1)} deg`);
-assert(result.releaseTimeSec !== null && result.releaseTimeSec < 0.45, `driver could not arrest yaw promptly; release=${result.releaseTimeSec}`);
-assert(Math.abs(t250.yawRateDegS) < start.yawRateDegS, 'countersteer did not reduce yaw by 250 ms');
-assert(Math.abs(t500.yawRateDegS) < 20, `yaw still excessive at 500 ms: ${t500.yawRateDegS.toFixed(1)} deg/s`);
-assert(Math.abs(t750.yawRateDegS) < 10, `yaw not under control by 750 ms: ${t750.yawRateDegS.toFixed(1)} deg/s`);
-assert(Math.abs(t750.sideslipDeg) < 5, `body sideslip not caught by 750 ms: ${t750.sideslipDeg.toFixed(1)} deg`);
+assert(result.peakCounterSteerDeg > 20, `physical countersteer authority is too small: ${result.peakCounterSteerDeg.toFixed(1)} deg`);
+assert(result.releaseTimeSec !== null && result.releaseTimeSec < 0.40, `driver could not arrest yaw promptly; release=${result.releaseTimeSec}`);
+
+// A heavy chassis is allowed to carry rotational momentum through an opposite-yaw
+// unwind transient. What is not allowed is continued runaway rotation after the
+// driver has caught the rear. Judge recovery relative to the induced yaw, then
+// require the car to settle tightly by 0.75-1.0 s.
+assert(Math.abs(t250.yawRateDegS) < Math.abs(start.yawRateDegS) * 0.30, `countersteer did not arrest yaw by 250 ms: ${t250.yawRateDegS.toFixed(1)} deg/s`);
+assert(Math.abs(t500.yawRateDegS) < Math.abs(start.yawRateDegS) * 0.60, `opposite-yaw unwind became a snap spin: ${t500.yawRateDegS.toFixed(1)} deg/s`);
+assert(Math.abs(t750.yawRateDegS) < 5, `yaw not under control by 750 ms: ${t750.yawRateDegS.toFixed(1)} deg/s`);
+assert(Math.abs(t750.sideslipDeg) < 3, `body sideslip not caught by 750 ms: ${t750.sideslipDeg.toFixed(1)} deg`);
 assert(Math.abs(t1000.yawRateDegS) < 2, `yaw did not settle by 1 s: ${t1000.yawRateDegS.toFixed(1)} deg/s`);
 assert(Math.abs(t1000.sideslipDeg) < 2, `sideslip did not settle by 1 s: ${t1000.sideslipDeg.toFixed(1)} deg`);
 console.log('M5OversteerRecoveryTests: PASS');
