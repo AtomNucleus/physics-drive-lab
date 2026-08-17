@@ -39,6 +39,9 @@ jobs:
       - name: Digital steering shaping regression
         run: npm run test:digital-steering
 
+      - name: Mouse steering sign/range regression
+        run: npm run test:mouse-steering
+
       - name: 50 kmh full-lock turn-radius diagnostic
         run: npm run test:turn-radius
 
