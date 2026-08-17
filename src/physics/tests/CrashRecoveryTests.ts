@@ -87,7 +87,7 @@ function testPostSpinContactPatchSettles() {
 function testChassisVisualPivotsAtPhysicalCg() {
   const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as any;
   const renderer = new CarRenderer('#2563eb');
-  const cgOffset = config.centerOfGravityHeight + 0.35;
+  const cgOffset = config.centerOfGravityHeight;
   const state: any = {
     x: 12,
     z: -7,
