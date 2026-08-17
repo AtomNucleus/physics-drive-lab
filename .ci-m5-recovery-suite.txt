@@ -297,19 +297,8 @@ __test:steering-direction_EXIT_STATUS__=0
     "finalRollDeg": 0.004861801371558112
   }
 }
-/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7
-  if (!condition) throw new Error(message);
-                        ^
+M5TransientResponseTests: PASS
 
-Error: original cornering force persisted too long after release: 0.14
-    at assert (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:7:25)
-    at <anonymous> (/home/runner/work/physics-drive-lab/physics-drive-lab/src/physics/tests/M5TransientResponseTests.ts:240:1)
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
-    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+__test:m5-transient_EXIT_STATUS__=0
 
-Node.js v22.23.2
-
-__test:m5-transient_EXIT_STATUS__=1
-
-__EXIT_STATUS__=1
+__EXIT_STATUS__=0
