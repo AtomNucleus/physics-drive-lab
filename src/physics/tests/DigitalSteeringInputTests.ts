@@ -1,28 +1,35 @@
 import assert from 'node:assert/strict';
-import { digitalSteeringLimitForSpeed, updateDigitalSteeringInput } from '../DigitalSteeringInput';
+import { updateDigitalSteeringInput } from '../DigitalSteeringInput';
 
 const DT = 1 / 120;
 
-assert.equal(digitalSteeringLimitForSpeed(0), 1, 'parking speed must retain full steering lock');
-assert.equal(digitalSteeringLimitForSpeed(8 / 3.6), 1, '8 km/h must still allow full steering lock');
-assert(Math.abs(digitalSteeringLimitForSpeed(30 / 3.6) - 0.48) < 1e-12, '30 km/h digital steering cap must be 0.48');
-assert(digitalSteeringLimitForSpeed(100 / 3.6) <= 0.18 + 1e-12, '100 km/h digital steering must be strongly limited');
+function hold(direction: -1 | 0 | 1, speedKmh: number, durationSec: number, start = 0) {
+  let input = start;
+  const steps = Math.round(durationSec / DT);
+  for (let i = 0; i < steps; i++) {
+    input = updateDigitalSteeringInput(input, direction, speedKmh / 3.6, DT);
+  }
+  return input;
+}
 
-let left = 0;
-for (let i = 0; i < 120; i++) left = updateDigitalSteeringInput(left, 1, 30 / 3.6, DT);
-assert(Math.abs(left - 0.48) < 1e-12, `held left at 30 km/h must settle at +0.48, got ${left}`);
+const parkingLeft = hold(1, 6, 1.0);
+const roadLeft = hold(1, 100, 1.0);
+const roadRight = hold(-1, 100, 1.0);
 
-let right = 0;
-for (let i = 0; i < 120; i++) right = updateDigitalSteeringInput(right, -1, 30 / 3.6, DT);
-assert(Math.abs(right + 0.48) < 1e-12, `held right at 30 km/h must settle at -0.48, got ${right}`);
-assert(Math.abs(left + right) < 1e-12, 'digital steering left/right limits must mirror exactly');
+assert(Math.abs(parkingLeft - 1) < 1e-12, 'parking steering must reach full driver authority');
+assert(Math.abs(roadLeft - 1) < 1e-12, '100 km/h held left must retain full driver authority');
+assert(Math.abs(roadRight + 1) < 1e-12, '100 km/h held right must retain full driver authority');
+assert(Math.abs(roadLeft + roadRight) < 1e-12, 'left/right digital steering must mirror exactly');
 
-let parking = 0;
-for (let i = 0; i < 120; i++) parking = updateDigitalSteeringInput(parking, 1, 6 / 3.6, DT);
-assert(Math.abs(parking - 1) < 1e-12, '6 km/h parking/crawl steering must still reach full lock');
+// A binary key is rate-limited rather than teleported. It should still reach
+// meaningful opposite-lock quickly enough for a driver to catch oversteer.
+let reversal = 0.25;
+reversal = hold(-1, 90, 0.10, reversal);
+assert(reversal < -0.25, `100 ms countersteer reversal is too slow: ${reversal.toFixed(3)}`);
+reversal = hold(-1, 90, 0.20, reversal);
+assert(reversal < -0.95, `300 ms total countersteer must reach near-full command: ${reversal.toFixed(3)}`);
 
-let release = left;
-for (let i = 0; i < 60; i++) release = updateDigitalSteeringInput(release, 0, 30 / 3.6, DT);
-assert(Math.abs(release) < 1e-12, 'released digital steering must return to center');
+const released = hold(0, 90, 0.25, reversal);
+assert(Math.abs(released) < 1e-12, 'released digital steering must return to center');
 
 console.log('DigitalSteeringInputTests: PASS');
