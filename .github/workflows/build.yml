@@ -19,6 +19,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Full-quality BMW visual asset integrity
+        run: npm run test:full-quality-visual
       - name: Physics coordinate/sign convention guardrails
         run: npm run test:conventions
       - name: Mobile steering regression
