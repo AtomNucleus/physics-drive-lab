@@ -29,6 +29,7 @@
     "test:crash-recovery": "tsx src/physics/tests/CrashRecoveryTests.ts",
     "test:wheel-visual": "tsx src/physics/tests/WheelVisualPoseTests.ts",
     "test:steering-direction": "tsx src/physics/tests/SteeringDirectionTests.ts",
+    "test:steering-dynamics": "tsx src/physics/tests/SteeringDynamicsTests.ts",
     "test:visual-scale": "tsx src/physics/tests/VisualScaleTests.ts",
     "test:automatic": "tsx src/physics/tests/AutomaticTransmissionTests.ts",
     "test:m5-rwd": "tsx src/physics/tests/M5DriveModeTests.ts",
@@ -43,7 +44,7 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
-    "@types/canvas-confetti": "^1.9.0",
+    "@types/canvas-confetti": "^1.9.4",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^5.0.4",
     "canvas-confetti": "^1.9.4",
@@ -53,7 +54,7 @@
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "three": "^0.185.1",
+    "three": "^0.185.4",
     "vite": "^6.2.3"
   },
   "devDependencies": {
