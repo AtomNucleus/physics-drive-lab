@@ -1,117 +1,303 @@
 import * as THREE from 'three';
 import type { VehicleConfig } from '../types';
-import type { Kn5VisualResult } from './kn5Loader';
+import { alignKn5ToCurrentPhysics } from './kn5VisualAlignment';
+import { loadKn5Visual, type Kn5VisualResult } from './kn5Loader';
 import { fitM5VisualToRealScale } from './m5VisualScale';
 
-const DEFAULT_M5_ASSET_PARTS = 8;
-const DEFAULT_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-default`;
-const TEXT_DECODER = new TextDecoder('utf-8');
+const FULL_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-full`;
+const GLASS_SEAM_MAX_MARGIN_M = 0.018;
+const GLASS_SEAM_EXPANSION_RATIO = 0.04;
+const GLASS_SEAM_MIN_COMPONENT_SIZE_M = 0.08;
 
-interface CompactMaterialRecord { name: string; shader: string; blendMode: number; }
-
-class BinaryReader {
-  private offset = 0;
-  constructor(private readonly bytes: Uint8Array) {}
-  private take(length: number): Uint8Array {
-    if (length < 0 || this.offset + length > this.bytes.length) throw new Error('Compact BMW visual is truncated.');
-    const result = this.bytes.subarray(this.offset, this.offset + length); this.offset += length; return result;
-  }
-  u8(): number { return this.take(1)[0]; }
-  u16(): number { const b = this.take(2); return b[0] | (b[1] << 8); }
-  i16(): number { const value = this.u16(); return value & 0x8000 ? value - 0x10000 : value; }
-  u32(): number { const b = this.take(4); return (b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)) >>> 0; }
-  f32(): number { const b = this.take(4); return new DataView(b.buffer, b.byteOffset, 4).getFloat32(0, true); }
-  string(): string { return TEXT_DECODER.decode(this.take(this.u8())); }
-  remaining(): number { return this.bytes.length - this.offset; }
+interface FullM5Manifest {
+  format: 'kn5-gzip-base64-v1';
+  quality: 'full';
+  modelFile: string;
+  parts: number;
+  kn5Bytes: number;
+  gzipBytes: number;
+  sha256: string;
 }
 
-async function loadBundledBytes(): Promise<Uint8Array> {
-  const parts = await Promise.all(Array.from({ length: DEFAULT_M5_ASSET_PARTS }, async (_, index) => {
-    const part = String(index).padStart(2, '0');
-    const response = await fetch(`${DEFAULT_M5_ASSET_DIR}/part-${part}.b64`);
-    if (!response.ok) throw new Error(`Default BMW asset part ${part} failed to load (${response.status}).`);
-    return (await response.text()).trim();
-  }));
-  const binary = atob(parts.join('').replace(/\s+/g, ''));
-  const compressed = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) compressed[i] = binary.charCodeAt(i);
+function decodeBase64Part(encoded: string): Uint8Array {
+  const binary = atob(encoded.replace(/\s+/g, ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function loadFullM5Bytes(): Promise<{ manifest: FullM5Manifest; data: Uint8Array }> {
+  const manifestResponse = await fetch(`${FULL_M5_ASSET_DIR}/manifest.json`);
+  if (!manifestResponse.ok) {
+    throw new Error(`Full-quality BMW manifest failed to load (${manifestResponse.status}).`);
+  }
+
+  const manifest = (await manifestResponse.json()) as FullM5Manifest;
+  if (
+    manifest.format !== 'kn5-gzip-base64-v1' ||
+    manifest.quality !== 'full' ||
+    !Number.isInteger(manifest.parts) ||
+    manifest.parts <= 0 ||
+    !manifest.modelFile.toLowerCase().endsWith('.kn5')
+  ) {
+    throw new Error('Bundled BMW full-quality manifest is invalid.');
+  }
+
+  const encodedParts = await Promise.all(
+    Array.from({ length: manifest.parts }, async (_, index) => {
+      const part = String(index).padStart(2, '0');
+      const response = await fetch(`${FULL_M5_ASSET_DIR}/part-${part}.b64`);
+      if (!response.ok) {
+        throw new Error(`Full-quality BMW asset part ${part} failed to load (${response.status}).`);
+      }
+      return response.text();
+    })
+  );
+
+  const decodedParts = encodedParts.map(decodeBase64Part);
+  const compressedLength = decodedParts.reduce((sum, part) => sum + part.byteLength, 0);
+  if (compressedLength !== manifest.gzipBytes) {
+    throw new Error(
+      `Full-quality BMW asset size mismatch (${compressedLength} compressed bytes; expected ${manifest.gzipBytes}).`
+    );
+  }
+
+  const compressed = new Uint8Array(compressedLength);
+  let offset = 0;
+  for (const part of decodedParts) {
+    compressed.set(part, offset);
+    offset += part.byteLength;
+  }
+
   const Decompression = (globalThis as any).DecompressionStream;
-  if (!Decompression) throw new Error('This browser does not support gzip decompression for the bundled BMW visual.');
+  if (!Decompression) {
+    throw new Error('This browser does not support gzip decompression for the full-quality BMW visual.');
+  }
+
   const stream = new Blob([compressed.slice().buffer]).stream().pipeThrough(new Decompression('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-function materialFor(record: CompactMaterialRecord): THREE.MeshStandardMaterial {
-  const name = record.name.toLowerCase();
-  const material = new THREE.MeshStandardMaterial({ name: record.name, color: 0x20252c, roughness: 0.46, metalness: 0.18 });
-  if (name === 'carpaint') {
-    material.color.set(0x315f8f); material.metalness = 0.58; material.roughness = 0.24; material.envMapIntensity = 1.35;
-  } else if (name === 'window') {
-    material.color.set(0x08111d); material.metalness = 0.08; material.roughness = 0.12;
-    material.transparent = false; material.opacity = 1; material.depthWrite = true; material.side = THREE.DoubleSide;
-  } else if (name === 'glass_red') {
-    material.color.set(0x8b0b16); material.emissive.set(0x310208); material.emissiveIntensity = 0.55; material.metalness = 0.02; material.roughness = 0.18; material.transparent = true; material.opacity = 0.82; material.depthWrite = false;
-  } else if (name.includes('light')) {
-    material.color.set(0xdbeafe); material.emissive.set(0xb9d9ff); material.emissiveIntensity = 0.55; material.metalness = 0.16; material.roughness = 0.15;
-  } else if (name.includes('chrome') || name.includes('badge')) {
-    material.color.set(0xcbd5e1); material.metalness = 0.92; material.roughness = 0.12;
-  } else if (name.includes('grille') || name.includes('black') || name.includes('carbon') || name === 'roof' || name === 'wiper') {
-    material.color.set(name.includes('carbon') ? 0x111318 : 0x090b0f); material.metalness = name.includes('gloss') ? 0.42 : 0.24; material.roughness = name.includes('gloss') ? 0.2 : 0.42;
-  } else if (name.includes('plate')) {
-    material.color.set(0xe5e7eb); material.metalness = 0.05; material.roughness = 0.55;
-  } else if (name.includes('mirror')) {
-    material.color.set(0x161a20); material.metalness = 0.55; material.roughness = 0.22;
+  const data = new Uint8Array(await new Response(stream).arrayBuffer());
+  if (data.byteLength !== manifest.kn5Bytes) {
+    throw new Error(
+      `Full-quality BMW KN5 size mismatch (${data.byteLength} bytes; expected ${manifest.kn5Bytes}).`
+    );
   }
-  if (record.blendMode !== 0 && !material.transparent && name !== 'window') { material.transparent = true; material.opacity = 0.88; material.depthWrite = false; }
-  return material;
+
+  return { manifest, data };
 }
 
-function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
-  const reader = new BinaryReader(bytes);
-  const magic = TEXT_DECODER.decode(new Uint8Array([reader.u8(), reader.u8(), reader.u8(), reader.u8()]));
-  if (magic !== 'M5C2') throw new Error(`Unsupported bundled BMW format: ${magic}`);
-  const version = reader.u16(); if (version !== 2) throw new Error(`Unsupported bundled BMW version: ${version}`);
-  const materialCount = reader.u16(); const meshCount = reader.u16(); const materialRecords: CompactMaterialRecord[] = [];
-  for (let i = 0; i < materialCount; i += 1) materialRecords.push({ name: reader.string(), shader: reader.string(), blendMode: reader.i16() });
-  const materials = materialRecords.map(materialFor);
-  const fallback = new THREE.MeshStandardMaterial({ color: 0x20252c, roughness: 0.46, metalness: 0.18 });
-  const group = new THREE.Group(); group.name = 'bmw_m5_2024_default_runtime';
-  for (let meshIndex = 0; meshIndex < meshCount; meshIndex += 1) {
-    const name = reader.string(); const materialId = reader.i16(); const vertexCount = reader.u16(); const indexCount = reader.u32();
-    const minX = reader.f32(), minY = reader.f32(), minZ = reader.f32(), maxX = reader.f32(), maxY = reader.f32(), maxZ = reader.f32();
-    const sizeX = maxX - minX, sizeY = maxY - minY, sizeZ = maxZ - minZ;
-    const positions = new Float32Array(vertexCount * 3);
-    for (let v = 0; v < vertexCount; v += 1) {
-      positions[v * 3] = minX + (reader.u16() / 65535) * sizeX;
-      positions[v * 3 + 1] = minY + (reader.u16() / 65535) * sizeY;
-      positions[v * 3 + 2] = minZ + (reader.u16() / 65535) * sizeZ;
+function materialName(material: THREE.Material): string {
+  return material.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+}
+
+function meshIdentity(mesh: THREE.Mesh, material: THREE.Material): string {
+  return `${mesh.name} ${mesh.parent?.name ?? ''} ${material.name}`.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+}
+
+function isCabinGlass(mesh: THREE.Mesh, material: THREE.Material): boolean {
+  const identity = meshIdentity(mesh, material);
+  const name = materialName(material);
+
+  // Strong pane names win even when a rear/front qualifier is present.
+  const strongPaneTokens = [
+    'window',
+    'windscreen',
+    'windshield',
+    'sideglass',
+    'side_glass',
+    'front_glass',
+    'rear_glass',
+    'glass_front',
+    'glass_rear',
+    'glass_int',
+    'glass_ext',
+    'cockpit_glass',
+  ];
+  if (strongPaneTokens.some((token) => identity.includes(token))) return true;
+
+  if (!identity.includes('glass') && !name.includes('glass')) return false;
+
+  // Do not turn lamp lenses, reflectors, or colored light glass into cabin glass.
+  const lampTokens = [
+    'headlight',
+    'taillight',
+    'tail_light',
+    'brake_light',
+    'indicator',
+    'blinker',
+    'turn_light',
+    'reverse_light',
+    'lamp',
+    'reflector',
+    'glass_red',
+    'glass_orange',
+  ];
+  return !lampTokens.some((token) => identity.includes(token));
+}
+
+function buildGlassMaterial(source: THREE.Material): THREE.MeshPhysicalMaterial {
+  const standard = source as THREE.MeshStandardMaterial;
+  const sourceColor = standard.color instanceof THREE.Color ? standard.color.clone() : new THREE.Color(0x71889b);
+  // Keep authored tint/texture while preventing near-black AC shader fallback from
+  // making the cabin opaque in the browser renderer.
+  sourceColor.lerp(new THREE.Color(0x8095a8), 0.28);
+
+  return new THREE.MeshPhysicalMaterial({
+    name: source.name || 'cabin_glass',
+    color: sourceColor,
+    map: standard.map ?? null,
+    normalMap: standard.normalMap ?? null,
+    roughness: 0.07,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    transmission: 0.08,
+    ior: 1.5,
+    thickness: 0.006,
+    clearcoat: 1,
+    clearcoatRoughness: 0.025,
+    envMapIntensity: 1.3,
+  });
+}
+
+/**
+ * The real KN5 has separate glass surfaces. Expand each connected pane only in
+ * its own tangent plane so its perimeter sits just underneath the surrounding
+ * frame/body. No triangles are added and the glass is never pushed outward.
+ */
+function sealGlassPerimeter(geometry: THREE.BufferGeometry): void {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const index = geometry.getIndex();
+  if (!position || position.count < 3 || !index || index.count < 3) return;
+
+  if (!geometry.getAttribute('normal')) geometry.computeVertexNormals();
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (!normal) return;
+
+  const adjacency = Array.from({ length: position.count }, () => new Set<number>());
+  const used = new Uint8Array(position.count);
+  for (let i = 0; i + 2 < index.count; i += 3) {
+    const a = index.getX(i);
+    const b = index.getX(i + 1);
+    const c = index.getX(i + 2);
+    used[a] = 1;
+    used[b] = 1;
+    used[c] = 1;
+    adjacency[a].add(b); adjacency[a].add(c);
+    adjacency[b].add(a); adjacency[b].add(c);
+    adjacency[c].add(a); adjacency[c].add(b);
+  }
+
+  const visited = new Uint8Array(position.count);
+  for (let seed = 0; seed < position.count; seed += 1) {
+    if (!used[seed] || visited[seed]) continue;
+
+    const component: number[] = [];
+    const stack = [seed];
+    visited[seed] = 1;
+    while (stack.length > 0) {
+      const vertex = stack.pop()!;
+      component.push(vertex);
+      for (const neighbor of adjacency[vertex]) {
+        if (visited[neighbor]) continue;
+        visited[neighbor] = 1;
+        stack.push(neighbor);
+      }
     }
-    const indices = new Uint16Array(indexCount); for (let i = 0; i < indexCount; i += 1) indices[i] = reader.u16();
-    for (let i = 0; i + 2 < indexCount; i += 3) { const temp = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = temp; }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, materials[materialId] ?? fallback); mesh.name = name; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const vertex of component) {
+      const x = position.getX(vertex);
+      const y = position.getY(vertex);
+      const z = position.getZ(vertex);
+      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z);
+    }
+
+    const componentSize = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+    if (!Number.isFinite(componentSize) || componentSize < GLASS_SEAM_MIN_COMPONENT_SIZE_M) continue;
+
+    const centerX = (minX + maxX) * 0.5;
+    const centerY = (minY + maxY) * 0.5;
+    const centerZ = (minZ + maxZ) * 0.5;
+
+    for (const vertex of component) {
+      const x = position.getX(vertex);
+      const y = position.getY(vertex);
+      const z = position.getZ(vertex);
+      const nx = normal.getX(vertex);
+      const ny = normal.getY(vertex);
+      const nz = normal.getZ(vertex);
+
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dz = z - centerZ;
+      const normalProjection = dx * nx + dy * ny + dz * nz;
+      const tx = dx - nx * normalProjection;
+      const ty = dy - ny * normalProjection;
+      const tz = dz - nz * normalProjection;
+      const tangentLength = Math.hypot(tx, ty, tz);
+      if (tangentLength < 1e-6) continue;
+
+      const margin = Math.min(GLASS_SEAM_MAX_MARGIN_M, tangentLength * GLASS_SEAM_EXPANSION_RATIO);
+      const scale = margin / tangentLength;
+      position.setXYZ(vertex, x + tx * scale, y + ty * scale, z + tz * scale);
+    }
   }
-  if (reader.remaining() !== 0) throw new Error(`Bundled BMW visual has ${reader.remaining()} unexpected trailing bytes.`);
 
-  const scaleReport = fitM5VisualToRealScale(group);
-  const scaleMessage = Math.abs(scaleReport.appliedScale - 1) > 0.0025
-    ? `Bundled BMW visual normalized from ${scaleReport.sourceLengthM.toFixed(3)} m to ${scaleReport.finalLengthM.toFixed(3)} m (x${scaleReport.appliedScale.toFixed(4)}).`
-    : `Bundled BMW visual metre scale verified at ${scaleReport.finalLengthM.toFixed(3)} m long.`;
-
-  return {
-    group,
-    version,
-    meshCount,
-    textureCount: 0,
-    materialCount,
-    hiddenWheelNodeCount: 4,
-    warnings: [
-      'Default BMW uses compact LOD-C exterior geometry from the supplied G90 mod. Physics-driven wheel/suspension assemblies remain separate; importing the original KN5 replaces this with the full-detail textured car.',
-      scaleMessage,
-    ],
-  };
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
 }
 
-export async function loadBundledM5Visual(_config: VehicleConfig): Promise<Kn5VisualResult> { return parseCompactM5(await loadBundledBytes()); }
+function upgradeRealGlassGeometry(root: THREE.Group): number {
+  let glassMeshCount = 0;
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    let foundGlass = false;
+    const upgraded = materials.map((material) => {
+      if (!isCabinGlass(object, material)) return material;
+      foundGlass = true;
+      return buildGlassMaterial(material);
+    });
+
+    if (!foundGlass) return;
+    sealGlassPerimeter(object.geometry);
+    object.material = Array.isArray(object.material) ? upgraded : upgraded[0];
+    object.renderOrder = Math.max(object.renderOrder, 3);
+    object.castShadow = false;
+    glassMeshCount += 1;
+  });
+  return glassMeshCount;
+}
+
+export async function loadBundledM5Visual(config: VehicleConfig): Promise<Kn5VisualResult> {
+  const { manifest, data } = await loadFullM5Bytes();
+  const visual = await loadKn5Visual({ name: manifest.modelFile, data });
+
+  const scaleReport = fitM5VisualToRealScale(visual.group);
+  alignKn5ToCurrentPhysics(visual, config as unknown as Record<string, any>);
+  const glassMeshCount = upgradeRealGlassGeometry(visual.group);
+
+  const scaleMessage = Math.abs(scaleReport.appliedScale - 1) > 0.0025
+    ? `Full-quality BMW visual normalized from ${scaleReport.sourceLengthM.toFixed(3)} m to ${scaleReport.finalLengthM.toFixed(3)} m (x${scaleReport.appliedScale.toFixed(4)}).`
+    : `Full-quality BMW visual metre scale verified at ${scaleReport.finalLengthM.toFixed(3)} m long.`;
+
+  visual.warnings.push(
+    `FULL QUALITY: ${visual.meshCount} imported KN5 meshes, ${visual.textureCount} decoded embedded textures, ${visual.materialCount} materials.`,
+    `${glassMeshCount} real cabin-glass mesh${glassMeshCount === 1 ? '' : 'es'} use transparent physical glass with sealed frame overlap.`,
+    'Visual mesh remains render-only: the current simple collider, calibrated chassis physics, suspension, tires, and physics-driven wheels remain authoritative.',
+    scaleMessage,
+  );
+
+  if (glassMeshCount === 0) {
+    visual.warnings.push('No cabin-glass mesh names matched the full-quality glass classifier; inspect the KN5 material naming.');
+  }
+
+  return visual;
+}
