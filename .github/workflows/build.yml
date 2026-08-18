@@ -29,6 +29,8 @@ jobs:
         run: npm run test:steering-direction
       - name: Visual scale regression
         run: npm run test:visual-scale
+      - name: Hero-car render geometry regression
+        run: npm run test:hero-car-geometry
       - name: 6 kmh crawl-speed stability regression
         run: npm run test:crawl
       - name: Low-speed brake ABS/driveline limit-cycle regression
