@@ -51,6 +51,7 @@ interface SteeringCalibration {
   rackFrictionNm: number;
   maxRackAngularSpeedRadS: number;
   maxRackAngularAccelRadS2: number;
+  integrationSubsteps: number;
   driverTorsionStiffnessNmPerRad: number;
   driverTorsionDampingNmsPerRad: number;
   driverMaxTorqueNm: number;
@@ -64,6 +65,18 @@ interface SteeringCalibration {
   complianceStiffnessNmPerRad: number;
   complianceDampingNmsPerRad: number;
   maxComplianceRad: number;
+}
+
+interface RackTorqueState {
+  tireSelfAligningRoadNm: number;
+  casterMechanicalTrailRoadNm: number;
+  driverSteeringWheelNm: number;
+  epsAssistSteeringWheelNm: number;
+  steeringDampingRoadNm: number;
+  steeringFrictionRoadNm: number;
+  steeringStopRoadNm: number;
+  effectiveRackDampingNmsPerRad: number;
+  netRackRoadNm: number;
 }
 
 const zeroTorques = (): SteeringTorqueBreakdown => ({
@@ -82,12 +95,17 @@ const zeroTorques = (): SteeringTorqueBreakdown => ({
 /**
  * One-DOF physical steering rack driven through a compliant steering column.
  *
- * Driver input is interpreted as a steering-wheel target. Column torsion and EPS
- * generate torque; torque accelerates the rack generalized coordinate; Ackermann
- * then converts rack position into independent FL/FR road-wheel angles. Tire
- * self-aligning torque and the solved suspension steering-axis moment feed back into
- * the rack on the next 120 Hz fixed step. There is deliberately no yaw-rate,
+ * Driver input is a steering-wheel target. Column torsion and EPS generate torque;
+ * torque accelerates the rack; Ackermann then produces independent FL/FR commands.
+ * Tire self-aligning torque and the solved steering-axis force moment feed back into
+ * the rack from the previous 120 Hz tire solve. There is deliberately no yaw-rate,
  * sideslip, or stability-state term anywhere in this subsystem.
+ *
+ * The rack/column loop is internally substepped. A stiff assisted steering system can
+ * have a natural frequency high enough that one explicit 8.33 ms step creates a
+ * numerical phase reversal (centering torque evaluated from the wrong side of zero).
+ * Substepping only this one-DOF mechanism preserves the authoritative 120 Hz vehicle
+ * timestep while keeping the physical torque loop numerically resolved.
  *
  * BMW publishes the G90's overall 14.2:1 steering ratio, but not its rack inertia,
  * damping, compliance stiffness, EPS map, rack travel, or variable-ratio curve.
@@ -156,10 +174,6 @@ export class PhysicalSteeringSystem {
       overallSteeringRatio: Math.max(5, Number(c.steeringRatioOverall ?? c.steeringRatioCenter ?? 15.0)),
       rackEquivalentInertiaKgm2: Math.max(0.2, Number(c.steeringRackEquivalentInertiaKgm2 ?? 5.8)),
       rackDampingNmsPerRad: Math.max(0, Number(c.steeringRackDampingNmsPerRad ?? 46)),
-      // EPS/column velocity feedback is strongest near the driver's commanded rack
-      // position. Keeping this separate from base rack damping prevents the rack from
-      // becoming artificially sluggish during a large steering sweep while still
-      // damping the second-order overshoot that appears as the column error closes.
       rackNearTargetDampingNmsPerRad: Math.max(0, Number(c.steeringRackNearTargetDampingNmsPerRad ?? 420)),
       rackNearTargetDampingWindowRad: Math.max(
         0.01,
@@ -168,6 +182,7 @@ export class PhysicalSteeringSystem {
       rackFrictionNm: Math.max(0, Number(c.steeringRackFrictionNm ?? 4.5)),
       maxRackAngularSpeedRadS: Math.max(0.5, maxRackRate),
       maxRackAngularAccelRadS2: Math.max(10, Number(c.steeringRackMaxAngularAccelRadS2 ?? 90)),
+      integrationSubsteps: Math.round(PhysicsMath.clamp(Number(c.steeringIntegrationSubsteps ?? 6), 1, 12)),
       driverTorsionStiffnessNmPerRad: Math.max(0.1, Number(c.steeringColumnTorsionStiffnessNmPerRad ?? 14.0)),
       driverTorsionDampingNmsPerRad: Math.max(0, Number(c.steeringColumnTorsionDampingNmsPerRad ?? 0.18)),
       driverMaxTorqueNm: Math.max(1, Number(c.steeringDriverMaxTorqueNm ?? 8.0)),
@@ -328,6 +343,53 @@ export class PhysicalSteeringSystem {
     return this.config.rackDampingNmsPerRad + this.config.rackNearTargetDampingNmsPerRad * smooth;
   }
 
+  private computeRackTorques(
+    targetSteeringWheelAngleRad: number,
+    forwardSpeedMs: number,
+    leftRoad: { tireNm: number; mechanicalNm: number },
+    rightRoad: { tireNm: number; mechanicalNm: number }
+  ): RackTorqueState {
+    const ratio = this.config.overallSteeringRatio;
+    const targetRackAngleRad = targetSteeringWheelAngleRad / ratio;
+    const steeringWheelAngleRad = this.rackCenterAngleRad * ratio;
+    const steeringWheelVelocityRadS = this.rackAngularVelocityRadS * ratio;
+    const leftDerivative = this.ackermannDerivative(this.rackCenterAngleRad, 0);
+    const rightDerivative = this.ackermannDerivative(this.rackCenterAngleRad, 1);
+    const tireSelfAligningRoadNm = leftRoad.tireNm * leftDerivative + rightRoad.tireNm * rightDerivative;
+    const casterMechanicalTrailRoadNm = leftRoad.mechanicalNm * leftDerivative + rightRoad.mechanicalNm * rightDerivative;
+    const driverSteeringWheelNm = PhysicsMath.clamp(
+      this.config.driverTorsionStiffnessNmPerRad * (targetSteeringWheelAngleRad - steeringWheelAngleRad) -
+        this.config.driverTorsionDampingNmsPerRad * steeringWheelVelocityRadS,
+      -this.config.driverMaxTorqueNm,
+      this.config.driverMaxTorqueNm
+    );
+    const assistGain = this.epsGain(forwardSpeedMs);
+    const epsAssistSteeringWheelNm = PhysicsMath.clamp(
+      driverSteeringWheelNm * assistGain,
+      -this.config.epsMaxAssistTorqueNm,
+      this.config.epsMaxAssistTorqueNm
+    );
+    const inputRoadNm = (driverSteeringWheelNm + epsAssistSteeringWheelNm) * ratio;
+    const effectiveRackDampingNmsPerRad = this.effectiveRackDamping(targetRackAngleRad);
+    const steeringDampingRoadNm = -effectiveRackDampingNmsPerRad * this.rackAngularVelocityRadS;
+    const steeringFrictionRoadNm = -this.config.rackFrictionNm * Math.tanh(this.rackAngularVelocityRadS / 0.08);
+    const steeringStopRoadNm = this.stopTorque();
+    const netRackRoadNm = inputRoadNm + tireSelfAligningRoadNm + casterMechanicalTrailRoadNm +
+      steeringDampingRoadNm + steeringFrictionRoadNm + steeringStopRoadNm;
+
+    return {
+      tireSelfAligningRoadNm,
+      casterMechanicalTrailRoadNm,
+      driverSteeringWheelNm,
+      epsAssistSteeringWheelNm,
+      steeringDampingRoadNm,
+      steeringFrictionRoadNm,
+      steeringStopRoadNm,
+      effectiveRackDampingNmsPerRad,
+      netRackRoadNm,
+    };
+  }
+
   public update(
     steerInput: number,
     forwardSpeedMs: number,
@@ -341,60 +403,48 @@ export class PhysicalSteeringSystem {
     const input = PhysicsMath.clamp(Number.isFinite(steerInput) ? steerInput : 0, -1, 1);
     const leftRoad = this.roadTorqueForFrontWheel(0);
     const rightRoad = this.roadTorqueForFrontWheel(1);
-    const leftDerivative = this.ackermannDerivative(this.rackCenterAngleRad, 0);
-    const rightDerivative = this.ackermannDerivative(this.rackCenterAngleRad, 1);
-
-    const tireSelfAligningRoadNm = leftRoad.tireNm * leftDerivative + rightRoad.tireNm * rightDerivative;
-    const casterMechanicalTrailRoadNm = leftRoad.mechanicalNm * leftDerivative + rightRoad.mechanicalNm * rightDerivative;
-    const roadGeneralizedTorqueNm = tireSelfAligningRoadNm + casterMechanicalTrailRoadNm;
-
     const leftCompliance = this.updateCompliance(0, leftRoad.tireNm + leftRoad.mechanicalNm, dt);
     const rightCompliance = this.updateCompliance(1, rightRoad.tireNm + rightRoad.mechanicalNm, dt);
-
     const ratio = this.config.overallSteeringRatio;
-    const steeringWheelAngleRad = this.rackCenterAngleRad * ratio;
-    const steeringWheelVelocityRadS = this.rackAngularVelocityRadS * ratio;
     const targetSteeringWheelAngleRad = input * this.maxSteeringWheelAngleRad();
-    const targetRackAngleRad = targetSteeringWheelAngleRad / ratio;
-    const driverSteeringWheelNm = PhysicsMath.clamp(
-      this.config.driverTorsionStiffnessNmPerRad * (targetSteeringWheelAngleRad - steeringWheelAngleRad) -
-        this.config.driverTorsionDampingNmsPerRad * steeringWheelVelocityRadS,
-      -this.config.driverMaxTorqueNm,
-      this.config.driverMaxTorqueNm
-    );
 
-    const assistGain = this.epsGain(forwardSpeedMs);
-    const epsAssistSteeringWheelNm = PhysicsMath.clamp(
-      driverSteeringWheelNm * assistGain,
-      -this.config.epsMaxAssistTorqueNm,
-      this.config.epsMaxAssistTorqueNm
-    );
-    const inputRoadNm = (driverSteeringWheelNm + epsAssistSteeringWheelNm) * ratio;
-    const effectiveRackDampingNmsPerRad = this.effectiveRackDamping(targetRackAngleRad);
-    const steeringDampingRoadNm = -effectiveRackDampingNmsPerRad * this.rackAngularVelocityRadS;
-    const steeringFrictionRoadNm = -this.config.rackFrictionNm * Math.tanh(this.rackAngularVelocityRadS / 0.08);
-    const steeringStopRoadNm = this.stopTorque();
-    const netRackRoadNm = inputRoadNm + roadGeneralizedTorqueNm + steeringDampingRoadNm + steeringFrictionRoadNm + steeringStopRoadNm;
+    // Hold the previous 120 Hz tire/road torque sample constant while resolving the
+    // much stiffer one-DOF rack/column loop internally. This is a partitioned
+    // substep, not a higher-rate vehicle simulation and not an artificial yaw aid.
+    const substeps = this.config.integrationSubsteps;
+    const subDt = dt / substeps;
+    let rackTorques = this.computeRackTorques(targetSteeringWheelAngleRad, forwardSpeedMs, leftRoad, rightRoad);
+    for (let substep = 0; substep < substeps; substep++) {
+      rackTorques = this.computeRackTorques(targetSteeringWheelAngleRad, forwardSpeedMs, leftRoad, rightRoad);
+      this.rackAngularAccelerationRadS2 = PhysicsMath.clamp(
+        rackTorques.netRackRoadNm / this.config.rackEquivalentInertiaKgm2,
+        -this.config.maxRackAngularAccelRadS2,
+        this.config.maxRackAngularAccelRadS2
+      );
+      this.rackAngularVelocityRadS = PhysicsMath.clamp(
+        this.rackAngularVelocityRadS + this.rackAngularAccelerationRadS2 * subDt,
+        -this.config.maxRackAngularSpeedRadS,
+        this.config.maxRackAngularSpeedRadS
+      );
+      this.rackCenterAngleRad += this.rackAngularVelocityRadS * subDt;
 
+      if (this.rackCenterAngleRad > this.config.maxRoadWheelAngleRad) {
+        this.rackCenterAngleRad = this.config.maxRoadWheelAngleRad;
+        if (this.rackAngularVelocityRadS > 0) this.rackAngularVelocityRadS = 0;
+      } else if (this.rackCenterAngleRad < -this.config.maxRoadWheelAngleRad) {
+        this.rackCenterAngleRad = -this.config.maxRoadWheelAngleRad;
+        if (this.rackAngularVelocityRadS < 0) this.rackAngularVelocityRadS = 0;
+      }
+    }
+
+    // Re-evaluate telemetry from the final substep state so reported driver/EPS and
+    // road torques are phase-consistent with the reported rack angle and velocity.
+    rackTorques = this.computeRackTorques(targetSteeringWheelAngleRad, forwardSpeedMs, leftRoad, rightRoad);
     this.rackAngularAccelerationRadS2 = PhysicsMath.clamp(
-      netRackRoadNm / this.config.rackEquivalentInertiaKgm2,
+      rackTorques.netRackRoadNm / this.config.rackEquivalentInertiaKgm2,
       -this.config.maxRackAngularAccelRadS2,
       this.config.maxRackAngularAccelRadS2
     );
-    this.rackAngularVelocityRadS = PhysicsMath.clamp(
-      this.rackAngularVelocityRadS + this.rackAngularAccelerationRadS2 * dt,
-      -this.config.maxRackAngularSpeedRadS,
-      this.config.maxRackAngularSpeedRadS
-    );
-    this.rackCenterAngleRad += this.rackAngularVelocityRadS * dt;
-
-    if (this.rackCenterAngleRad > this.config.maxRoadWheelAngleRad) {
-      this.rackCenterAngleRad = this.config.maxRoadWheelAngleRad;
-      if (this.rackAngularVelocityRadS > 0) this.rackAngularVelocityRadS = 0;
-    } else if (this.rackCenterAngleRad < -this.config.maxRoadWheelAngleRad) {
-      this.rackCenterAngleRad = -this.config.maxRoadWheelAngleRad;
-      if (this.rackAngularVelocityRadS < 0) this.rackAngularVelocityRadS = 0;
-    }
 
     const base = this.ackermannForCenter(this.rackCenterAngleRad);
     const individualLimit = this.config.maxRoadWheelAngleRad + 0.12;
@@ -404,9 +454,10 @@ export class PhysicalSteeringSystem {
     const travelPerRad = this.config.rackHalfTravelM / this.config.maxRoadWheelAngleRad;
     const steeringInertiaRoadNm = -this.config.rackEquivalentInertiaKgm2 * this.rackAngularAccelerationRadS2;
     const ffbReadySteeringWheelNm = (
-      tireSelfAligningRoadNm + casterMechanicalTrailRoadNm + steeringDampingRoadNm +
-      steeringFrictionRoadNm + steeringStopRoadNm + steeringInertiaRoadNm
-    ) / ratio + epsAssistSteeringWheelNm;
+      rackTorques.tireSelfAligningRoadNm + rackTorques.casterMechanicalTrailRoadNm +
+      rackTorques.steeringDampingRoadNm + rackTorques.steeringFrictionRoadNm +
+      rackTorques.steeringStopRoadNm + steeringInertiaRoadNm
+    ) / ratio + rackTorques.epsAssistSteeringWheelNm;
 
     this.telemetry = {
       driverInput: input,
@@ -419,24 +470,24 @@ export class PhysicalSteeringSystem {
       rackCenterAngleRad: this.rackCenterAngleRad,
       rackAngularVelocityRadS: this.rackAngularVelocityRadS,
       rackAngularAccelerationRadS2: this.rackAngularAccelerationRadS2,
-      effectiveRackDampingNmsPerRad,
+      effectiveRackDampingNmsPerRad: rackTorques.effectiveRackDampingNmsPerRad,
       leftRoadWheelAngleRad: steerFL,
       rightRoadWheelAngleRad: steerFR,
       leftComplianceRad: leftCompliance,
       rightComplianceRad: rightCompliance,
       leftMechanicalTrailM: leftRoad.trailM,
       rightMechanicalTrailM: rightRoad.trailM,
-      epsAssistGain: assistGain,
+      epsAssistGain: this.epsGain(forwardSpeedMs),
       torques: {
-        tireSelfAligningRoadNm,
-        casterMechanicalTrailRoadNm,
-        steeringDampingRoadNm,
-        steeringFrictionRoadNm,
+        tireSelfAligningRoadNm: rackTorques.tireSelfAligningRoadNm,
+        casterMechanicalTrailRoadNm: rackTorques.casterMechanicalTrailRoadNm,
+        steeringDampingRoadNm: rackTorques.steeringDampingRoadNm,
+        steeringFrictionRoadNm: rackTorques.steeringFrictionRoadNm,
         steeringInertiaRoadNm,
-        epsAssistSteeringWheelNm,
-        driverSteeringWheelNm,
-        steeringStopRoadNm,
-        netRackRoadNm,
+        epsAssistSteeringWheelNm: rackTorques.epsAssistSteeringWheelNm,
+        driverSteeringWheelNm: rackTorques.driverSteeringWheelNm,
+        steeringStopRoadNm: rackTorques.steeringStopRoadNm,
+        netRackRoadNm: rackTorques.netRackRoadNm,
         ffbReadySteeringWheelNm,
       },
     };
