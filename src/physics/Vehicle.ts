@@ -595,18 +595,23 @@ export class Vehicle {
           wheelContactAuthority
         );
 
-        // RigidBody.mass is the complete vehicle mass. The external support on it
-        // is therefore the road/tire normal reaction, not the internal spring force.
-        const suspensionSupportWorld = PhysicsMath.vec3Scale(
-          roadNormal,
-          suspState.tireNormalForceN * wheelContactAuthority
+        // Tire normal load excites the unsprung wheel/hub and sets available tire grip.
+        // The sprung chassis receives the suspension-side reaction instead, closing
+        // the physical path: road -> wheel -> spring/damper/ARB -> chassis.
+        const suspensionReactionWorld = PhysicsMath.vec3(
+          0,
+          suspState.chassisForceN * wheelContactAuthority,
+          0
         );
-        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+        const suspensionHardpointWorld = PhysicsMath.vec3Add(
+          this.rigidBody.position,
+          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+        );
 
-        // Apply the complete road reaction at the actual contact patch. RigidBody's
-        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
-        // around the physical mass center with no artificial yaw/roll/pitch force.
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+        // The rigid-body origin is the physical CG. Planar tire shear keeps the
+        // actual contact-patch moment arm; vertical suspension force acts at its pickup.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
