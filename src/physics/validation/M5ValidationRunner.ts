@@ -141,6 +141,19 @@ function rescoreAcceleration(results: any[]) {
   acceleration.summary = `0–100 km/h ${Number(acceleration.metrics.zeroTo100KmhSec).toFixed(3)} s; true-start 0–60 mph ${Number(acceleration.metrics.zeroTo60MphTrueStartSec).toFixed(3)} s; quarter mile ${Number(quarterTrueStartSec).toFixed(3)} s @ ${Number(acceleration.metrics.quarterMileTrapMph).toFixed(2)} mph.`;
 }
 
+function enforceNoInventedSteeringTargets(results: any[]) {
+  for (const id of ['rapid-reversal', 'slalom']) {
+    const result = results.find((candidate) => candidate.id === id);
+    if (!result || result.status === 'FAIL') continue;
+    result.status = 'NO REFERENCE DATA';
+    result.validationClass = 'internal-regression';
+    result.diagnostics = [
+      ...(Array.isArray(result.diagnostics) ? result.diagnostics : []),
+      'NO REFERENCE DATA: the maneuver remains a blocking simulator-stability regression, but no trustworthy G90 slalom/rapid-reversal target is stored, so a stable run is not labeled a BMW validation PASS.',
+    ];
+  }
+}
+
 function main() {
   const artifactDir = parseArg('artifacts') ?? 'artifacts/m5-validation';
   const baseDir = parseArg('base') ?? `${artifactDir}/base`;
@@ -161,6 +174,7 @@ function main() {
   // verdict was driven only by the 0–100/0–60 checks. Re-score the whole acceleration
   // envelope here so a perfect launch cannot hide a slower quarter mile.
   rescoreAcceleration(results);
+  enforceNoInventedSteeringTargets(results);
 
   const statusCounts = results.reduce((acc: Record<string, number>, result: any) => {
     acc[result.status] = (acc[result.status] ?? 0) + 1;
@@ -175,7 +189,7 @@ function main() {
     fixedPhysicsHz: 1 / DT,
     coordinateContract: '+X left, +Y up, +Z forward; positive steer/yaw = left; wheel order FL/FR/RL/RR',
     antiGamingRule: 'All measurements use the normal Simulation/Vehicle path; validation code prescribes only driver inputs, road geometry/material and initial conditions.',
-    harnessRevision: 'v2 hardened: normal-driveline brake entry, validated skidpad speed/radius hold, first-sample step thresholds, actual unsprung hub bump telemetry, per-step energy accounting, full acceleration-envelope scoring',
+    harnessRevision: 'v3 physical steering: column/rack telemetry, normal-driveline brake entry, validated skidpad speed/radius hold, first-sample steering/slip/yaw thresholds, actual unsprung hub bump telemetry, per-step energy accounting, full acceleration-envelope scoring, no invented G90 dynamic steering targets',
     statusCounts,
     results,
     references: [

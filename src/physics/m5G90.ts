@@ -119,6 +119,28 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   brakeBiasFront: 0.60,
   ackermannRatio: 0.90,
   maxSteerAngle: 0.58,
+  // BMW publishes an overall steering ratio of 14.2:1 and states that M Servotronic
+  // uses a variable ratio. No trustworthy G90 ratio curve is published, so the
+  // physical rack uses the published overall ratio as its neutral mapping instead
+  // of inventing a center/lock curve for validation.
+  steeringRatioOverall: 14.2,
+  steeringFrontTrackM: 1.684,
+  // Internal solver values only, not BMW targets. The 108 Nm/rad pass kept the
+  // moderate-corner regression clean at 8.846 deg front slip with zero skid flags,
+  // while the fixed oversteer induction ended at 9.9765 deg rear slip. This final
+  // small increase stays far below the rejected 200 Nm/rad trial and targets only
+  // the measured road-load deflection overlap. Rack rate, tire relaxation/grip, yaw
+  // physics and every validation threshold are unchanged. Dynamic G90 steering
+  // metrics remain NO REFERENCE DATA.
+  steeringColumnTorsionStiffnessNmPerRad: 125,
+  steeringEpsHighSpeedGain: 15,
+  steeringEpsMaxAssistTorqueNm: 110,
+  // Keep the existing finite 4.8 rad/s rack-rate authority. A finite 180 rad/s²
+  // acceleration ceiling reaches that rate in ~27 ms: fast enough not to duplicate
+  // the tire-relaxation filter, but less impulsive than the 300 rad/s² trial that
+  // briefly created longitudinal contact-patch gross-slide flags during steering-in.
+  // This is an internal solver guardrail; G90 steering response remains unscored.
+  steeringRackMaxAngularAccelRadS2: 180,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
