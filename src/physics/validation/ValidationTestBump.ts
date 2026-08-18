@@ -52,16 +52,28 @@ function firstStepChange(
 function settlingTime(
   rows: Record<string, unknown>[],
   roadEndIndex: number,
-  bodyDelta: number[],
-  peak: number
+  bodyY: number[]
 ) {
   if (roadEndIndex < 0) return null;
-  const threshold = Math.max(0.0005, peak * 0.10);
+
+  // The car is still moving under a small speed-hold throttle after the bump, so
+  // aero/load state can shift the eventual ride-height equilibrium by ~1-2 mm.
+  // Settling must therefore be measured about the measured post-bump equilibrium,
+  // not about the pre-bump ride height. Keep the existing 10% / 0.5 mm envelope
+  // and 0.35 s hold requirement unchanged.
+  const steadySamples = Math.max(1, Math.round(0.50 / DT));
+  const finalCenter = mean(bodyY.slice(-steadySamples));
+  const bodyFromFinal = bodyY.map((value) => value - finalCenter);
+  const postBumpPeak = Math.max(
+    0,
+    ...bodyFromFinal.slice(roadEndIndex).map((value) => Math.abs(value))
+  );
+  const threshold = Math.max(0.0005, postBumpPeak * 0.10);
   const holdSamples = Math.round(0.35 / DT);
   for (let i = roadEndIndex; i + holdSamples < rows.length; i++) {
     let settled = true;
     for (let j = i; j < i + holdSamples; j++) {
-      if (Math.abs(bodyDelta[j]) > threshold) {
+      if (Math.abs(bodyFromFinal[j]) > threshold) {
         settled = false;
         break;
       }
@@ -193,7 +205,8 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
   const airborneSamples = rows.filter((row) => row[`${prefix}_contact`] === false).length;
   const pitchValues = rows.slice(onset).map((row) => numeric(row, 'pitch_deg') - base('pitch_deg'));
   const rollValues = rows.slice(onset).map((row) => numeric(row, 'roll_deg') - base('roll_deg'));
-  const settleSec = settlingTime(rows, roadEndIndex, bodyDelta, bodyPeakM);
+  const bodyY = rows.map((row) => numeric(row, 'y_m'));
+  const settleSec = settlingTime(rows, roadEndIndex, bodyY);
 
   const wheelBeforeChassisDelaySec = hubVelocityResponseSec !== null && chassisAccelResponseSec !== null
     ? chassisAccelResponseSec - hubVelocityResponseSec
