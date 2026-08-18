@@ -8,7 +8,22 @@ const WHEEL_PREFIXES = ['fl', 'fr', 'rl', 'rr'] as const;
 
 function runBrakeCase(targetStartKmh: number) {
   const sim = makeSim();
-  const reachedKmh = accelerateTo(sim, targetStartKmh);
+  const acceleratedKmh = accelerateTo(sim, targetStartKmh);
+
+  // accelerateTo() advances in fixed 1/120 s full-throttle steps, so its final
+  // sample is necessarily at or slightly above the requested benchmark speed.
+  // Instrumented 70–0 and 100–0 tests start at the named speed, not at the first
+  // discrete sample above it. Scale chassis and wheel speeds together so the
+  // dimensionless tire slip and warmed transient state are preserved while the
+  // brake application begins at the exact requested velocity.
+  const startSpeedScale = targetStartKmh / Math.max(1e-6, acceleratedKmh);
+  sim.vehicle.rigidBody.velocity.x *= startSpeedScale;
+  sim.vehicle.rigidBody.velocity.y *= startSpeedScale;
+  sim.vehicle.rigidBody.velocity.z *= startSpeedScale;
+  sim.vehicle.wheels.forEach((wheel) => {
+    wheel.angularVelocity *= startSpeedScale;
+  });
+  const reachedKmh = (sim.vehicle.getState() as any).speedKmh;
 
   // The G90 M5 uses an 8-speed automatic. accelerateTo() supplies deterministic
   // upshifts while establishing the requested start speed, but a braking run must
@@ -179,9 +194,11 @@ export function runBrakingValidation(artifactDir: string): CorrectedValidationRe
       braking100To0KmhPeakDecelG: kmh100.peakDecelG,
       braking100To0KmhAverageDecelMs2: kmh100.averageDecelMs2,
       braking70To0MphFt: mph70.stopped ? feet70 : null,
+      braking70To0MphActualStartMph: mph70.reachedKmh / MPH_TO_KMH,
       braking70To0MphStopped: mph70.stopped ? 1 : 0,
       braking70To0MphFinalSpeedKmh: mph70.finalSpeedKmh,
       braking100To0MphFt: mph100.stopped ? feet100 : null,
+      braking100To0MphActualStartMph: mph100.reachedKmh / MPH_TO_KMH,
       braking100To0MphStopped: mph100.stopped ? 1 : 0,
       braking100To0MphFinalSpeedKmh: mph100.finalSpeedKmh,
       absActiveFraction100Kmh: kmh100.absFraction,
@@ -203,6 +220,7 @@ export function runBrakingValidation(artifactDir: string): CorrectedValidationRe
     ] : [
       '100–0 km/h remains descriptive until a directly comparable external G90 reference is found.',
       'The braking phase uses the M5 automatic shift schedule; it no longer leaves the externally upshifted validation driveline stranded in a higher gear as road speed approaches zero.',
+      'Each benchmark stop begins at its exact named initial speed instead of the first 120 Hz acceleration sample above that speed.',
       'Per-wheel raw/relaxed slip, wheel surface speed, ABS pressure, hydraulic brake torque, ABS state and powertrain/converter torque are retained for all three braking traces.',
     ],
     reference: ref70.reference,
