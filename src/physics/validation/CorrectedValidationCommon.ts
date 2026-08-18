@@ -103,6 +103,7 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     x_m: state.x,
     y_m: state.y,
     z_m: state.z,
+    chassis_heave_m: state.heave,
     vx_body_ms: local.x,
     vy_body_ms: local.y,
     vz_body_ms: local.z,
@@ -110,6 +111,7 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     raw_ax_body_ms2: rb.acceleration.x,
     raw_ay_body_ms2: rb.acceleration.y,
     raw_az_body_ms2: rb.acceleration.z,
+    chassis_vertical_accel_ms2: rb.acceleration.y,
     lateral_g: state.lateralG,
     longitudinal_g: state.longitudinalG,
     vertical_g: state.verticalG,
@@ -135,9 +137,13 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
   state.wheels.forEach((wheel: any, i: number) => {
     const prefix = ['fl', 'fr', 'rl', 'rr'][i];
     const susp = sim.vehicle.suspension.states[i] as any;
+    row[`${prefix}_road_contact_y_m`] = susp.contactPointWorld.y;
+    row[`${prefix}_tire_center_world_y_m`] = susp.hubPositionWorldY;
     row[`${prefix}_fz_n`] = wheel.forceVectorNorm;
     row[`${prefix}_tire_normal_force_n`] = susp.tireNormalForceN;
     row[`${prefix}_chassis_force_n`] = susp.chassisForceN;
+    row[`${prefix}_applied_chassis_force_n`] = susp.appliedChassisForceN ?? susp.chassisForceN;
+    row[`${prefix}_evaluated_chassis_force_n`] = susp.evaluatedChassisForceN ?? susp.chassisForceN;
     row[`${prefix}_fx_n`] = wheel.forceVectorLong;
     row[`${prefix}_fy_n`] = wheel.forceVectorLat;
     row[`${prefix}_slip_angle_deg`] = wheel.slipAngle * RAD_TO_DEG;
@@ -145,13 +151,16 @@ export function basicRow(sim: Simulation, t: number, controls: any): Record<stri
     row[`${prefix}_omega_rad_s`] = wheel.angularVelocity;
     row[`${prefix}_steer_deg`] = wheel.steerAngle * RAD_TO_DEG;
     row[`${prefix}_suspension_displacement_m`] = susp.displacement;
+    row[`${prefix}_suspension_compression_ratio`] = susp.compressionRatio;
     row[`${prefix}_suspension_velocity_ms`] = susp.velocity;
     row[`${prefix}_hub_world_y_m`] = susp.hubPositionWorldY;
     row[`${prefix}_hub_velocity_ms`] = susp.hubVelocityWorldY;
     row[`${prefix}_unsprung_accel_ms2`] = susp.unsprungAccelerationMps2;
+    row[`${prefix}_unsprung_mass_kg`] = susp.unsprungMassKg;
     row[`${prefix}_spring_force_n`] = susp.springForceN;
     row[`${prefix}_damper_force_n`] = susp.damperForceN;
     row[`${prefix}_bumpstop_force_n`] = susp.bumpStopForceN;
+    row[`${prefix}_bumpstop_engaged`] = susp.bumpStopEngaged;
     row[`${prefix}_hardstop_force_n`] = susp.hardStopForceN;
     row[`${prefix}_arb_force_n`] = susp.antiRollBarForceN;
     row[`${prefix}_camber_deg`] = wheel.camberAngleDeg;
