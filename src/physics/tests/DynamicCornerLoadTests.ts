@@ -103,6 +103,12 @@ let minTravelM = Infinity;
 let airborneSamples = 0;
 let nonFiniteSamples = 0;
 let maxYawDeviationDeg = 0;
+let maxFrontSteerDeg = 0;
+let maxRackCenterDeg = 0;
+let maxSteeringWheelDeg = 0;
+let maxRoadFeedbackTorqueNm = 0;
+let maxLeftComplianceDeg = 0;
+let maxRightComplianceDeg = 0;
 const initialYaw = highSpeedInitial.yaw;
 
 // Five seconds on the literal flat proving-ground plane. With no bump input, a
@@ -110,12 +116,23 @@ const initialYaw = highSpeedInitial.yaw;
 // visually/physically separate from the four wheel centers at high speed.
 for (let step = 0; step < 600; step++) {
   const state = highSpeedSim.stepExplicit(neutral, 1);
+  const rack = highSpeedSim.suspensionKinematics.steeringDynamics.telemetry;
+  const frontSteerDeg = Math.abs((state.wheels[0].steerAngle + state.wheels[1].steerAngle) * 0.5 * 180 / Math.PI);
+  const roadFeedbackTorqueNm = Math.abs(
+    rack.torques.tireSelfAligningRoadNm + rack.torques.casterMechanicalTrailRoadNm
+  );
   maxHeaveDeltaM = Math.max(maxHeaveDeltaM, Math.abs(state.heave - baselineHeave));
   maxVerticalGMagnitude = Math.max(maxVerticalGMagnitude, Math.abs(state.verticalG));
   maxYawDeviationDeg = Math.max(
     maxYawDeviationDeg,
     Math.abs((state.yaw - initialYaw) * 180 / Math.PI)
   );
+  maxFrontSteerDeg = Math.max(maxFrontSteerDeg, frontSteerDeg);
+  maxRackCenterDeg = Math.max(maxRackCenterDeg, Math.abs(rack.rackCenterAngleRad * 180 / Math.PI));
+  maxSteeringWheelDeg = Math.max(maxSteeringWheelDeg, Math.abs(rack.steeringWheelAngleRad * 180 / Math.PI));
+  maxRoadFeedbackTorqueNm = Math.max(maxRoadFeedbackTorqueNm, roadFeedbackTorqueNm);
+  maxLeftComplianceDeg = Math.max(maxLeftComplianceDeg, Math.abs(rack.leftComplianceRad * 180 / Math.PI));
+  maxRightComplianceDeg = Math.max(maxRightComplianceDeg, Math.abs(rack.rightComplianceRad * 180 / Math.PI));
 
   for (const wheel of state.wheels) {
     maxTravelM = Math.max(maxTravelM, wheel.verticalTravelM);
@@ -131,6 +148,24 @@ for (let step = 0; step < 600; step++) {
   }
 }
 
+const highSpeedDebug = {
+  durationSec: 5,
+  maxHeaveDeltaM,
+  maxVerticalGMagnitude,
+  minTravelM,
+  maxTravelM,
+  airborneSamples,
+  maxYawDeviationDeg,
+  maxFrontSteerDeg,
+  maxRackCenterDeg,
+  maxSteeringWheelDeg,
+  maxRoadFeedbackTorqueNm,
+  maxLeftComplianceDeg,
+  maxRightComplianceDeg,
+};
+console.log('DynamicCornerLoadTests high-speed zero-command steering diagnostics:');
+console.log(JSON.stringify(highSpeedDebug, null, 2));
+
 assert(nonFiniteSamples === 0, 'high-speed suspension produced non-finite wheel state');
 assert(airborneSamples === 0, `flat road generated ${airborneSamples} false airborne wheel samples`);
 assert(maxTravelM <= 0.140001, `suspension exceeded max bump travel at speed: ${maxTravelM} m`);
@@ -141,7 +176,7 @@ assert(
 );
 assert(
   maxYawDeviationDeg < 0.1,
-  `straight 250 km/h flat-road run developed spurious yaw: ${maxYawDeviationDeg} deg`
+  `straight 250 km/h flat-road run developed spurious yaw: ${maxYawDeviationDeg} deg; rack=${maxRackCenterDeg.toFixed(4)} deg, front=${maxFrontSteerDeg.toFixed(4)} deg, SW=${maxSteeringWheelDeg.toFixed(3)} deg, roadFeedback=${maxRoadFeedbackTorqueNm.toFixed(1)} Nm`
 );
 
 console.log(JSON.stringify({
@@ -154,14 +189,6 @@ console.log(JSON.stringify({
     peakYawRateDegS,
     expected: 'FR + RR > FL + RL',
   },
-  flatRoad250Kmh: {
-    durationSec: 5,
-    maxHeaveDeltaM,
-    maxVerticalGMagnitude,
-    minTravelM,
-    maxTravelM,
-    airborneSamples,
-    maxYawDeviationDeg,
-  },
+  flatRoad250Kmh: highSpeedDebug,
   status: 'passed',
 }, null, 2));
