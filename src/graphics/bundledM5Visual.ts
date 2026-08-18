@@ -6,6 +6,8 @@ import { fitM5VisualToRealScale } from './m5VisualScale';
 const DEFAULT_M5_ASSET_PARTS = 8;
 const DEFAULT_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-default`;
 const TEXT_DECODER = new TextDecoder('utf-8');
+const WINDOW_SEAM_MAX_MARGIN_M = 0.018;
+const WINDOW_SEAM_EXPANSION_RATIO = 0.035;
 
 interface CompactMaterialRecord { name: string; shader: string; blendMode: number; }
 
@@ -66,6 +68,52 @@ function materialFor(record: CompactMaterialRecord): THREE.MeshStandardMaterial 
   return material;
 }
 
+function sealWindowPerimeter(geometry: THREE.BufferGeometry): void {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  if (!position || position.count < 3) return;
+
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  const bounds = geometry.boundingBox;
+  if (!normal || !bounds) return;
+
+  const center = bounds.getCenter(new THREE.Vector3());
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+
+    const nx = normal.getX(i);
+    const ny = normal.getY(i);
+    const nz = normal.getZ(i);
+
+    const dx = x - center.x;
+    const dy = y - center.y;
+    const dz = z - center.z;
+    const normalProjection = dx * nx + dy * ny + dz * nz;
+
+    // Expand only along the glass surface. Moving along the normal would make
+    // the glass float outside the body; tangent-only dilation lets it tuck
+    // underneath the surrounding window frame and closes LOD-C perimeter gaps.
+    const tx = dx - nx * normalProjection;
+    const ty = dy - ny * normalProjection;
+    const tz = dz - nz * normalProjection;
+    const tangentLength = Math.hypot(tx, ty, tz);
+    if (tangentLength < 1e-6) continue;
+
+    const margin = Math.min(WINDOW_SEAM_MAX_MARGIN_M, tangentLength * WINDOW_SEAM_EXPANSION_RATIO);
+    const scale = margin / tangentLength;
+    position.setXYZ(i, x + tx * scale, y + ty * scale, z + tz * scale);
+  }
+
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
   const reader = new BinaryReader(bytes);
   const magic = TEXT_DECODER.decode(new Uint8Array([reader.u8(), reader.u8(), reader.u8(), reader.u8()]));
@@ -90,7 +138,9 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
     for (let i = 0; i + 2 < indexCount; i += 3) { const temp = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = temp; }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    geometry.computeVertexNormals();
+    if (materialRecords[materialId]?.name.toLowerCase() === 'window') sealWindowPerimeter(geometry);
+    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, materials[materialId] ?? fallback); mesh.name = name; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
   }
   if (reader.remaining() !== 0) throw new Error(`Bundled BMW visual has ${reader.remaining()} unexpected trailing bytes.`);
