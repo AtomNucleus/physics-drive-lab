@@ -1,12 +1,11 @@
 name: Anonymous Netlify Deploy
-# preview: hero-car high-detail Netlify test
+# preview: main AWD/RWD settings integration test
 
 on:
   push:
     branches:
       - main
       - agent/full-tire-combined-slip
-      - agent/hero-car-high-detail
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
