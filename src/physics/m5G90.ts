@@ -125,16 +125,17 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   // of inventing a center/lock curve for validation.
   steeringRatioOverall: 14.2,
   steeringFrontTrackM: 1.684,
-  // Internal physical-solver guardrails, not BMW targets. The column torsion and EPS
-  // actuator must be stiff/strong enough that normal aligning torque cannot backdrive
-  // a held steering-wheel command by multiple road-wheel degrees. The previous draft
-  // allowed ~2 degrees of rack error at 80-90 km/h under lateral load, which is an
-  // implementation defect rather than a defensible steering-compliance model. These
-  // values retain finite compliant motion while restoring positional authority; all
-  // G90 response delay/gain/compliance metrics remain NO REFERENCE DATA.
-  steeringColumnTorsionStiffnessNmPerRad: 60,
-  steeringEpsHighSpeedGain: 14,
-  steeringEpsMaxAssistTorqueNm: 110,
+  // Internal physical-solver guardrails, not BMW targets. The first rack draft let
+  // tire/steering-axis moments backdrive a held 0.18 driver command from the baseline
+  // ~5.93 deg road-wheel angle to ~5.38 deg, enough to weaken an existing fixed-input
+  // oversteer regression. A steering column should be compliant, but not by several
+  // handwheel degrees under this moderate command. The stiffer torsion path plus EPS
+  // authority below preserves finite elastic deflection while keeping the driver's
+  // position command authoritative against normal road load. These values are not
+  // claimed as G90 measurements; all unknown G90 response metrics remain NORD.
+  steeringColumnTorsionStiffnessNmPerRad: 200,
+  steeringEpsHighSpeedGain: 18,
+  steeringEpsMaxAssistTorqueNm: 130,
   // Keep the existing finite 4.8 rad/s rack-rate authority. A finite 180 rad/s²
   // acceleration ceiling reaches that rate in ~27 ms: fast enough not to duplicate
   // the tire-relaxation filter, but less impulsive than the 300 rad/s² trial that
