@@ -13,57 +13,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-
       - name: Physics coordinate/sign convention guardrails
         run: npm run test:conventions
-
       - name: Mobile steering regression
         run: npm run test:mobile
-
       - name: Digital steering shaping regression
         run: npm run test:digital-steering
-
       - name: Steering direction regression
         run: npm run test:steering-direction
-
       - name: Visual scale regression
         run: npm run test:visual-scale
-
       - name: 6 kmh crawl-speed stability regression
         run: npm run test:crawl
-
+      - name: Low-speed brake ABS/driveline limit-cycle regression
+        run: npm run test:low-speed-brake
       - name: Low-speed cornering regression
         run: npm run test:cornering
-
+      - name: Powered 10 kmh full-lock stability regression
+        run: npm run test:powered-full-lock
       - name: Stationary steering regression
         run: npm run test:stationary
-
       - name: Suspension regression
         run: npm run test:suspension
-
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
-
       - name: Tire model regression
         run: npm run test:tire
-
       - name: M5 transient response regression
         run: npm run test:m5-transient
-
       - name: M5 chassis inertia and CG dynamics regression
         run: npm run test:m5-chassis
-
       - name: Generate M5 chassis transient trace graph
         run: npx tsx src/physics/tests/M5ChassisTraceArtifact.ts
-
       - name: Upload M5 chassis transient trace
         uses: actions/upload-artifact@v4
         with:
@@ -72,12 +59,10 @@ jobs:
             artifacts/m5-chassis-steering-step.csv
             artifacts/m5-chassis-steering-step.svg
           if-no-files-found: error
-
       - name: M5 quantitative validation suite
         id: m5_validation
         continue-on-error: true
         run: npm run test:m5-validation
-
       - name: Upload M5 validation report and telemetry
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,19 +70,14 @@ jobs:
           name: m5-validation-suite
           path: artifacts/m5-validation/**
           if-no-files-found: error
-
       - name: M5 driver-controlled oversteer recovery regression
         run: npm run test:m5-oversteer
-
       - name: M5 xDrive 2WD regression
         run: npm run test:m5-rwd
-
       - name: Automatic transmission regression
         run: npm run test:automatic
-
       - name: Production build
         run: npm run build
-
       - name: Enforce M5 validation blocking invariants
         if: always() && steps.m5_validation.outcome == 'failure'
         run: |

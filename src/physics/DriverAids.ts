@@ -112,10 +112,12 @@ export class DriverAidsSystem {
   /**
    * Four-channel slip-regulating ABS.
    *
-   * This controller regulates pressure continuously around the peak of the tire's
-   * longitudinal slip curve instead of using a deep-lock bang/bang threshold.
-   * Slip is normalized by travel direction so reverse braking behaves as the exact
-   * mirror of forward braking instead of silently swapping the lock sign.
+   * ABS regulates normally at road speed, then its pressure-release authority is
+   * phased out smoothly through the final low-speed braking region. The old hard
+   * cutoff snapped every channel straight back to full pressure while wheel and
+   * driveline states were still dynamic, which could excite a brake limit cycle.
+   * The phase-out must also begin before converter creep and ABS release can form a
+   * stable crawl-speed plateau; the service brake owns the final stop.
    */
   public updateABS(
     wheelSlipRatios: [number, number, number, number],
@@ -127,7 +129,28 @@ export class DriverAidsSystem {
     this.updateMotionDirectionFromWheels(wheelAngularVelocities);
     const speedMagnitude = Math.abs(speedMs);
 
-    if (this.config.absMode === 'OFF' || !isBraking || speedMagnitude < 1.8) {
+    if (this.config.absMode === 'OFF' || !isBraking) {
+      this.absActive = false;
+      this.absPressureStates = [1, 1, 1, 1];
+      this.absHoldTimers = [0, 0, 0, 0];
+      return this.absPressureStates;
+    }
+
+    // Begin withdrawing pressure-release authority below ~10.8 km/h and finish
+    // by ~4.5 km/h. This is a smooth handoff, not an extra brake multiplier: the
+    // output simply approaches the driver's unmodulated service-brake request.
+    // Starting the handoff above the former ~8 km/h equilibrium prevents ABS and
+    // closed-throttle driveline creep from sustaining each other indefinitely.
+    const lowSpeedCutoutMs = 1.25;
+    const fullAuthorityMs = 3.00;
+    const authorityLinear = PhysicsMath.clamp(
+      (speedMagnitude - lowSpeedCutoutMs) / (fullAuthorityMs - lowSpeedCutoutMs),
+      0,
+      1
+    );
+    const lowSpeedAuthority = authorityLinear * authorityLinear * (3 - 2 * authorityLinear);
+
+    if (lowSpeedAuthority <= 1e-5) {
       this.absActive = false;
       this.absPressureStates = [1, 1, 1, 1];
       this.absHoldTimers = [0, 0, 0, 0];
@@ -145,28 +168,28 @@ export class DriverAidsSystem {
       const slipMag = Math.max(0, -normalizedSlip);
       const nearLock = speedMagnitude > 3.0 && Math.abs(wheelAngularVelocities[i]) < 0.35;
       const effectiveSlip = nearLock ? Math.max(slipMag, 0.9) : slipMag;
-      let p = this.absPressureStates[i];
+      let regulatedPressure = this.absPressureStates[i];
 
       if (effectiveSlip > 0.34) {
         const deepLockRate = isSport ? 7.2 : 8.0;
-        p = Math.max(minPressure, p - deepLockRate * dt);
-        anyIntervention = true;
+        regulatedPressure = Math.max(minPressure, regulatedPressure - deepLockRate * dt);
       } else if (effectiveSlip > targetSlip + deadband) {
         const over = effectiveSlip - (targetSlip + deadband);
         const releaseRate = (isSport ? 1.55 : 1.85) + Math.min(1.8, over * 5.0);
-        p = Math.max(minPressure, p - releaseRate * dt);
-        anyIntervention = true;
+        regulatedPressure = Math.max(minPressure, regulatedPressure - releaseRate * dt);
       } else if (effectiveSlip < targetSlip - deadband) {
         const under = (targetSlip - deadband) - effectiveSlip;
         const reapplyRate = (isSport ? 6.5 : 7.2) + Math.min(3.0, under * 18.0);
-        p = Math.min(1.0, p + reapplyRate * dt);
-        anyIntervention = anyIntervention || p < 0.995;
-      } else {
-        anyIntervention = anyIntervention || p < 0.995;
+        regulatedPressure = Math.min(1.0, regulatedPressure + reapplyRate * dt);
       }
 
-      this.absPressureStates[i] = p;
+      // Low-speed phase-out only removes ABS release authority. It never reduces
+      // the driver's requested brake pressure. As speed falls, output pressure
+      // therefore approaches 1.0 monotonically instead of jumping at a threshold.
+      const outputPressure = PhysicsMath.lerp(1.0, regulatedPressure, lowSpeedAuthority);
+      this.absPressureStates[i] = outputPressure;
       this.absHoldTimers[i] = 0;
+      anyIntervention = anyIntervention || outputPressure < 0.995;
     }
 
     this.absActive = anyIntervention;
