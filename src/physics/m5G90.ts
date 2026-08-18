@@ -125,11 +125,6 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   // of inventing a center/lock curve for validation.
   steeringRatioOverall: 14.2,
   steeringFrontTrackM: 1.684,
-  // Internal solver damping, not a BMW reference target. This damps the new rack
-  // state enough to suppress the underdamped road-load oscillation while preserving
-  // the existing full-lock authority/rate regression. Dynamic G90 response metrics
-  // remain NO REFERENCE DATA rather than being tuned to an invented response target.
-  steeringRackDampingNmsPerRad: 250,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
