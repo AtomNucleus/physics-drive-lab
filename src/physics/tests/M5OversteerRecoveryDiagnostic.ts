@@ -16,7 +16,26 @@ const sideslipDeg = (sim: Simulation) => {
 function sample(sim: Simulation, t: number, driverInput: number) {
   const s = sim.vehicle.getState();
   const avg = (a: number, b: number) => (a + b) * 0.5;
-  return { t, speedKmh: s.speedKmh, yawRateDegS: s.yawRate * DEG, sideslipDeg: sideslipDeg(sim), driverInput, steerDeg: s.actualSteerAngle * DEG, frontSlipDeg: avg(s.wheels[0].slipAngle, s.wheels[1].slipAngle) * DEG, rearSlipDeg: avg(s.wheels[2].slipAngle, s.wheels[3].slipAngle) * DEG, frontKappa: avg(s.wheels[0].slipRatio, s.wheels[1].slipRatio), rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio), frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat, rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat };
+  return {
+    t,
+    speedKmh: s.speedKmh,
+    yawRateDegS: s.yawRate * DEG,
+    sideslipDeg: sideslipDeg(sim),
+    pitchDeg: s.pitch * DEG,
+    rollDeg: s.roll * DEG,
+    driverInput,
+    steerDeg: s.actualSteerAngle * DEG,
+    frontSlipDeg: avg(s.wheels[0].slipAngle, s.wheels[1].slipAngle) * DEG,
+    rearSlipDeg: avg(s.wheels[2].slipAngle, s.wheels[3].slipAngle) * DEG,
+    frontKappa: avg(s.wheels[0].slipRatio, s.wheels[1].slipRatio),
+    rearKappa: avg(s.wheels[2].slipRatio, s.wheels[3].slipRatio),
+    frontFyN: s.wheels[0].forceVectorLat + s.wheels[1].forceVectorLat,
+    rearFyN: s.wheels[2].forceVectorLat + s.wheels[3].forceVectorLat,
+    frontFzN: s.wheels[0].forceVectorNorm + s.wheels[1].forceVectorNorm,
+    rearFzN: s.wheels[2].forceVectorNorm + s.wheels[3].forceVectorNorm,
+    leftFzN: s.wheels[0].forceVectorNorm + s.wheels[2].forceVectorNorm,
+    rightFzN: s.wheels[1].forceVectorNorm + s.wheels[3].forceVectorNorm,
+  };
 }
 function makeOversteeringM5() {
   const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES, absMode: 'OFF', tcsMode: 'OFF' } as any;
@@ -61,16 +80,19 @@ function makeOversteeringM5() {
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
   let inductionSteps = 0;
+  const inductionTail: ReturnType<typeof sample>[] = [];
   for (; inductionSteps < 120; inductionSteps++) {
     sim.stepExplicit({ ...neutral, steer: 0.18, handbrake: true }, 1);
     const state = sim.vehicle.getState();
+    inductionTail.push(sample(sim, (inductionSteps + 1) * dt, 0.18));
+    if (inductionTail.length > 10) inductionTail.shift();
     const rearSlip = 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle));
     if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
-  return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: reconfiguredYawInertia };
+  return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: reconfiguredYawInertia, inductionTail };
 }
 function runDigitalDriverRecovery() {
-  const { sim, inductionSec, yawInertiaKgM2 } = makeOversteeringM5();
+  const { sim, inductionSec, yawInertiaKgM2, inductionTail } = makeOversteeringM5();
   let digitalInput = 0.18;
   let released = false;
   let releaseTimeSec: number | null = null;
@@ -90,7 +112,7 @@ function runDigitalDriverRecovery() {
     peakCounterSteerDeg = Math.max(peakCounterSteerDeg, -state.actualSteerAngle * DEG);
     if (wanted.has(i)) samples.push(sample(sim, i * dt, digitalInput));
   }
-  return { inductionSec, yawInertiaKgM2, releaseTimeSec, peakCounterInput, peakCounterSteerDeg, samples };
+  return { inductionSec, yawInertiaKgM2, releaseTimeSec, peakCounterInput, peakCounterSteerDeg, inductionTail, samples };
 }
 const result = runDigitalDriverRecovery();
 const at = (seconds: number) => {
