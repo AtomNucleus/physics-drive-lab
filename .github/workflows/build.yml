@@ -84,3 +84,23 @@ jobs:
           echo "M5 validation suite reported a blocking physics invariant failure."
           echo "Download the m5-validation-suite artifact for the report, telemetry and graphs."
           exit 1
+
+  orbit-preview:
+    name: Orbit camera Netlify preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Production build
+        run: npm run build
+      - name: Deploy anonymously to Netlify
+        env:
+          CI: true
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
