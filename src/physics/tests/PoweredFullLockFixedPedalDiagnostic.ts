@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import type { ControlInputs, VehicleConfig } from '../../types';
 import { Simulation } from '../Simulation';
 import { ProvingGroundSurfaceProvider } from '../SurfaceProvider';
@@ -89,12 +90,13 @@ function run(throttle: number, hz = 120) {
   return result;
 }
 
-const fixedPedal = [0.02, 0.03, 0.05, 0.08, 0.10].map((t) => run(t));
-const timestepAB = [120, 240, 480].map((hz) => run(0.05, hz));
-
-console.log(JSON.stringify({
+const result = {
   scenario: 'M5 10 km/h full-lock fixed-pedal and timestep isolation',
-  fixedPedal,
-  timestepAB,
-}, null, 2));
+  fixedPedal: [0.02, 0.03, 0.05, 0.08, 0.10].map((t) => run(t)),
+  timestepAB: [120, 240, 480].map((hz) => run(0.05, hz)),
+};
+
+mkdirSync('artifacts', { recursive: true });
+writeFileSync('artifacts/powered-full-lock-fixed-pedal.json', `${JSON.stringify(result, null, 2)}\n`);
+console.log(JSON.stringify(result, null, 2));
 console.log('PoweredFullLockFixedPedalDiagnostic: PASS');
