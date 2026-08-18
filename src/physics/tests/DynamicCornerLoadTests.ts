@@ -27,16 +27,12 @@ const neutral = {
 const sim = new Simulation(config);
 sim.reset(0, 0, 0);
 
-// Settle the sprung/unsprung system before introducing road speed.
 for (let i = 0; i < 240; i++) sim.stepExplicit(neutral, 1);
 
-// Give the complete vehicle a clean 90 km/h free-rolling initial condition. This
-// isolates steering/load-transfer signs from launch, shifting and TCS behavior.
 const speedMs = 25;
 sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, speedMs);
 sim.vehicle.wheels.forEach((wheel) => wheel.reset(speedMs));
 
-// Allow tire rotational state and suspension to settle at speed before turn-in.
 for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
 
 let leftLoadSum = 0;
@@ -46,9 +42,6 @@ let peakLoadDeltaN = -Infinity;
 let peakRollDeg = 0;
 let peakYawRateDegS = 0;
 
-// LEFT steering is positive input. In the canonical right-handed vehicle frame,
-// +X is vehicle-left and +Z is forward. Run a moderate 18% steering step long
-// enough for tire relaxation + suspension load transfer to establish.
 for (let step = 0; step < 120; step++) {
   const state = sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
   const leftLoad = state.wheels[0].suspensionForce + state.wheels[2].suspensionForce;
@@ -59,8 +52,6 @@ for (let step = 0; step < 120; step++) {
   peakRollDeg = Math.max(peakRollDeg, Math.abs(state.roll * 180 / Math.PI));
   peakYawRateDegS = Math.max(peakYawRateDegS, Math.abs(state.yawRate * 180 / Math.PI));
 
-  // Ignore the first 0.25 s so the assertion measures established load transfer,
-  // not the instant steering command before the tire/suspension transients build.
   if (step >= 30) {
     leftLoadSum += leftLoad;
     rightLoadSum += rightLoad;
@@ -84,7 +75,7 @@ assert(
 );
 
 // ---------------------------------------------------------------------------
-// High-speed flat-road sprung/unsprung stability
+// High-speed flat-road sprung/unsprung + zero-command steering stability
 // ---------------------------------------------------------------------------
 const highSpeedSim = new Simulation(config);
 highSpeedSim.reset(0, 0, 0);
@@ -107,20 +98,28 @@ let maxFrontSteerDeg = 0;
 let maxRackCenterDeg = 0;
 let maxSteeringWheelDeg = 0;
 let maxRoadFeedbackTorqueNm = 0;
+let maxSatTorqueNm = 0;
+let maxMechanicalTorqueNm = 0;
 let maxLeftComplianceDeg = 0;
 let maxRightComplianceDeg = 0;
+let roadRestoringSamples = 0;
+let roadDestabilizingSamples = 0;
+let satRestoringSamples = 0;
+let satDestabilizingSamples = 0;
+let mechanicalRestoringSamples = 0;
+let mechanicalDestabilizingSamples = 0;
+let peakRackSnapshot: Record<string, number> | null = null;
 const initialYaw = highSpeedInitial.yaw;
 
-// Five seconds on the literal flat proving-ground plane. With no bump input, a
-// stable unsprung model must not excite wheel hop on its own or let the chassis
-// visually/physically separate from the four wheel centers at high speed.
 for (let step = 0; step < 600; step++) {
   const state = highSpeedSim.stepExplicit(neutral, 1);
   const rack = highSpeedSim.suspensionKinematics.steeringDynamics.telemetry;
+  const q = rack.rackCenterAngleRad;
+  const sat = rack.torques.tireSelfAligningRoadNm;
+  const mechanical = rack.torques.casterMechanicalTrailRoadNm;
+  const road = sat + mechanical;
   const frontSteerDeg = Math.abs((state.wheels[0].steerAngle + state.wheels[1].steerAngle) * 0.5 * 180 / Math.PI);
-  const roadFeedbackTorqueNm = Math.abs(
-    rack.torques.tireSelfAligningRoadNm + rack.torques.casterMechanicalTrailRoadNm
-  );
+
   maxHeaveDeltaM = Math.max(maxHeaveDeltaM, Math.abs(state.heave - baselineHeave));
   maxVerticalGMagnitude = Math.max(maxVerticalGMagnitude, Math.abs(state.verticalG));
   maxYawDeviationDeg = Math.max(
@@ -128,11 +127,40 @@ for (let step = 0; step < 600; step++) {
     Math.abs((state.yaw - initialYaw) * 180 / Math.PI)
   );
   maxFrontSteerDeg = Math.max(maxFrontSteerDeg, frontSteerDeg);
-  maxRackCenterDeg = Math.max(maxRackCenterDeg, Math.abs(rack.rackCenterAngleRad * 180 / Math.PI));
+  maxRackCenterDeg = Math.max(maxRackCenterDeg, Math.abs(q * 180 / Math.PI));
   maxSteeringWheelDeg = Math.max(maxSteeringWheelDeg, Math.abs(rack.steeringWheelAngleRad * 180 / Math.PI));
-  maxRoadFeedbackTorqueNm = Math.max(maxRoadFeedbackTorqueNm, roadFeedbackTorqueNm);
+  maxRoadFeedbackTorqueNm = Math.max(maxRoadFeedbackTorqueNm, Math.abs(road));
+  maxSatTorqueNm = Math.max(maxSatTorqueNm, Math.abs(sat));
+  maxMechanicalTorqueNm = Math.max(maxMechanicalTorqueNm, Math.abs(mechanical));
   maxLeftComplianceDeg = Math.max(maxLeftComplianceDeg, Math.abs(rack.leftComplianceRad * 180 / Math.PI));
   maxRightComplianceDeg = Math.max(maxRightComplianceDeg, Math.abs(rack.rightComplianceRad * 180 / Math.PI));
+
+  // For positive generalized rack angle, a negative steering-axis torque is
+  // restoring. Track the sign of each feedback term once q is outside numerical
+  // noise so a bad projection cannot be hidden by a large actuator correction.
+  if (Math.abs(q) > 1e-5) {
+    if (road * q < 0) roadRestoringSamples++; else if (road * q > 0) roadDestabilizingSamples++;
+    if (sat * q < 0) satRestoringSamples++; else if (sat * q > 0) satDestabilizingSamples++;
+    if (mechanical * q < 0) mechanicalRestoringSamples++; else if (mechanical * q > 0) mechanicalDestabilizingSamples++;
+  }
+
+  if (!peakRackSnapshot || Math.abs(q) > Math.abs(peakRackSnapshot.rackCenterDeg * Math.PI / 180)) {
+    peakRackSnapshot = {
+      timeSec: (step + 1) / 120,
+      rackCenterDeg: q * 180 / Math.PI,
+      rackRateDegS: rack.rackAngularVelocityRadS * 180 / Math.PI,
+      rackAccelDegS2: rack.rackAngularAccelerationRadS2 * 180 / Math.PI,
+      steeringWheelDeg: rack.steeringWheelAngleRad * 180 / Math.PI,
+      satNm: sat,
+      mechanicalNm: mechanical,
+      roadNm: road,
+      driverNm: rack.torques.driverSteeringWheelNm,
+      epsNm: rack.torques.epsAssistSteeringWheelNm,
+      dampingRoadNm: rack.torques.steeringDampingRoadNm,
+      frictionRoadNm: rack.torques.steeringFrictionRoadNm,
+      netRackNm: rack.torques.netRackRoadNm,
+    };
+  }
 
   for (const wheel of state.wheels) {
     maxTravelM = Math.max(maxTravelM, wheel.verticalTravelM);
@@ -160,8 +188,17 @@ const highSpeedDebug = {
   maxRackCenterDeg,
   maxSteeringWheelDeg,
   maxRoadFeedbackTorqueNm,
+  maxSatTorqueNm,
+  maxMechanicalTorqueNm,
   maxLeftComplianceDeg,
   maxRightComplianceDeg,
+  roadRestoringSamples,
+  roadDestabilizingSamples,
+  satRestoringSamples,
+  satDestabilizingSamples,
+  mechanicalRestoringSamples,
+  mechanicalDestabilizingSamples,
+  peakRackSnapshot,
 };
 console.log('DynamicCornerLoadTests high-speed zero-command steering diagnostics:');
 console.log(JSON.stringify(highSpeedDebug, null, 2));
