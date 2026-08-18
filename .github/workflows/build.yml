@@ -37,6 +37,12 @@ jobs:
         run: npm run test:cornering
       - name: Powered 10 kmh full-lock jiggle regression diagnostic
         run: npm run test:powered-full-lock
+      - name: Upload powered full-lock fixed-pedal diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: powered-full-lock-fixed-pedal
+          path: artifacts/powered-full-lock-fixed-pedal.json
+          if-no-files-found: error
       - name: Stationary steering regression
         run: npm run test:stationary
       - name: Suspension regression
