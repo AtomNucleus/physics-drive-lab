@@ -529,24 +529,39 @@ export class Vehicle {
       const suspState = this.suspension.states[i];
       const hpBody = hardpointsBody[i];
 
-      // Ground velocity at wheel contact patch expressed in body coords. The point
-      // is now genuinely relative to the physical CG, so chassis yaw/roll/pitch
-      // velocity feeds directly back into tire slip at each corner.
+      // The tire shear force is still applied at the real road contact patch below,
+      // preserving the CG-height pitch moment and longitudinal load transfer. For tire
+      // rolling kinematics we normally use that same contact-point velocity. The one
+      // exception is a brake-held wheel near rest: this suspension model constrains
+      // the hub X/Z position to the chassis hardpoint, so pitch rebound can move the
+      // virtual ground-height point opposite the actual wheel center. In the same
+      // low-speed/low-omega regime used by WheelDynamics' static brake hold, use the
+      // constrained hub's longitudinal speed while retaining contact-patch lateral
+      // velocity. This removes the measured false sign reversal without changing
+      // normal driving, launch, or cornering kinematics.
       const contactPointBody = PhysicsMath.vec3(
         hpBody.x,
         -this.config.centerOfGravityHeight,
         hpBody.z
       );
       const vContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
+      const vHubConstraintBody = this.rigidBody.getPointVelocityBody(hpBody);
 
       // Rotate velocity into wheel heading coordinate frame (steer angle about Y)
       const steer = wheel.steerAngle;
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
-
-      // vx_wheel (longitudinal in wheel rolling direction), vy_wheel (lateral to the right of wheel)
-      const vxWheel = vContactBody.x * sinS + vContactBody.z * cosS;
+      const vxContact = vContactBody.x * sinS + vContactBody.z * cosS;
+      const vxHubConstraint = vHubConstraintBody.x * sinS + vHubConstraintBody.z * cosS;
       const vyWheel = vContactBody.x * cosS - vContactBody.z * sinS;
+      const hydraulicBrakeTorque = brakeTorques.hydraulicTorques[i];
+      const handbrakeTorque = brakeTorques.handbrakeTorques[i];
+      const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
+      const brakeHeldNearStop =
+        brakeRequest > 20 &&
+        Math.abs(wheel.angularVelocity) < 4.5 &&
+        Math.max(Math.abs(vxContact), Math.abs(vxHubConstraint)) < 1.20;
+      const vxWheel = brakeHeldNearStop ? vxHubConstraint : vxContact;
 
       // Sample local surface friction and properties
       const contactWorld = suspState.contactPointWorld;
@@ -559,8 +574,8 @@ export class Vehicle {
         suspState.tireNormalForceN,
         suspState.dynamicCamberDeg,
         diffOut.wheelTorques[i],
-        brakeTorques.hydraulicTorques[i],
-        brakeTorques.handbrakeTorques[i],
+        hydraulicBrakeTorque,
+        handbrakeTorque,
         surface.friction * this.config.ambientSurfaceFrictionMultiplier,
         surface.rollingResistance,
         dt,
