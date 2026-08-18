@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VehicleConfig } from '../types';
 import type { Kn5VisualResult } from './kn5Loader';
 import { fitM5VisualToRealScale } from './m5VisualScale';
+import { enhanceHeroCarGeometry } from './heroCarTessellation';
 
 const DEFAULT_M5_ASSET_PARTS = 8;
 const DEFAULT_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-default`;
@@ -95,10 +96,16 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
   }
   if (reader.remaining() !== 0) throw new Error(`Bundled BMW visual has ${reader.remaining()} unexpected trailing bytes.`);
 
+  // The bundled source is intentionally compact LOD-C geometry. Because this is
+  // the single player/hero car, spend a controlled amount of extra GPU vertex
+  // work here to smooth the visible body while keeping collision and physics
+  // representations completely unchanged.
+  const detailReport = enhanceHeroCarGeometry(group);
   const scaleReport = fitM5VisualToRealScale(group);
   const scaleMessage = Math.abs(scaleReport.appliedScale - 1) > 0.0025
     ? `Bundled BMW visual normalized from ${scaleReport.sourceLengthM.toFixed(3)} m to ${scaleReport.finalLengthM.toFixed(3)} m (x${scaleReport.appliedScale.toFixed(4)}).`
     : `Bundled BMW visual metre scale verified at ${scaleReport.finalLengthM.toFixed(3)} m long.`;
+  const detailMessage = `Hero-car render geometry increased from ${detailReport.sourceTriangles.toLocaleString()} to ${detailReport.outputTriangles.toLocaleString()} triangles across ${detailReport.tessellatedMeshes} meshes (${detailReport.tessellationPasses} passes; ${detailReport.triangleBudget.toLocaleString()} hard budget).`;
 
   return {
     group,
@@ -108,7 +115,8 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
     materialCount,
     hiddenWheelNodeCount: 4,
     warnings: [
-      'Default BMW uses compact LOD-C exterior geometry from the supplied G90 mod. Physics-driven wheel/suspension assemblies remain separate; importing the original KN5 replaces this with the full-detail textured car.',
+      'Default BMW uses the supplied G90 compact exterior as its source. A render-only hero-car tessellation pass now increases visible surface density; physics-driven wheel/suspension assemblies remain separate, and importing the original KN5 still provides the highest source detail and textures.',
+      detailMessage,
       scaleMessage,
     ],
   };
