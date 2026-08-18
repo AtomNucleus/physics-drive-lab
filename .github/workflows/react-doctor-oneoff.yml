@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - diagnostics/react-doctor-20260818
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
