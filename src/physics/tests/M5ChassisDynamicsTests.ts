@@ -312,28 +312,30 @@ assert(afterTrail.front > beforeTrail.front * 0.95,
 // 7. Braking pitch and acceleration squat must develop over time, not teleport
 // -----------------------------------------------------------------------------
 const brakeSim = makeMovingSim(25);
+const brakeBaselinePitch = brakeSim.vehicle.getState().pitch;
 const brakePitch: number[] = [];
 for (let step = 0; step < 90; step++) {
   const state = brakeSim.stepExplicit({ ...neutral, brake: 0.60 }, 1);
-  brakePitch.push(Math.abs(state.pitch));
+  brakePitch.push(Math.abs(state.pitch - brakeBaselinePitch));
 }
 assertFiniteState(brakeSim, 'braking pitch');
 const maxBrakePitch = Math.max(...brakePitch);
-assert(maxBrakePitch > 0.001, `braking generated no measurable pitch: ${maxBrakePitch}`);
+assert(maxBrakePitch > 0.001, `braking generated no measurable pitch change: ${maxBrakePitch}`);
 assert(brakePitch[0] < maxBrakePitch * 0.20,
-  `braking pitch teleported on first 120 Hz step: first=${brakePitch[0]} max=${maxBrakePitch}`);
+  `braking pitch change teleported on first 120 Hz step: first=${brakePitch[0]} max=${maxBrakePitch} baseline=${brakeBaselinePitch}`);
 
 const accelSim = makeMovingSim(8);
+const accelBaselinePitch = accelSim.vehicle.getState().pitch;
 const accelPitch: number[] = [];
 for (let step = 0; step < 120; step++) {
   const state = accelSim.stepExplicit({ ...neutral, throttle: 0.70 }, 1);
-  accelPitch.push(Math.abs(state.pitch));
+  accelPitch.push(Math.abs(state.pitch - accelBaselinePitch));
 }
 assertFiniteState(accelSim, 'acceleration squat');
 const maxAccelPitch = Math.max(...accelPitch);
-assert(maxAccelPitch > 0.0003, `acceleration generated no measurable squat/pitch: ${maxAccelPitch}`);
+assert(maxAccelPitch > 0.0003, `acceleration generated no measurable squat/pitch change: ${maxAccelPitch}`);
 assert(accelPitch[0] < maxAccelPitch * 0.25,
-  `acceleration squat teleported on first 120 Hz step: first=${accelPitch[0]} max=${maxAccelPitch}`);
+  `acceleration squat/pitch change teleported on first 120 Hz step: first=${accelPitch[0]} max=${maxAccelPitch} baseline=${accelBaselinePitch}`);
 
 // -----------------------------------------------------------------------------
 // 8. Spin recovery: chassis rotational energy must remain finite and tire forces
@@ -363,8 +365,14 @@ console.log(JSON.stringify({
   circle50Kmh: { radiusM: circleRadiusM, yawRateDegS: circleState.yawRate * radToDeg },
   laneChange100Kmh: { maxYawRateDegS: maxLaneYawRate * radToDeg },
   slalom80Kmh: { maxYawRateDegS: maxSlalomYaw * radToDeg, maxRollDeg: maxSlalomRoll * radToDeg },
-  braking: { maxPitchDeg: maxBrakePitch * radToDeg },
-  acceleration: { maxPitchDeg: maxAccelPitch * radToDeg },
+  braking: {
+    baselinePitchDeg: brakeBaselinePitch * radToDeg,
+    maxPitchChangeDeg: maxBrakePitch * radToDeg,
+  },
+  acceleration: {
+    baselinePitchDeg: accelBaselinePitch * radToDeg,
+    maxPitchChangeDeg: maxAccelPitch * radToDeg,
+  },
   spinRecovery: {
     initialYawRateDegS: initialSpinRate * radToDeg,
     finalYawRateDegS: Math.abs(recoveredSpin.yawRate) * radToDeg,
