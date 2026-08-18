@@ -9,7 +9,7 @@ import { PhysicsMath } from '../math/PhysicsMath';
 
 const DEG = 180 / Math.PI;
 const TARGET_SPEED_MS = 10 / 3.6;
-const config = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
+const baseConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
 const inputsBase: ControlInputs = {
   throttle: 0,
   brake: 0,
@@ -21,7 +21,8 @@ const inputsBase: ControlInputs = {
 
 const range = (v: number[]) => Math.max(...v) - Math.min(...v);
 
-function makeSim() {
+function makeSim(overrides: Record<string, unknown> = {}) {
+  const config = { ...baseConfig, ...overrides } as VehicleConfig;
   const sim = new Simulation(config, new ProvingGroundSurfaceProvider());
   sim.reset(0, 0, 0);
   sim.vehicle.powertrain.isAutomatic = false;
@@ -36,8 +37,8 @@ function makeSim() {
   return sim;
 }
 
-function run(throttle: number, hz = 120) {
-  const sim = makeSim();
+function run(throttle: number, hz = 120, overrides: Record<string, unknown> = {}) {
+  const sim = makeSim(overrides);
   sim.fixedDt = 1 / hz;
   const totalSteps = hz * 6;
   const steadyStart = hz * 2;
@@ -76,6 +77,7 @@ function run(throttle: number, hz = 120) {
   const result = {
     throttle,
     hz,
+    overrides,
     speedKmh: { min: Math.min(...speed), max: Math.max(...speed), p2p: range(speed) },
     rollP2pDeg: range(roll),
     lateralGP2p: range(latG),
@@ -90,10 +92,30 @@ function run(throttle: number, hz = 120) {
   return result;
 }
 
+const relaxationVariants = [
+  { label: 'baseline', overrides: {} },
+  {
+    label: 'medium-fast',
+    overrides: { longitudinalRelaxationLength: 0.060, longitudinalForceRelaxationLength: 0.030 },
+  },
+  {
+    label: 'minimum-clamped',
+    overrides: { longitudinalRelaxationLength: 0.025, longitudinalForceRelaxationLength: 0.018 },
+  },
+].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
+
+const inertiaVariants = [
+  { label: 'baseline', overrides: {} },
+  { label: 'double-driveline-coupling', overrides: { drivelineInertiaCoupling: 2.0 } },
+  { label: 'double-wheel-inertia', overrides: { wheelInertia: Number(baseConfig.wheelInertia) * 2 } },
+].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
+
 const result = {
-  scenario: 'M5 10 km/h full-lock fixed-pedal and timestep isolation',
+  scenario: 'M5 10 km/h full-lock fixed-pedal solver isolation',
   fixedPedal: [0.02, 0.03, 0.05, 0.08, 0.10].map((t) => run(t)),
   timestepAB: [120, 240, 480].map((hz) => run(0.05, hz)),
+  relaxationVariants,
+  inertiaVariants,
 };
 
 mkdirSync('artifacts', { recursive: true });
