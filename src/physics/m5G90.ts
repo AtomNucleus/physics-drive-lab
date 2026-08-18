@@ -119,6 +119,12 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   brakeBiasFront: 0.60,
   ackermannRatio: 0.90,
   maxSteerAngle: 0.58,
+  // BMW publishes an overall steering ratio of 14.2:1 and states that M Servotronic
+  // uses a variable ratio. No trustworthy G90 ratio curve is published, so the
+  // physical rack uses the published overall ratio as its neutral mapping instead
+  // of inventing a center/lock curve for validation.
+  steeringRatioOverall: 14.2,
+  steeringFrontTrackM: 1.684,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
