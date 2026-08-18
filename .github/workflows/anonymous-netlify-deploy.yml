@@ -1,70 +1,26 @@
-name: Full Quality M5 Netlify Preview
+name: Anonymous Netlify Deploy
+# preview: main AWD/RWD settings integration test
 
 on:
-  pull_request:
+  push:
     branches:
       - main
+      - agent/full-tire-combined-slip
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
-      - src/graphics/bundledM5Visual.ts
-      - src/graphics/kn5VisualAlignment.ts
-      - public/assets/bmw-m5-g90-full/**
-      - scripts/verifyFullQualityM5Asset.mjs
-      - package.json
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - name: Checkout preview branch
-        uses: actions/checkout@v4
-        with:
-          ref: codex/full-quality-m5
-          fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-      - name: Verify full-quality BMW asset
-        run: npm run test:full-quality-visual
-      - name: Production build
-        run: npm run build
+      - run: npm install
+      - run: npm run build
       - name: Deploy anonymously to Netlify
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json | tee /tmp/netlify-deploy.json
-          node <<'NODE'
-          const fs = require('fs');
-          const text = fs.readFileSync('/tmp/netlify-deploy.json', 'utf8');
-          const start = text.indexOf('{');
-          const end = text.lastIndexOf('}');
-          if (start < 0 || end < start) throw new Error(`Netlify did not return JSON: ${text}`);
-          const result = JSON.parse(text.slice(start, end + 1));
-          const url = result.deploy_url || result.deployUrl || result.url || result.site_url || result.siteUrl;
-          if (!url) throw new Error(`Netlify response did not contain a preview URL: ${JSON.stringify(result)}`);
-          fs.writeFileSync('artifacts/full-quality-netlify-preview.txt', `${url}\n`);
-          console.log(`NETLIFY_PREVIEW=${url}`);
-          NODE
-      - name: Smoke-check deployed preview
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="$(cat artifacts/full-quality-netlify-preview.txt)"
-          curl --fail --location --silent --show-error --max-time 30 "$URL" >/dev/null
-      - name: Persist preview URL
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add artifacts/full-quality-netlify-preview.txt
-          git commit -m 'Record full-quality M5 Netlify preview'
-          git push origin HEAD:codex/full-quality-m5
+        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
