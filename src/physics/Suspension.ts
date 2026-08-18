@@ -42,8 +42,12 @@ export interface SuspensionState {
   atReboundLimit: boolean;
   /** Chassis-side vertical suspension reaction retained for Vehicle compatibility. */
   forceNorm: number;
-  /** Spring/damper/ARB/hard-stop load actually transmitted into the chassis. */
+  /** Suspension reaction actually transmitted into the sprung chassis this fixed step. */
   chassisForceN: number;
+  /** Explicit alias for validation telemetry. */
+  appliedChassisForceN: number;
+  /** Spring/damper/ARB/hard-stop reaction evaluated after the unsprung integration. */
+  evaluatedChassisForceN: number;
   /** Instantaneous vertical road load at the tire contact patch. */
   tireNormalForceN: number;
   springForceN: number;
@@ -78,6 +82,8 @@ const makeState = (): SuspensionState => ({
   atReboundLimit: false,
   forceNorm: 0,
   chassisForceN: 0,
+  appliedChassisForceN: 0,
+  evaluatedChassisForceN: 0,
   tireNormalForceN: 0,
   springForceN: 0,
   damperForceN: 0,
@@ -205,10 +211,6 @@ export function calculateAntiRollBarForces(
  * damper and anti-roll forces then transmit that motion into the chassis. This is
  * the important two-stage response that makes a heavy car react to a bump as a
  * wheel assembly followed by a ~2.4-ton body instead of as one rigid object.
- *
- * `unsprungMassKgByCorner` is an effective vertical inertia. Static wheel weight is
- * already included in VehicleConfig.mass / chassis gravity, so gravity is not added
- * a second time to this relative subsystem.
  */
 export class SuspensionSystem {
   public states: [SuspensionState, SuspensionState, SuspensionState, SuspensionState] = [
@@ -251,15 +253,15 @@ export class SuspensionSystem {
   }
 
   /**
-   * Start a fresh wheel at static tire/spring equilibrium instead of introducing a
-   * fake first-frame impact. The bisection solves tire compression load = spring /
-   * bump-stop load for the current chassis pose.
+   * Start a fresh wheel at static tire/spring/unsprung-weight equilibrium instead
+   * of introducing a fake first-frame impact.
    */
   private initializeHubPositionY(
     hardpointY: number,
     surfaceY: number,
     wheelRadius: number,
     tireVerticalStiffness: number,
+    unsprungMassKg: number,
     cfg: SuspensionCornerConfig
   ): number {
     const pickupOffset = Math.max(0, cfg.maxDroop);
@@ -290,7 +292,7 @@ export class SuspensionSystem {
           cfg.bumpStopProgression ?? 4.0,
           cfg.bumpStopExponent ?? 2.2
         );
-      return tireForce - suspensionForce;
+      return tireForce - suspensionForce - Math.max(0, unsprungMassKg) * 9.81;
     };
 
     if (loadBalance(low) < 0) {
@@ -347,11 +349,13 @@ export class SuspensionSystem {
 
       let state = this.states[i];
       if (!Number.isFinite(state.hubPositionWorldY)) {
+        const unsprungMassKg = Math.max(5, this.unsprungMassKgByCorner[i]);
         const hubPositionWorldY = this.initializeHubPositionY(
           hardpointWorld.y,
           surface.elevation,
           wheelRadius,
           tireK,
+          unsprungMassKg,
           cfg
         );
         state = {
@@ -468,8 +472,17 @@ export class SuspensionSystem {
       const unsprungMassKg = Math.max(5, this.unsprungMassKgByCorner[i]);
       const previous = this.states[i];
 
+      // Use the same beginning-of-step suspension reaction for both sides of the
+      // chassis-hub interaction. Road input changes tire force first; the wheel/hub
+      // accelerates against the pre-existing spring/damper force, and the chassis
+      // sees the changed suspension reaction only on the following 120 Hz sample.
+      let currentChassisForce = chassisForces[i];
+      if (currentDisplacements[i] >= maxDisplacement - 1e-6) {
+        currentChassisForce += Math.max(0, tireForces[i] - currentChassisForce);
+      }
+
       let unsprungAcceleration =
-        (tireForces[i] - chassisForces[i]) / unsprungMassKg;
+        (tireForces[i] - currentChassisForce - unsprungMassKg * 9.81) / unsprungMassKg;
       // Safety bound prevents a malformed terrain sample from destabilizing the 120 Hz solver.
       unsprungAcceleration = PhysicsMath.clamp(unsprungAcceleration, -300, 300);
 
@@ -531,23 +544,14 @@ export class SuspensionSystem {
           (roadVelocitiesY[i] - hubVelocityWorldY) * tireC
       );
 
-      // Retain the explicit anti-roll contributions evaluated at the beginning of
-      // this fixed step. The next 120 Hz step re-evaluates them from the new travel.
       const antiRollContribution = antiRollBarForces[i] + crossCouplingForces[i];
-      // Coil/damper support cannot pull the chassis below zero on its own,
-      // but an anti-roll bar is a torsional member and absolutely can apply a
-      // downward reaction at the inside corner. Preserve that signed reaction so
-      // the opposite ARB forces remain equal-and-opposite instead of clipping one
-      // side and creating artificial heave/jacking.
       const baseChassisForce = Math.max(0, springForce + damperForce + bumpStopForce);
-      let chassisForce = baseChassisForce + antiRollContribution;
+      let evaluatedChassisForce = baseChassisForce + antiRollContribution;
 
-      // At a hard jounce stop, any road force that the compliant spring/damper can
-      // no longer absorb is transmitted directly into the chassis constraint.
       let hardStopForce = 0;
       if (hitCompressionLimit || displacement >= maxDisplacement - 1e-6) {
-        hardStopForce = Math.max(0, tireNormalForce - chassisForce);
-        chassisForce += hardStopForce;
+        hardStopForce = Math.max(0, tireNormalForce - evaluatedChassisForce);
+        evaluatedChassisForce += hardStopForce;
       }
 
       const isAirborne = tireNormalForce < 1 && tireCompression <= 1e-5;
@@ -560,8 +564,10 @@ export class SuspensionSystem {
         bumpStopEngaged: bumpStopForce > 0,
         atCompressionLimit: hitCompressionLimit || displacement >= maxDisplacement - 1e-6,
         atReboundLimit: hitReboundLimit || displacement <= minDisplacement + 1e-6,
-        forceNorm: chassisForce,
-        chassisForceN: chassisForce,
+        forceNorm: currentChassisForce,
+        chassisForceN: currentChassisForce,
+        appliedChassisForceN: currentChassisForce,
+        evaluatedChassisForceN: evaluatedChassisForce,
         tireNormalForceN: tireNormalForce,
         springForceN: springForce,
         damperForceN: damperForce,

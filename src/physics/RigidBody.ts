@@ -13,6 +13,12 @@ export interface RigidBodyConfig {
  */
 export class RigidBody {
   public config: RigidBodyConfig;
+  /**
+   * Generalized mass for chassis heave. Planar translation keeps the complete
+   * vehicle mass because the wheel assemblies are constrained to travel with the
+   * chassis in X/Z; vertical wheel motion is an independent suspension coordinate.
+   */
+  public verticalMass: number;
   public position: Vec3;
   public velocity: Vec3 = PhysicsMath.vec3();
   public acceleration: Vec3 = PhysicsMath.vec3(); // body-local acceleration for telemetry
@@ -25,6 +31,7 @@ export class RigidBody {
 
   constructor(config: RigidBodyConfig, position: Vec3 = PhysicsMath.vec3(), yaw: number = 0) {
     this.config = { ...config, inertia: PhysicsMath.vec3Clone(config.inertia) };
+    this.verticalMass = config.mass;
     this.position = PhysicsMath.vec3Clone(position);
     this.orientation = PhysicsMath.quatFromEuler(0, yaw, 0);
   }
@@ -90,7 +97,15 @@ export class RigidBody {
     if (dt <= 0) return;
 
     const mass = Math.max(1e-3, this.config.mass);
-    const linearAccelWorld = PhysicsMath.vec3Scale(this.accumulatedForceWorld, 1 / mass);
+    const heaveMass = Math.max(1e-3, this.verticalMass);
+    // This is the diagonal generalized-mass form of the reduced 14-DOF vehicle:
+    // total vehicle mass in the constrained horizontal coordinates, sprung mass in
+    // heave where the four wheel/hub masses are solved independently.
+    const linearAccelWorld = PhysicsMath.vec3(
+      this.accumulatedForceWorld.x / mass,
+      this.accumulatedForceWorld.y / heaveMass,
+      this.accumulatedForceWorld.z / mass
+    );
 
     // Semi-implicit Euler gives much better stability for suspension systems.
     this.velocity = PhysicsMath.vec3Add(this.velocity, PhysicsMath.vec3Scale(linearAccelWorld, dt));

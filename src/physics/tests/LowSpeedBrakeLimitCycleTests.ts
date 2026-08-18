@@ -5,6 +5,7 @@ import { Simulation } from '../Simulation';
 import { ProvingGroundSurfaceProvider } from '../SurfaceProvider';
 import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
+import { PhysicsMath } from '../math/PhysicsMath';
 
 const DT = 1 / 120;
 const ABS_LOW_SPEED_CUTOUT_MS = 1.25;
@@ -94,6 +95,7 @@ function runAutomaticStop(label: string, brake: number, steer: number) {
   let absSamplesBelowCutout = 0;
   let minPressureBelowCutout = 1;
   let maxHeldSpeedLast2s = 0;
+  const flipDiagnostics: unknown[] = [];
 
   for (let step = 0; step < 960; step++) {
     sim.stepExplicit(inputs, 1);
@@ -101,7 +103,41 @@ function runAutomaticStop(label: string, brake: number, steer: number) {
     const forward = localV.z;
     const speed = Math.abs(forward);
     const sign = signWithDeadband(forward, 0.03);
-    if (previousLongSign !== 0 && sign !== 0 && sign !== previousLongSign) longSignFlips++;
+    if (previousLongSign !== 0 && sign !== 0 && sign !== previousLongSign) {
+      longSignFlips++;
+
+      const hardpoints = sim.vehicle.getHardpointsBody();
+      const euler = sim.vehicle.rigidBody.getEuler();
+      const state = sim.vehicle.getState();
+      const wheelConstraintForwardMs = hardpoints.map((point) =>
+        sim.vehicle.rigidBody.getPointVelocityBody(point).z
+      );
+      const rigidGroundPointForwardMs = hardpoints.map((point) =>
+        sim.vehicle.rigidBody.getPointVelocityBody(
+          PhysicsMath.vec3(point.x, -M5_CONFIG.centerOfGravityHeight, point.z)
+        ).z
+      );
+
+      flipDiagnostics.push({
+        step,
+        timeSec: (step + 1) * DT,
+        chassisForwardMs: forward,
+        pitchDeg: euler.pitch * 180 / Math.PI,
+        pitchRateDegS: sim.vehicle.rigidBody.getLocalAngularVelocity().x * 180 / Math.PI,
+        wheelConstraintForwardMs,
+        rigidGroundPointForwardMs,
+        groundPointMinusConstraintMs: rigidGroundPointForwardMs.map(
+          (value, i) => value - wheelConstraintForwardMs[i]
+        ),
+        wheelOmegaRadS: sim.vehicle.wheels.map((wheel) => wheel.angularVelocity),
+        rawSlipRatio: sim.vehicle.wheels.map((wheel) => wheel.rawSlipRatio),
+        longitudinalForceN: state.wheels.map((wheel) => wheel.forceVectorLong),
+        tireNormalForceN: sim.vehicle.suspension.states.map((susp) => susp.tireNormalForceN),
+        chassisSuspensionForceN: sim.vehicle.suspension.states.map((susp) => susp.chassisForceN),
+        suspensionVelocityMps: sim.vehicle.suspension.states.map((susp) => susp.velocity),
+        hubVelocityWorldY: sim.vehicle.suspension.states.map((susp) => susp.hubVelocityWorldY),
+      });
+    }
     if (sign !== 0) previousLongSign = sign;
     maxReverseSpeedMs = Math.max(maxReverseSpeedMs, Math.max(0, -forward));
 
@@ -133,6 +169,9 @@ function runAutomaticStop(label: string, brake: number, steer: number) {
   const totalWheelSignFlips = wheelSignFlips.reduce((a, b) => a + b, 0);
 
   console.log(`${label}: final=${finalSpeedKmh.toFixed(3)} km/h reversePeak=${maxReverseSpeedMs.toFixed(4)} m/s longFlips=${longSignFlips} wheelFlips=${totalWheelSignFlips} maxOmegaStep=${maxOmegaStep.toFixed(3)} maxPressureStep=${maxPressureStep.toFixed(4)} minPressureBelowCutout=${minPressureBelowCutout.toFixed(3)} absBelowCutout=${absSamplesBelowCutout} heldLast2s=${maxHeldSpeedLast2s.toFixed(4)} m/s`);
+  if (flipDiagnostics.length > 0) {
+    console.log(`${label} sign-crossing diagnostics:\n${JSON.stringify(flipDiagnostics, null, 2)}`);
+  }
 
   assert(finalSpeedKmh < 0.25, `${label} did not settle to rest: ${finalSpeedKmh.toFixed(3)} km/h`);
   // One sub-walking-speed zero crossing can occur as the tire's stored longitudinal

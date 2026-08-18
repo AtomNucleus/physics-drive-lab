@@ -529,27 +529,48 @@ export class Vehicle {
       const suspState = this.suspension.states[i];
       const hpBody = hardpointsBody[i];
 
-      // Ground velocity at wheel contact patch expressed in body coords. The point
-      // is now genuinely relative to the physical CG, so chassis yaw/roll/pitch
-      // velocity feeds directly back into tire slip at each corner.
+      // The tire shear force is still applied at the real road contact patch below,
+      // preserving the CG-height pitch moment and longitudinal load transfer. For tire
+      // rolling kinematics we normally use that same contact-point velocity. The one
+      // exception is a brake-held wheel near rest: this suspension model constrains
+      // the wheel center in X/Z while allowing its vertical coordinate to move. The
+      // correct rolling-speed proxy in that regime is therefore the rigid-body point
+      // coincident with the actual hub center, not the top mount and not a fictitious
+      // point fixed at road height. Lateral slip keeps the established contact-patch
+      // kinematics. This targets only the measured near-zero pitch-rebound artifact.
+      const contactWorld = suspState.contactPointWorld;
       const contactPointBody = PhysicsMath.vec3(
         hpBody.x,
         -this.config.centerOfGravityHeight,
         hpBody.z
       );
+      const hubWorld = PhysicsMath.vec3(
+        contactWorld.x,
+        suspState.hubPositionWorldY,
+        contactWorld.z
+      );
+      const hubArmWorld = PhysicsMath.vec3Sub(hubWorld, this.rigidBody.position);
+      const hubPointBody = PhysicsMath.quatInverseRotateVec3(this.rigidBody.orientation, hubArmWorld);
       const vContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
+      const vHubBody = this.rigidBody.getPointVelocityBody(hubPointBody);
 
       // Rotate velocity into wheel heading coordinate frame (steer angle about Y)
       const steer = wheel.steerAngle;
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
-
-      // vx_wheel (longitudinal in wheel rolling direction), vy_wheel (lateral to the right of wheel)
-      const vxWheel = vContactBody.x * sinS + vContactBody.z * cosS;
+      const vxContact = vContactBody.x * sinS + vContactBody.z * cosS;
+      const vxHub = vHubBody.x * sinS + vHubBody.z * cosS;
       const vyWheel = vContactBody.x * cosS - vContactBody.z * sinS;
+      const hydraulicBrakeTorque = brakeTorques.hydraulicTorques[i];
+      const handbrakeTorque = brakeTorques.handbrakeTorques[i];
+      const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
+      const brakeHeldNearStop =
+        brakeRequest > 20 &&
+        Math.abs(wheel.angularVelocity) < 4.5 &&
+        Math.max(Math.abs(vxContact), Math.abs(vxHub)) < 1.20;
+      const vxWheel = brakeHeldNearStop ? vxHub : vxContact;
 
       // Sample local surface friction and properties
-      const contactWorld = suspState.contactPointWorld;
       const surface = this.surfaceProvider.sampleSurface(contactWorld.x, contactWorld.z);
 
       // Step wheel rotational dynamics and compute tire forces (Fx, Fy)
@@ -559,8 +580,8 @@ export class Vehicle {
         suspState.tireNormalForceN,
         suspState.dynamicCamberDeg,
         diffOut.wheelTorques[i],
-        brakeTorques.hydraulicTorques[i],
-        brakeTorques.handbrakeTorques[i],
+        hydraulicBrakeTorque,
+        handbrakeTorque,
         surface.friction * this.config.ambientSurfaceFrictionMultiplier,
         surface.rollingResistance,
         dt,
@@ -583,6 +604,16 @@ export class Vehicle {
       const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);
       const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);
 
+      // Spring, damper, bump-stop and ARB forces are internal suspension reactions,
+      // so they remain connected to the chassis even when the tire unloads over a
+      // crest. Do not gate them with tire contact authority or an airborne flag.
+      const suspensionReactionWorld = PhysicsMath.vec3(0, suspState.chassisForceN, 0);
+      const suspensionHardpointWorld = PhysicsMath.vec3Add(
+        this.rigidBody.position,
+        PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+      );
+      this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
+
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
         const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
@@ -595,26 +626,21 @@ export class Vehicle {
           wheelContactAuthority
         );
 
-        // RigidBody.mass is the complete vehicle mass. The external support on it
-        // is therefore the road/tire normal reaction, not the internal spring force.
-        const suspensionSupportWorld = PhysicsMath.vec3Scale(
-          roadNormal,
-          suspState.tireNormalForceN * wheelContactAuthority
-        );
-        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
-
-        // Apply the complete road reaction at the actual contact patch. RigidBody's
-        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
-        // around the physical mass center with no artificial yaw/roll/pitch force.
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+        // Tire normal load excites only the independent wheel/hub mass and remains
+        // the tire model's grip input. The sprung chassis receives road vertical load
+        // through the suspension reaction above; planar tire shear remains external
+        // at the road contact patch.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
       }
     }
 
-    // 8. Apply Gravity in World Frame
-    const gravityForceWorld = PhysicsMath.vec3(0, -this.config.mass * 9.81, 0);
+    // 8. Apply gravity only to the sprung heave generalized mass. The four unsprung
+    // vertical masses receive their own gravity inside SuspensionSystem, so the full
+    // static tire load still sums to the complete vehicle curb weight.
+    const gravityForceWorld = PhysicsMath.vec3(0, -this.rigidBody.verticalMass * 9.81, 0);
     this.rigidBody.addWorldForce(gravityForceWorld);
 
     // 9. Integrate 6-DOF Rigid Body Equations of Motion
