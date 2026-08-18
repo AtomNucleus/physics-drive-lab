@@ -15,7 +15,7 @@ const range = (v: number[]) => Math.max(...v) - Math.min(...v);
 const rms = (v: number[]) => Math.sqrt(v.reduce((s, x) => s + x * x, 0) / Math.max(1, v.length));
 
 function detrendedRms(values: number[], hz: number) {
-  const half = Math.max(4, Math.floor(hz * 0.5)); // ~1 s centered moving-mean window
+  const half = Math.max(4, Math.floor(hz * 0.5));
   if (values.length <= half * 2 + 1) return 0;
   const residual: number[] = [];
   for (let i = half; i < values.length - half; i++) {
@@ -91,17 +91,25 @@ function run(throttle: number, hz = 120, overrides: Record<string, unknown> = {}
   return result;
 }
 
-const relaxationVariants = [
+const longitudinalVariants = [
   { label: 'baseline', overrides: {} },
-  { label: 'medium-fast', overrides: { longitudinalRelaxationLength: 0.060, longitudinalForceRelaxationLength: 0.030 } },
-  { label: 'minimum-clamped', overrides: { longitudinalRelaxationLength: 0.025, longitudinalForceRelaxationLength: 0.018 } },
+  { label: 'medium-fast-long', overrides: { longitudinalRelaxationLength: 0.060, longitudinalForceRelaxationLength: 0.030 } },
+].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
+
+const lateralVariants = [
+  { label: 'baseline-0.50m', overrides: {} },
+  { label: '0.35m', overrides: { relaxationLength: 0.35 } },
+  { label: '0.25m', overrides: { relaxationLength: 0.25 } },
+  { label: '0.15m', overrides: { relaxationLength: 0.15 } },
+  { label: '0.80m', overrides: { relaxationLength: 0.80 } },
 ].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
 
 const result = {
-  scenario: 'M5 10 km/h full-lock detrended fixed-pedal solver isolation',
-  fixedPedal: [0.02, 0.03, 0.05, 0.08].map(t => run(t)),
+  scenario: 'M5 10 km/h full-lock detrended tire-state isolation',
+  fixedPedal: [0.02, 0.03, 0.05].map(t => run(t)),
   timestepAB: [120, 240, 480].map(hz => run(0.05, hz)),
-  relaxationVariants,
+  longitudinalVariants,
+  lateralVariants,
 };
 
 mkdirSync('artifacts', { recursive: true });
