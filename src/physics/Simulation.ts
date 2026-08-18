@@ -38,6 +38,17 @@ export class Simulation {
       0,
       Number((config as any).tireVerticalDamping ?? 1500)
     );
+
+    // The four wheel/hub vertical coordinates are now genuine generalized masses.
+    // Keep the measured complete-vehicle mass in planar translation, but remove
+    // those independently integrated masses from the chassis heave coordinate.
+    // This avoids counting the same 55 kg/corner twice while preserving the M5's
+    // authoritative curb mass for acceleration and braking.
+    const totalUnsprungMass = unsprungMassCorner * 4;
+    this.vehicle.rigidBody.verticalMass = Math.max(
+      config.mass * 0.5,
+      config.mass - totalUnsprungMass
+    );
   }
 
   public reset(x: number = 0, z: number = 0, yaw: number = 0) {
