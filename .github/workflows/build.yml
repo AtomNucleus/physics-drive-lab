@@ -78,6 +78,8 @@ jobs:
         run: npm run test:automatic
       - name: Production build
         run: npm run build
+      - name: Deploy validated build anonymously to Netlify
+        run: npx --yes netlify-cli deploy --prod --dir dist --json
       - name: Enforce M5 validation blocking invariants
         if: always() && steps.m5_validation.outcome == 'failure'
         run: |
