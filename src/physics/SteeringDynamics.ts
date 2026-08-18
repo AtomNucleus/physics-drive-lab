@@ -239,7 +239,6 @@ export class PhysicalSteeringSystem {
     return this.config.maxRoadWheelAngleRad * this.config.overallSteeringRatio;
   }
 
-  /** Pure rack/Ackermann command before compliance and suspension bump steer. */
   public ackermannForCenter(centerAngleRad: number): { left: number; right: number } {
     const delta = PhysicsMath.clamp(
       centerAngleRad,
@@ -408,10 +407,12 @@ export class PhysicalSteeringSystem {
     const ratio = this.config.overallSteeringRatio;
     const targetSteeringWheelAngleRad = input * this.maxSteeringWheelAngleRad();
 
-    // Hold the previous 120 Hz tire/road torque sample constant while resolving the
-    // much stiffer one-DOF rack/column loop internally. This is a partitioned
-    // substep, not a higher-rate vehicle simulation and not an artificial yaw aid.
-    const substeps = this.config.integrationSubsteps;
+    // Six substeps per normal 120 Hz vehicle step gives a 720 Hz rack solve. Scale
+    // the count with dt so direct unit-test/diagnostic calls using a large timestep
+    // get the same maximum internal step instead of silently becoming unstable.
+    const nominalVehicleDt = 1 / 120;
+    const maxInternalDt = nominalVehicleDt / this.config.integrationSubsteps;
+    const substeps = Math.max(1, Math.ceil(dt / maxInternalDt));
     const subDt = dt / substeps;
     let rackTorques = this.computeRackTorques(targetSteeringWheelAngleRad, forwardSpeedMs, leftRoad, rightRoad);
     for (let substep = 0; substep < substeps; substep++) {
@@ -437,8 +438,6 @@ export class PhysicalSteeringSystem {
       }
     }
 
-    // Re-evaluate telemetry from the final substep state so reported driver/EPS and
-    // road torques are phase-consistent with the reported rack angle and velocity.
     rackTorques = this.computeRackTorques(targetSteeringWheelAngleRad, forwardSpeedMs, leftRoad, rightRoad);
     this.rackAngularAccelerationRadS2 = PhysicsMath.clamp(
       rackTorques.netRackRoadNm / this.config.rackEquivalentInertiaKgm2,
