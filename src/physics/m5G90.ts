@@ -125,14 +125,13 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   // of inventing a center/lock curve for validation.
   steeringRatioOverall: 14.2,
   steeringFrontTrackM: 1.684,
-  // Internal solver values only, not BMW targets. The earlier 60 Nm/rad column loop
-  // passed moderate-cornering but let road load backdrive a held 0.18 command enough
-  // to weaken the established oversteer induction. The 200 Nm/rad trial restored
-  // load authority but sharpened the 0.40 steering transient enough to create one
-  // front gross-slide sample. This intermediate column/EPS loop increases static
-  // load-holding authority without changing rack rate, tire relaxation or yaw physics.
-  // Dynamic G90 steering targets remain NO REFERENCE DATA.
-  steeringColumnTorsionStiffnessNmPerRad: 90,
+  // Internal solver values only, not BMW targets. The 90 Nm/rad pass cleared the
+  // moderate-corner regression with 8.848 deg peak front slip and zero skid flags,
+  // while the fixed oversteer induction finished at 9.935 deg rear slip. This small
+  // stiffness increase targets only the measured road-load deflection margin; rack
+  // rate, tire relaxation, tire grip, yaw physics and all validation thresholds are
+  // unchanged. Dynamic G90 steering targets remain NO REFERENCE DATA.
+  steeringColumnTorsionStiffnessNmPerRad: 108,
   steeringEpsHighSpeedGain: 15,
   steeringEpsMaxAssistTorqueNm: 110,
   // Keep the existing finite 4.8 rad/s rack-rate authority. A finite 180 rad/s²
