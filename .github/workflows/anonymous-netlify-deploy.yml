@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   deploy:
@@ -24,4 +26,15 @@ jobs:
       - run: npm install
       - run: npm run build
       - name: Deploy anonymously to Netlify
-        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
+        id: netlify
+        run: |
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > netlify-deploy.json
+          cat netlify-deploy.json
+          DEPLOY_URL=$(node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync('netlify-deploy.json','utf8')); process.stdout.write(j.deploy_ssl_url || j.deploy_url || j.url || '')")
+          test -n "$DEPLOY_URL"
+          echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+      - name: Post preview URL to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_URL: ${{ steps.netlify.outputs.deploy_url }}
+        run: gh pr comment 31 --body "Orbit camera test build: $DEPLOY_URL"
