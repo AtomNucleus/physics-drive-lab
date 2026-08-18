@@ -79,15 +79,19 @@ function makeOversteeringM5() {
   sim.vehicle.wheels.forEach((wheel) => wheel.reset(speedMs));
   for (let i = 0; i < 60; i++) sim.stepExplicit(neutral, 1);
   for (let i = 0; i < 90; i++) sim.stepExplicit({ ...neutral, steer: 0.18 }, 1);
-  let inductionSteps = 0;
+
+  // Use a fixed input history for the induced slide. The former yaw/slip-triggered
+  // loop made the handbrake duration depend on the physics under test: a small shift
+  // in rear-slip timing could add several 120 Hz handbrake samples and make recovery
+  // start from a materially harsher state. The severity guards below still require
+  // >45 deg/s yaw, >10 deg rear slip and >0.5 rear kappa, so this does not make the
+  // recovery test easier; it makes baseline/candidate starting states comparable.
+  const inductionSteps = Math.round(0.30 / dt);
   const inductionTail: ReturnType<typeof sample>[] = [];
-  for (; inductionSteps < 120; inductionSteps++) {
+  for (let i = 0; i < inductionSteps; i++) {
     sim.stepExplicit({ ...neutral, steer: 0.18, handbrake: true }, 1);
-    const state = sim.vehicle.getState();
-    inductionTail.push(sample(sim, (inductionSteps + 1) * dt, 0.18));
+    inductionTail.push(sample(sim, (i + 1) * dt, 0.18));
     if (inductionTail.length > 10) inductionTail.shift();
-    const rearSlip = 0.5 * (Math.abs(state.wheels[2].slipAngle) + Math.abs(state.wheels[3].slipAngle));
-    if (Math.abs(state.yawRate) > 0.55 && rearSlip > 0.20) break;
   }
   return { sim, inductionSec: inductionSteps * dt, yawInertiaKgM2: reconfiguredYawInertia, inductionTail };
 }
