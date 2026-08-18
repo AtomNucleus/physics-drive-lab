@@ -18,7 +18,7 @@
     "test:kinematics-arb": "tsx src/physics/tests/SuspensionKinematicsAntiRollIntegrationTests.ts",
     "test:corner-load": "tsx src/physics/tests/DynamicCornerLoadTests.ts",
     "test:cornering": "tsx src/physics/tests/LowSpeedCorneringTests.ts",
-    "test:powered-full-lock": "tsx src/physics/tests/PoweredFullLockJiggleTests.ts",
+    "test:powered-full-lock": "tsx src/physics/tests/PoweredFullLockJiggleTests.ts && tsx src/physics/tests/PoweredFullLockFixedPedalDiagnostic.ts",
     "test:crawl": "tsx src/physics/tests/CrawlSpeedStabilityTests.ts",
     "test:low-speed-brake": "tsx src/physics/tests/LowSpeedBrakeLimitCycleTests.ts",
     "test:tire": "tsx src/physics/tests/TireModelTests.ts",
