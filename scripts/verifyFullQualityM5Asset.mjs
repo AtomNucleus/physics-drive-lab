@@ -6,18 +6,24 @@ import { resolve } from 'node:path';
 const root = resolve(process.cwd(), 'public/assets/bmw-m5-g90-full');
 const manifest = JSON.parse(readFileSync(resolve(root, 'manifest.json'), 'utf8'));
 
-if (manifest.format !== 'kn5-gzip-base64-v1' || manifest.quality !== 'full') {
+if (manifest.format !== 'kn5-gzip-binary-v1' || manifest.quality !== 'full') {
   throw new Error('Full-quality M5 manifest format/quality is invalid.');
 }
 if (!Number.isInteger(manifest.parts) || manifest.parts <= 0) {
   throw new Error(`Invalid full-quality M5 part count: ${manifest.parts}`);
 }
+if (!Number.isInteger(manifest.partBytes) || manifest.partBytes <= 0) {
+  throw new Error(`Invalid full-quality M5 part size: ${manifest.partBytes}`);
+}
 
 const chunks = [];
 for (let index = 0; index < manifest.parts; index += 1) {
   const part = String(index).padStart(2, '0');
-  const encoded = readFileSync(resolve(root, `part-${part}.b64`), 'utf8').replace(/\s+/g, '');
-  chunks.push(Buffer.from(encoded, 'base64'));
+  const chunk = readFileSync(resolve(root, `part-${part}.bin`));
+  if (index < manifest.parts - 1 && chunk.byteLength !== manifest.partBytes) {
+    throw new Error(`Binary part ${part} size mismatch: ${chunk.byteLength} != ${manifest.partBytes}`);
+  }
+  chunks.push(chunk);
 }
 
 const compressed = Buffer.concat(chunks);
