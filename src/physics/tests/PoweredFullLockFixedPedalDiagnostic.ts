@@ -10,16 +10,21 @@ import { PhysicsMath } from '../math/PhysicsMath';
 const DEG = 180 / Math.PI;
 const TARGET_SPEED_MS = 10 / 3.6;
 const baseConfig = { ...DEFAULT_VEHICLE_CONFIG, ...BMW_M5_2025_OVERRIDES } as VehicleConfig;
-const inputsBase: ControlInputs = {
-  throttle: 0,
-  brake: 0,
-  steer: 1,
-  handbrake: false,
-  shiftUp: false,
-  shiftDown: false,
-};
-
+const inputsBase: ControlInputs = { throttle: 0, brake: 0, steer: 1, handbrake: false, shiftUp: false, shiftDown: false };
 const range = (v: number[]) => Math.max(...v) - Math.min(...v);
+const rms = (v: number[]) => Math.sqrt(v.reduce((s, x) => s + x * x, 0) / Math.max(1, v.length));
+
+function detrendedRms(values: number[], hz: number) {
+  const half = Math.max(4, Math.floor(hz * 0.5)); // ~1 s centered moving-mean window
+  if (values.length <= half * 2 + 1) return 0;
+  const residual: number[] = [];
+  for (let i = half; i < values.length - half; i++) {
+    let sum = 0;
+    for (let j = i - half; j <= i + half; j++) sum += values[j];
+    residual.push(values[i] - sum / (half * 2 + 1));
+  }
+  return rms(residual);
+}
 
 function makeSim(overrides: Record<string, unknown> = {}) {
   const config = { ...baseConfig, ...overrides } as VehicleConfig;
@@ -42,15 +47,11 @@ function run(throttle: number, hz = 120, overrides: Record<string, unknown> = {}
   sim.fixedDt = 1 / hz;
   const totalSteps = hz * 6;
   const steadyStart = hz * 2;
-  const speed: number[] = [];
-  const roll: number[] = [];
-  const latG: number[] = [];
-  const yaw: number[] = [];
+  const speed: number[] = [], roll: number[] = [], latG: number[] = [], yaw: number[] = [];
   const travel = [[], [], [], []] as number[][];
   const loads = [[], [], [], []] as number[][];
   const slips = [[], [], [], []] as number[][];
-  const forceFlips = [0, 0, 0, 0];
-  const prevSigns = [0, 0, 0, 0];
+  const forceFlips = [0, 0, 0, 0], prevSigns = [0, 0, 0, 0];
   let tcsSamples = 0;
 
   for (let step = 0; step < totalSteps; step++) {
@@ -63,10 +64,7 @@ function run(throttle: number, hz = 120, overrides: Record<string, unknown> = {}
       if (sign) prevSigns[i] = sign;
     }
     if (step < steadyStart) continue;
-    speed.push(state.speedKmh);
-    roll.push(state.roll * DEG);
-    latG.push(state.lateralG);
-    yaw.push(state.yawRate * DEG);
+    speed.push(state.speedKmh); roll.push(state.roll * DEG); latG.push(state.lateralG); yaw.push(state.yawRate * DEG);
     for (let i = 0; i < 4; i++) {
       travel[i].push(state.wheels[i].verticalTravelM * 1000);
       loads[i].push(state.wheels[i].forceVectorNorm);
@@ -75,47 +73,35 @@ function run(throttle: number, hz = 120, overrides: Record<string, unknown> = {}
   }
 
   const result = {
-    throttle,
-    hz,
-    overrides,
-    speedKmh: { min: Math.min(...speed), max: Math.max(...speed), p2p: range(speed) },
-    rollP2pDeg: range(roll),
-    lateralGP2p: range(latG),
-    yawRateP2pDegS: range(yaw),
+    throttle, hz, overrides,
+    speedKmh: { min: Math.min(...speed), max: Math.max(...speed), p2p: range(speed), detrendedRms: detrendedRms(speed, hz) },
+    roll: { p2pDeg: range(roll), detrendedRmsDeg: detrendedRms(roll, hz) },
+    lateralG: { p2p: range(latG), detrendedRms: detrendedRms(latG, hz) },
+    yawRate: { p2pDegS: range(yaw), detrendedRmsDegS: detrendedRms(yaw, hz) },
     wheelTravelP2pMm: travel.map(range),
+    wheelTravelDetrendedRmsMm: travel.map(v => detrendedRms(v, hz)),
     tireLoadP2pN: loads.map(range),
+    tireLoadDetrendedRmsN: loads.map(v => detrendedRms(v, hz)),
     slipRatioP2p: slips.map(range),
+    slipRatioDetrendedRms: slips.map(v => detrendedRms(v, hz)),
     longForceSignFlips: forceFlips,
     tcsSamples,
   };
-  assert(Number.isFinite(result.rollP2pDeg));
+  assert(Number.isFinite(result.roll.detrendedRmsDeg));
   return result;
 }
 
 const relaxationVariants = [
   { label: 'baseline', overrides: {} },
-  {
-    label: 'medium-fast',
-    overrides: { longitudinalRelaxationLength: 0.060, longitudinalForceRelaxationLength: 0.030 },
-  },
-  {
-    label: 'minimum-clamped',
-    overrides: { longitudinalRelaxationLength: 0.025, longitudinalForceRelaxationLength: 0.018 },
-  },
-].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
-
-const inertiaVariants = [
-  { label: 'baseline', overrides: {} },
-  { label: 'double-driveline-coupling', overrides: { drivelineInertiaCoupling: 2.0 } },
-  { label: 'double-wheel-inertia', overrides: { wheelInertia: Number(baseConfig.wheelInertia) * 2 } },
+  { label: 'medium-fast', overrides: { longitudinalRelaxationLength: 0.060, longitudinalForceRelaxationLength: 0.030 } },
+  { label: 'minimum-clamped', overrides: { longitudinalRelaxationLength: 0.025, longitudinalForceRelaxationLength: 0.018 } },
 ].map(({ label, overrides }) => ({ label, result: run(0.05, 120, overrides) }));
 
 const result = {
-  scenario: 'M5 10 km/h full-lock fixed-pedal solver isolation',
-  fixedPedal: [0.02, 0.03, 0.05, 0.08, 0.10].map((t) => run(t)),
-  timestepAB: [120, 240, 480].map((hz) => run(0.05, hz)),
+  scenario: 'M5 10 km/h full-lock detrended fixed-pedal solver isolation',
+  fixedPedal: [0.02, 0.03, 0.05, 0.08].map(t => run(t)),
+  timestepAB: [120, 240, 480].map(hz => run(0.05, hz)),
   relaxationVariants,
-  inertiaVariants,
 };
 
 mkdirSync('artifacts', { recursive: true });
