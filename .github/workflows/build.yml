@@ -29,6 +29,8 @@ jobs:
         run: npm run test:mouse-steering
       - name: Steering direction regression
         run: npm run test:steering-direction
+      - name: Physical steering rack/column regression
+        run: npm run test:steering-dynamics
       - name: Turn-radius regression
         run: npm run test:turn-radius
       - name: Visual scale regression
