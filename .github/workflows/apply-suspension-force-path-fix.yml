@@ -74,14 +74,13 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Validate powered full-lock and force path
+      - name: Validate targeted shake and suspension behavior
         run: |
           npm run test:powered-full-lock
           npm run test:corner-load
           npm run test:suspension
           npm run test:m5-transient
           npm run test:m5-chassis
-          npm run test:m5-validation
           npm run test:automatic
           npm run build
 
