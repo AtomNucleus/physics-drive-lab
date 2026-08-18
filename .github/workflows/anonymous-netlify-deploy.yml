@@ -1,4 +1,4 @@
-name: Full Quality M5 Asset Hydration
+name: Full Quality M5 Netlify Preview
 
 on:
   push:
@@ -11,108 +11,57 @@ permissions:
   contents: write
 
 jobs:
-  hydrate:
+  deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout preview branch
+        uses: actions/checkout@v4
         with:
           ref: codex/full-quality-m5
           fetch-depth: 0
-      - name: Download and package the full BMW M5 G90 KN5
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify full-quality BMW asset
+        run: npm run test:full-quality-visual
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Deploy anonymously to Netlify
         shell: bash
         run: |
           set -euo pipefail
-          PAGE_URL='https://dlcfun.com/en/assetto-corsa/bmw-m5-g90-mod'
-          curl --fail --location --silent --show-error \
-            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
-            "$PAGE_URL" -o /tmp/m5-page.html
-
-          DOWNLOAD_URL="$(python - <<'PY'
-          import html
-          import re
-          from pathlib import Path
-
-          text = html.unescape(Path('/tmp/m5-page.html').read_text(errors='replace'))
-          text = text.replace('\\u0026', '&').replace('\\/', '/')
-          pattern = r'https://storage\.dlcfun\.com/dlcfun-private/files/addons/[^"\\\s]+\.zip\?[^"\\\s]+'
-          candidates = re.findall(pattern, text)
-          if not candidates:
-              raise SystemExit('Could not locate the signed BMW archive URL in the source page.')
-          print(candidates[0])
-          PY
-          )"
-
-          curl --fail --location --silent --show-error \
-            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
-            "$DOWNLOAD_URL" -o /tmp/bmw-m5-g90-2.zip
-
-          ARCHIVE_BYTES="$(stat -c%s /tmp/bmw-m5-g90-2.zip)"
-          if [ "$ARCHIVE_BYTES" -lt 80000000 ]; then
-            echo "Archive unexpectedly small: $ARCHIVE_BYTES bytes" >&2
-            exit 1
-          fi
-
-          rm -rf /tmp/m5-unpacked
-          mkdir -p /tmp/m5-unpacked
-          unzip -q /tmp/bmw-m5-g90-2.zip -d /tmp/m5-unpacked
-
-          KN5_PATH="$(find /tmp/m5-unpacked -type f -iname '*.kn5' -printf '%s\t%p\n' | sort -nr | head -n 1 | cut -f2-)"
-          if [ -z "$KN5_PATH" ] || [ ! -f "$KN5_PATH" ]; then
-            echo 'No KN5 model found in BMW archive.' >&2
-            exit 1
-          fi
-
-          KN5_BYTES="$(stat -c%s "$KN5_PATH")"
-          KN5_MAGIC="$(head -c 6 "$KN5_PATH")"
-          if [ "$KN5_MAGIC" != 'sc6969' ]; then
-            echo "Unexpected KN5 magic: $KN5_MAGIC" >&2
-            exit 1
-          fi
-          if [ "$KN5_BYTES" -lt 70000000 ]; then
-            echo "Selected KN5 is unexpectedly small: $KN5_BYTES bytes" >&2
-            exit 1
-          fi
-
-          rm -rf public/assets/bmw-m5-g90-full
-          mkdir -p public/assets/bmw-m5-g90-full
-          gzip -9 -c "$KN5_PATH" > /tmp/bmw-m5-g90-full.kn5.gz
-          GZIP_BYTES="$(stat -c%s /tmp/bmw-m5-g90-full.kn5.gz)"
-          SHA256="$(sha256sum "$KN5_PATH" | awk '{print $1}')"
-
-          base64 -w 0 /tmp/bmw-m5-g90-full.kn5.gz \
-            | split -b 5000000 -d -a 2 - public/assets/bmw-m5-g90-full/part-
-          for file in public/assets/bmw-m5-g90-full/part-*; do mv "$file" "$file.b64"; done
-          PARTS="$(find public/assets/bmw-m5-g90-full -name 'part-*.b64' | wc -l | tr -d ' ')"
-          MODEL_NAME="$(basename "$KN5_PATH")"
-
-          python - "$PARTS" "$ARCHIVE_BYTES" "$GZIP_BYTES" "$KN5_BYTES" "$SHA256" "$MODEL_NAME" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          parts, archive_bytes, gzip_bytes, kn5_bytes, sha256, model_name = sys.argv[1:]
-          manifest = {
-              'format': 'kn5-gzip-base64-v1',
-              'quality': 'full',
-              'sourceArchive': 'bmw-m5-g90-2.zip',
-              'sourcePage': 'https://dlcfun.com/en/assetto-corsa/bmw-m5-g90-mod',
-              'modelFile': model_name,
-              'parts': int(parts),
-              'archiveBytes': int(archive_bytes),
-              'gzipBytes': int(gzip_bytes),
-              'kn5Bytes': int(kn5_bytes),
-              'sha256': sha256,
-          }
-          Path('public/assets/bmw-m5-g90-full/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-          print(json.dumps(manifest, indent=2))
-          PY
-      - name: Commit full-quality visual asset
+          mkdir -p artifacts
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json | tee /tmp/netlify-deploy.json
+          node <<'NODE'
+          const fs = require('fs');
+          const text = fs.readFileSync('/tmp/netlify-deploy.json', 'utf8');
+          const start = text.indexOf('{');
+          const end = text.lastIndexOf('}');
+          if (start < 0 || end < start) throw new Error(`Netlify did not return JSON: ${text}`);
+          const result = JSON.parse(text.slice(start, end + 1));
+          const url = result.deploy_url || result.deployUrl || result.url || result.site_url || result.siteUrl;
+          if (!url) throw new Error(`Netlify response did not contain a preview URL: ${JSON.stringify(result)}`);
+          fs.writeFileSync('artifacts/full-quality-netlify-preview.txt', `${url}\n`);
+          console.log(`NETLIFY_PREVIEW=${url}`);
+          NODE
+      - name: Smoke-check deployed preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(cat artifacts/full-quality-netlify-preview.txt)"
+          curl --fail --location --silent --show-error --max-time 30 "$URL" >/dev/null
+      - name: Persist preview URL
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          rm -f artifacts/full-quality-m5-source-probe.txt
-          git add public/assets/bmw-m5-g90-full artifacts/full-quality-m5-source-probe.txt
-          git commit -m 'Bundle full-quality BMW M5 G90 KN5 visual'
+          git add artifacts/full-quality-netlify-preview.txt
+          git commit -m 'Record full-quality M5 Netlify preview'
           git push origin HEAD:codex/full-quality-m5
