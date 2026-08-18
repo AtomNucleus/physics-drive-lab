@@ -42,9 +42,9 @@ export interface SuspensionState {
   atReboundLimit: boolean;
   /** Chassis-side vertical suspension reaction retained for Vehicle compatibility. */
   forceNorm: number;
-  /** Spring/damper/ARB/hard-stop load at the integrated end-of-step state. */
+  /** Spring/damper/ARB/hard-stop load actually transmitted into the chassis during this fixed step. */
   chassisForceN: number;
-  /** Chassis reaction evaluated at the beginning of the fixed step and applied during that step. */
+  /** Alias exposing the start-of-step chassis reaction explicitly for validation telemetry. */
   appliedChassisForceN: number;
   /** Instantaneous vertical road load at the tire contact patch. */
   tireNormalForceN: number;
@@ -551,14 +551,15 @@ export class SuspensionSystem {
       // the opposite ARB forces remain equal-and-opposite instead of clipping one
       // side and creating artificial heave/jacking.
       const baseChassisForce = Math.max(0, springForce + damperForce + bumpStopForce);
-      let chassisForce = baseChassisForce + antiRollContribution;
+      let endChassisForce = baseChassisForce + antiRollContribution;
 
       // At a hard jounce stop, any road force that the compliant spring/damper can
-      // no longer absorb is transmitted directly into the chassis constraint.
+      // no longer absorb is transmitted directly into the chassis constraint. This
+      // end-state value becomes the beginning-of-step reaction on the next solve.
       let hardStopForce = 0;
       if (hitCompressionLimit || displacement >= maxDisplacement - 1e-6) {
-        hardStopForce = Math.max(0, tireNormalForce - chassisForce);
-        chassisForce += hardStopForce;
+        hardStopForce = Math.max(0, tireNormalForce - endChassisForce);
+        endChassisForce += hardStopForce;
       }
 
       const isAirborne = tireNormalForce < 1 && tireCompression <= 1e-5;
@@ -571,8 +572,8 @@ export class SuspensionSystem {
         bumpStopEngaged: bumpStopForce > 0,
         atCompressionLimit: hitCompressionLimit || displacement >= maxDisplacement - 1e-6,
         atReboundLimit: hitReboundLimit || displacement <= minDisplacement + 1e-6,
-        forceNorm: chassisForce,
-        chassisForceN: chassisForce,
+        forceNorm: appliedChassisForce,
+        chassisForceN: appliedChassisForce,
         appliedChassisForceN: appliedChassisForce,
         tireNormalForceN: tireNormalForce,
         springForceN: springForce,
