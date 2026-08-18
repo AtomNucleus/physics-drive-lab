@@ -1,0 +1,32 @@
+name: Temporary Netlify anonymous deploy
+
+on:
+  push:
+    branches:
+      - deploy/netlify-main-20260818
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Production build
+        run: npm run build
+      - name: Anonymous Netlify deploy
+        run: |
+          npx -y netlify-cli@latest deploy --allow-anonymous --dir=dist --no-build | tee netlify-deploy.txt
+      - name: Upload deploy output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: netlify-deploy-output
+          path: netlify-deploy.txt
+          if-no-files-found: warn
