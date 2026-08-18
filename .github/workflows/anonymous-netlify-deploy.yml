@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - agent/full-tire-combined-slip
-      - agent/m5-unsprung-bump-validation
     paths:
       - ".github/workflows/anonymous-netlify-deploy.yml"
   workflow_dispatch:
