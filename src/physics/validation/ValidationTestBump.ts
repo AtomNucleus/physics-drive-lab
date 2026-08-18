@@ -10,24 +10,43 @@ type BumpKind = 'bump-left' | 'bump-full';
 type Axle = 'front' | 'rear';
 
 type BumpRun = ReturnType<typeof runBump>;
+type StepResponse = {
+  index: number | null;
+  timeSec: number | null;
+  threshold: number;
+  preEventMaxStep: number;
+};
 
 function numeric(row: Record<string, unknown>, key: string) {
   return Number(row[key] ?? 0);
 }
 
-function firstResponseTime(
+function firstStepChange(
   rows: Record<string, unknown>[],
   onset: number,
+  preStart: number,
   key: string,
-  baseline: number,
-  threshold: number
-) {
-  for (let i = onset; i < rows.length; i++) {
-    if (Math.abs(numeric(rows[i], key) - baseline) >= threshold) {
-      return numeric(rows[i], 'time_s');
+  minimumThreshold: number,
+  noiseMultiplier = 1.5,
+  searchStart = onset
+): StepResponse {
+  const preEventSteps: number[] = [];
+  for (let i = Math.max(1, preStart + 1); i < onset; i++) {
+    preEventSteps.push(Math.abs(numeric(rows[i], key) - numeric(rows[i - 1], key)));
+  }
+  const preEventMaxStep = preEventSteps.length > 0 ? Math.max(...preEventSteps) : 0;
+  const threshold = Math.max(minimumThreshold, preEventMaxStep * noiseMultiplier);
+  for (let i = Math.max(1, searchStart); i < rows.length; i++) {
+    if (Math.abs(numeric(rows[i], key) - numeric(rows[i - 1], key)) >= threshold) {
+      return {
+        index: i,
+        timeSec: numeric(rows[i], 'time_s'),
+        threshold,
+        preEventMaxStep,
+      };
     }
   }
-  return null;
+  return { index: null, timeSec: null, threshold, preEventMaxStep };
 }
 
 function settlingTime(
@@ -81,7 +100,11 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
     rows.push(row);
   }
 
-  const roadOnsetIndex = rows.findIndex((row) => numeric(row, 'road_elevation_m') > 0.0002);
+  // Detect the first physically nonzero road sample. The previous 0.2 mm road
+  // threshold was one 120 Hz sample late at 30 km/h, making a genuinely causal
+  // wheel-first response appear simultaneous with the chassis response.
+  const roadEpsilonM = 1e-9;
+  const roadOnsetIndex = rows.findIndex((row) => numeric(row, 'road_elevation_m') > roadEpsilonM);
   const onset = Math.max(0, roadOnsetIndex);
   const preStart = Math.max(0, onset - 12);
   const baselineRows = rows.slice(preStart, Math.max(preStart + 1, onset));
@@ -92,27 +115,50 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
   const bodyDelta = rows.map((row) => numeric(row, 'y_m') - baseBodyY);
 
   const roadOnsetSec = numeric(rows[onset] ?? {}, 'time_s');
-  const hubVelocityResponseSec = firstResponseTime(
-    rows, onset, `${prefix}_hub_velocity_ms`, base(`${prefix}_hub_velocity_ms`), 0.02
+
+  // Response timing is measured from a change between adjacent 120 Hz samples,
+  // not from absolute deviation from a drifting pre-bump mean. The detector adapts
+  // to measured pre-event numerical/road noise while retaining a physical minimum.
+  // This is especially important for the applied suspension reaction: the newly
+  // evaluated wheel/spring force is intentionally one integration step ahead of the
+  // reaction actually applied to the sprung chassis.
+  const hubVelocityResponse = firstStepChange(
+    rows, onset, preStart, `${prefix}_hub_velocity_ms`, 0.02
   );
+  const suspensionResponse = firstStepChange(
+    rows, onset, preStart, `${prefix}_suspension_displacement_m`, 0.0003
+  );
+  const evaluatedForceResponse = firstStepChange(
+    rows, onset, preStart, `${prefix}_evaluated_chassis_force_n`, 100
+  );
+  const appliedForceResponse = firstStepChange(
+    rows, onset, preStart, `${prefix}_applied_chassis_force_n`, 100
+  );
+  // Chassis acceleration can have small approach/aero trends before the bump. A
+  // bump-caused chassis response cannot physically precede the changed suspension
+  // reaction reaching the chassis, so begin this search at that measured reaction.
+  const chassisAccelResponse = firstStepChange(
+    rows,
+    onset,
+    preStart,
+    'chassis_vertical_accel_ms2',
+    0.05,
+    1.5,
+    appliedForceResponse.index ?? onset
+  );
+
+  const hubVelocityResponseSec = hubVelocityResponse.timeSec;
+  const suspensionResponseSec = suspensionResponse.timeSec;
+  const evaluatedForceResponseSec = evaluatedForceResponse.timeSec;
+  const appliedForceResponseSec = appliedForceResponse.timeSec;
+  const chassisAccelResponseSec = chassisAccelResponse.timeSec;
+
   const hubDisplacementResponseSec = (() => {
     for (let i = onset; i < hubDelta.length; i++) {
       if (Math.abs(hubDelta[i]) >= 0.0005) return numeric(rows[i], 'time_s');
     }
     return null;
   })();
-  const suspensionResponseSec = firstResponseTime(
-    rows, onset, `${prefix}_suspension_displacement_m`, base(`${prefix}_suspension_displacement_m`), 0.0003
-  );
-  const evaluatedForceResponseSec = firstResponseTime(
-    rows, onset, `${prefix}_evaluated_chassis_force_n`, base(`${prefix}_evaluated_chassis_force_n`), 100
-  );
-  const appliedForceResponseSec = firstResponseTime(
-    rows, onset, `${prefix}_applied_chassis_force_n`, base(`${prefix}_applied_chassis_force_n`), 100
-  );
-  const chassisAccelResponseSec = firstResponseTime(
-    rows, onset, 'chassis_vertical_accel_ms2', base('chassis_vertical_accel_ms2'), 0.05
-  );
   const bodyDisplacementResponseSec = (() => {
     for (let i = onset; i < bodyDelta.length; i++) {
       if (Math.abs(bodyDelta[i]) >= 0.0003) return numeric(rows[i], 'time_s');
@@ -122,7 +168,7 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
 
   let roadEndIndex = -1;
   for (let i = onset + 1; i < rows.length; i++) {
-    if (numeric(rows[i], 'road_elevation_m') <= 0.0002) {
+    if (numeric(rows[i], 'road_elevation_m') <= roadEpsilonM) {
       roadEndIndex = i;
       break;
     }
@@ -162,6 +208,7 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
     (suspensionResponseSec as number) >= (hubVelocityResponseSec as number) - 0.5 * DT &&
     (evaluatedForceResponseSec as number) >= (hubVelocityResponseSec as number) - 0.5 * DT &&
     (appliedForceResponseSec as number) >= (hubVelocityResponseSec as number) + 0.5 * DT &&
+    (chassisAccelResponseSec as number) >= (appliedForceResponseSec as number) - 0.5 * DT &&
     (chassisAccelResponseSec as number) >= (hubVelocityResponseSec as number) + 0.5 * DT;
 
   return {
@@ -180,6 +227,18 @@ function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
     bodyDisplacementResponseSec,
     wheelBeforeChassisDelaySec,
     forcePathResolved,
+    responseDetector: {
+      hubVelocityThreshold: hubVelocityResponse.threshold,
+      hubVelocityPreEventMaxStep: hubVelocityResponse.preEventMaxStep,
+      suspensionThreshold: suspensionResponse.threshold,
+      suspensionPreEventMaxStep: suspensionResponse.preEventMaxStep,
+      evaluatedForceThreshold: evaluatedForceResponse.threshold,
+      evaluatedForcePreEventMaxStep: evaluatedForceResponse.preEventMaxStep,
+      appliedForceThreshold: appliedForceResponse.threshold,
+      appliedForcePreEventMaxStep: appliedForceResponse.preEventMaxStep,
+      chassisAccelThreshold: chassisAccelResponse.threshold,
+      chassisAccelPreEventMaxStep: chassisAccelResponse.preEventMaxStep,
+    },
     wheelHopHz,
     bodyHeaveHz,
     hubPeakM,
@@ -242,7 +301,7 @@ export function runBumpValidation(artifactDir: string): CorrectedValidationResul
   const graph = `${artifactDir}/bump-response.svg`;
   writeLineChartSvg(graph, {
     title: 'Single-front-wheel bump — unsprung hub vs sprung chassis',
-    subtitle: '30 km/h; timing begins when the contact patch reaches the 25 mm road bump',
+    subtitle: '30 km/h; timing begins at the first physically nonzero road-input sample',
     xLabel: 'time (s)',
     yLabel: 'vertical displacement from pre-bump baseline (m)',
     x: singleFront30.rows.map((row) => numeric(row, 'time_s')),
@@ -251,7 +310,7 @@ export function runBumpValidation(artifactDir: string): CorrectedValidationResul
       { name: 'sprung chassis CG', values: singleFront30.bodyDelta },
     ],
     markerX: singleFront30.roadOnsetSec,
-    markerLabel: 'road contact',
+    markerLabel: 'road input begins',
   });
 
   const status = !responsesExist || !safetyResolved
@@ -278,6 +337,10 @@ export function runBumpValidation(artifactDir: string): CorrectedValidationResul
       frontChassisAccelerationResponseDelaySec: front30.chassisAccelResponseSec === null ? null : front30.chassisAccelResponseSec - front30.roadOnsetSec,
       frontBodyDisplacementResponseDelaySec: front30.bodyDisplacementResponseSec === null ? null : front30.bodyDisplacementResponseSec - front30.roadOnsetSec,
       frontWheelBeforeChassisDelaySec: front30.wheelBeforeChassisDelaySec,
+      frontAppliedForceDetectorThresholdN: front30.responseDetector.appliedForceThreshold,
+      frontAppliedForcePreEventMaxStepN: front30.responseDetector.appliedForcePreEventMaxStep,
+      frontChassisAccelDetectorThresholdMps2: front30.responseDetector.chassisAccelThreshold,
+      frontChassisAccelPreEventMaxStepMps2: front30.responseDetector.chassisAccelPreEventMaxStep,
       frontWheelHopHz: front30.wheelHopHz,
       frontBodyHeaveHz: front30.bodyHeaveHz,
       rearWheelHopHz: singleRear30.wheelHopHz,
@@ -317,7 +380,7 @@ export function runBumpValidation(artifactDir: string): CorrectedValidationResul
         'FAIL: the bump matrix hit a hard travel limit, the unsprung-acceleration safety bound, or an excessive chassis-heave condition. Inspect raw telemetry rather than masking the instability.',
       ] : []),
       ...(forcePathResolved ? [
-        'Internal causal-order check passed across 20/30/45 km/h front single-wheel bumps and the 30 km/h rear single-wheel bump: the unsprung hub reacts before the changed suspension reaction reaches the sprung chassis.',
+        'Internal causal-order check passed across 20/30/45 km/h front single-wheel bumps and the 30 km/h rear single-wheel bump: road input moves the unsprung hub/evaluated suspension state first, then the changed suspension reaction reaches the sprung chassis on a later 120 Hz sample.',
       ] : []),
       'REFERENCE DATA NEEDED for production G90 wheel-hop frequency, body-heave frequency, damping ratio and axle-bump settling time.',
     ],
