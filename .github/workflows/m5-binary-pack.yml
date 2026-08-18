@@ -1,0 +1,56 @@
+name: Repack Full Quality M5 Binary Asset
+
+on:
+  push:
+    branches:
+      - codex/full-quality-m5
+    paths:
+      - .github/workflows/m5-binary-pack.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/full-quality-m5
+          fetch-depth: 0
+      - name: Convert base64 gzip payload to binary chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_DIR='public/assets/bmw-m5-g90-full'
+          cat "$ASSET_DIR"/part-*.b64 | base64 -d > /tmp/bmw-m5-g90-full.kn5.gz
+          ACTUAL="$(stat -c%s /tmp/bmw-m5-g90-full.kn5.gz)"
+          EXPECTED="$(node -e "console.log(require('./$ASSET_DIR/manifest.json').gzipBytes)")"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "gzip payload mismatch: $ACTUAL != $EXPECTED" >&2
+            exit 1
+          fi
+
+          rm -f "$ASSET_DIR"/part-*.b64 "$ASSET_DIR"/part-*.bin
+          split -b 4000000 -d -a 2 /tmp/bmw-m5-g90-full.kn5.gz "$ASSET_DIR"/part-
+          for file in "$ASSET_DIR"/part-*; do mv "$file" "$file.bin"; done
+
+          PARTS="$(find "$ASSET_DIR" -name 'part-*.bin' | wc -l | tr -d ' ')"
+          node - "$PARTS" <<'NODE'
+          const fs = require('fs');
+          const path = 'public/assets/bmw-m5-g90-full/manifest.json';
+          const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
+          manifest.format = 'kn5-gzip-binary-v1';
+          manifest.parts = Number(process.argv[2]);
+          manifest.partBytes = 4000000;
+          fs.writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+      - name: Commit binary asset chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/assets/bmw-m5-g90-full
+          git commit -m 'Store full-quality M5 asset as binary chunks'
+          git push origin HEAD:codex/full-quality-m5
