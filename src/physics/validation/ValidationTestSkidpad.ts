@@ -13,7 +13,7 @@ type CirclePoint = {
   measuredSpeedKmh: number;
   measuredRadiusM: number;
   roadSteerDeg: number;
-  steeringWheelEstimateDeg: number;
+  steeringWheelDeg: number;
   rollDeg: number;
   sideslipDeg: number;
   loads: number[];
@@ -53,7 +53,15 @@ function runCircle(targetG: number, radiusM = 45.72): { point: CirclePoint; rows
 
     sim.stepExplicit(controls as any, 1);
     autoShift(sim);
-    rows.push(basicRow(sim, (i + 1) * DT, controls));
+    const row = basicRow(sim, (i + 1) * DT, controls);
+    const rack = sim.suspensionKinematics.steeringDynamics.telemetry;
+    Object.assign(row, {
+      steering_wheel_deg: rack.steeringWheelAngleRad * RAD_TO_DEG,
+      steering_wheel_target_deg: rack.targetSteeringWheelAngleRad * RAD_TO_DEG,
+      rack_center_deg: rack.rackCenterAngleRad * RAD_TO_DEG,
+      rack_position_m: rack.rackDisplacementM,
+    });
+    rows.push(row);
   }
 
   const tail = rows.slice(-Math.round(1.2 / DT));
@@ -66,7 +74,7 @@ function runCircle(targetG: number, radiusM = 45.72): { point: CirclePoint; rows
   const roadSteerDeg = mean(tail.map((row) =>
     Math.abs((Number(row.fl_steer_deg) + Number(row.fr_steer_deg)) * 0.5)
   ));
-  const steeringWheelEstimateDeg = roadSteerDeg * 14.2;
+  const steeringWheelDeg = mean(tail.map((row) => Math.abs(Number(row.steering_wheel_deg))));
   const rollDeg = mean(tail.map((row) => Math.abs(Number(row.roll_deg))));
   const sideslipDeg = mean(tail.map((row) => Math.abs(Number(row.sideslip_deg))));
   const loads = ['fl', 'fr', 'rl', 'rr'].map((prefix) => avg(`${prefix}_fz_n`));
@@ -89,7 +97,7 @@ function runCircle(targetG: number, radiusM = 45.72): { point: CirclePoint; rows
       measuredSpeedKmh,
       measuredRadiusM,
       roadSteerDeg,
-      steeringWheelEstimateDeg,
+      steeringWheelDeg,
       rollDeg,
       sideslipDeg,
       loads,
@@ -110,13 +118,17 @@ export function runSkidpadValidation(artifactDir: string): CorrectedValidationRe
   const gradientPoints = stable.filter((point) => point.measuredG >= 0.18 && point.measuredG <= 0.75);
   const kinematicDeg = Math.atan(CONFIG.wheelbase / 45.72) * RAD_TO_DEG;
   const rollGradient = linearSlope(gradientPoints.map((point) => ({ x: point.measuredG, y: point.rollDeg })));
+  const roadWheelSlope = linearSlope(gradientPoints.map((point) => ({
+    x: point.measuredG,
+    y: point.roadSteerDeg,
+  })));
   const understeerGradient = linearSlope(gradientPoints.map((point) => ({
     x: point.measuredG,
     y: point.roadSteerDeg - kinematicDeg,
   })));
   const steeringWheelSlope = linearSlope(gradientPoints.map((point) => ({
     x: point.measuredG,
-    y: point.steeringWheelEstimateDeg,
+    y: point.steeringWheelDeg,
   })));
 
   const loadPoint = stable.length
@@ -137,7 +149,7 @@ export function runSkidpadValidation(artifactDir: string): CorrectedValidationRe
     measured_radius_m: point.measuredRadiusM,
     stable: point.stable,
     road_wheel_steer_deg: point.roadSteerDeg,
-    steering_wheel_estimate_deg: point.steeringWheelEstimateDeg,
+    steering_wheel_deg: point.steeringWheelDeg,
     roll_deg: point.rollDeg,
     sideslip_deg: point.sideslipDeg,
     fz_fl_n: point.loads[0],
@@ -162,14 +174,14 @@ export function runSkidpadValidation(artifactDir: string): CorrectedValidationRe
   const telemetryFile = writeTelemetry(artifactDir, 'skidpad', representative.rows);
   const graph = `${artifactDir}/skidpad-steering-vs-lateral-g.svg`;
   writeLineChartSvg(graph, {
-    title: '45.72 m skidpad — validated speed/radius hold',
-    subtitle: 'Only points within ±8% speed and radius and <8° sideslip count toward peak grip',
+    title: '45.72 m skidpad — physical steering demand vs lateral acceleration',
+    subtitle: 'Physical steering-wheel angle is measured from the rack model; quality gate remains ±8% speed/radius and <8° sideslip',
     xLabel: 'lateral acceleration (g)',
     yLabel: 'angle (deg)',
     x: stable.map((point) => point.measuredG),
     series: [
       { name: 'road-wheel steer', values: stable.map((point) => point.roadSteerDeg) },
-      { name: 'body roll', values: stable.map((point) => point.rollDeg) },
+      { name: 'steering wheel', values: stable.map((point) => point.steeringWheelDeg) },
     ],
   });
 
@@ -190,6 +202,7 @@ export function runSkidpadValidation(artifactDir: string): CorrectedValidationRe
       stablePointCount: stable.length,
       requestedPointCount: runs.length,
       rollGradientDegPerG: rollGradient,
+      roadWheelAngleSlopeDegPerG: roadWheelSlope,
       roadWheelUndersteerGradientDegPerG: understeerGradient,
       steeringWheelAngleSlopeDegPerG: steeringWheelSlope,
       loadCheckAtG: loadPoint.measuredG,
@@ -208,8 +221,8 @@ export function runSkidpadValidation(artifactDir: string): CorrectedValidationRe
       ] : []),
       ...(!stable.length ? ['The scripted driver cannot hold a valid 45.72 m speed/radius point; treat this as a harness/vehicle-control limitation, not a grip claim.'] : []),
       ...(!loadDirectionCorrect ? ['Left-turn lateral load transfer direction is reversed; this is a blocking coordinate/sign defect.'] : []),
-      'Steering-wheel angle remains an explicitly labeled 14.2:1 estimate until the physical steering-rack branch is integrated.',
-      'External G90 roll-gradient and understeer-gradient references are still needed.',
+      'Steering-wheel angle is measured directly from the physical rack/column model; no road-wheel ×14.2 estimate is used.',
+      'External G90 steering-wheel-angle slope, road-wheel-angle slope, roll-gradient and understeer-gradient references are still needed; only the skidpad peak has a hard external anchor here.',
     ],
     reference: reference.reference,
     telemetryFile,
