@@ -138,9 +138,8 @@ function parseCompactM5(bytes: Uint8Array): Kn5VisualResult {
     for (let i = 0; i + 2 < indexCount; i += 3) { const temp = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = temp; }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-    geometry.computeVertexNormals();
     if (materialRecords[materialId]?.name.toLowerCase() === 'window') sealWindowPerimeter(geometry);
-    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    else { geometry.computeVertexNormals(); geometry.computeBoundingBox(); geometry.computeBoundingSphere(); }
     const mesh = new THREE.Mesh(geometry, materials[materialId] ?? fallback); mesh.name = name; mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
   }
   if (reader.remaining() !== 0) throw new Error(`Bundled BMW visual has ${reader.remaining()} unexpected trailing bytes.`);
