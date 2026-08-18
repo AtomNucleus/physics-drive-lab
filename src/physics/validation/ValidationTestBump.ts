@@ -6,7 +6,53 @@ import {
   writeTelemetry, type CorrectedValidationResult,
 } from './CorrectedValidationCommon';
 
-function runBump(kind: 'bump-left' | 'bump-full', axle: 'front' | 'rear') {
+type BumpKind = 'bump-left' | 'bump-full';
+type Axle = 'front' | 'rear';
+
+type BumpRun = ReturnType<typeof runBump>;
+
+function numeric(row: Record<string, unknown>, key: string) {
+  return Number(row[key] ?? 0);
+}
+
+function firstResponseTime(
+  rows: Record<string, unknown>[],
+  onset: number,
+  key: string,
+  baseline: number,
+  threshold: number
+) {
+  for (let i = onset; i < rows.length; i++) {
+    if (Math.abs(numeric(rows[i], key) - baseline) >= threshold) {
+      return numeric(rows[i], 'time_s');
+    }
+  }
+  return null;
+}
+
+function settlingTime(
+  rows: Record<string, unknown>[],
+  roadEndIndex: number,
+  bodyDelta: number[],
+  peak: number
+) {
+  if (roadEndIndex < 0) return null;
+  const threshold = Math.max(0.0005, peak * 0.10);
+  const holdSamples = Math.round(0.35 / DT);
+  for (let i = roadEndIndex; i + holdSamples < rows.length; i++) {
+    let settled = true;
+    for (let j = i; j < i + holdSamples; j++) {
+      if (Math.abs(bodyDelta[j]) > threshold) {
+        settled = false;
+        break;
+      }
+    }
+    if (settled) return numeric(rows[i], 'time_s') - numeric(rows[roadEndIndex], 'time_s');
+  }
+  return null;
+}
+
+function runBump(kind: BumpKind, axle: Axle, speedKmh = 30) {
   const surface = new ValidationSurfaceProvider({
     kind,
     bumpStartZ: 20,
@@ -21,12 +67,12 @@ function runBump(kind: 'bump-left' | 'bump-full', axle: 'front' | 'rear') {
     : 20 + props.cgToRearAxle - 0.9;
   sim.reset(0, startZ, 0);
   for (let i = 0; i < Math.round(2.5 / DT); i++) sim.stepExplicit(NEUTRAL as any, 1);
-  setSpeed(sim, 30 / 3.6);
+  setSpeed(sim, speedKmh / 3.6);
 
   const wheelIndex = axle === 'front' ? 0 : 2;
   const prefix = wheelIndex === 0 ? 'fl' : 'rl';
   const rows: Record<string, unknown>[] = [];
-  for (let i = 0; i < Math.round(2.5 / DT); i++) {
+  for (let i = 0; i < Math.round(3.0 / DT); i++) {
     const controls = { ...NEUTRAL, throttle: 0.08 };
     sim.stepExplicit(controls as any, 1);
     const row = basicRow(sim, i * DT, controls);
@@ -35,105 +81,245 @@ function runBump(kind: 'bump-left' | 'bump-full', axle: 'front' | 'rear') {
     rows.push(row);
   }
 
-  const roadOnsetIndex = rows.findIndex((row) => Number(row.road_elevation_m) > 0.0002);
+  const roadOnsetIndex = rows.findIndex((row) => numeric(row, 'road_elevation_m') > 0.0002);
   const onset = Math.max(0, roadOnsetIndex);
   const preStart = Math.max(0, onset - 12);
   const baselineRows = rows.slice(preStart, Math.max(preStart + 1, onset));
-  const baseHubY = mean(baselineRows.map((row) => Number(row[`${prefix}_hub_world_y_m`])));
-  const baseBodyY = mean(baselineRows.map((row) => Number(row.y_m)));
-  const hubDelta = rows.map((row) => Number(row[`${prefix}_hub_world_y_m`]) - baseHubY);
-  const bodyDelta = rows.map((row) => Number(row.y_m) - baseBodyY);
+  const base = (key: string) => mean(baselineRows.map((row) => numeric(row, key)));
+  const baseHubY = base(`${prefix}_hub_world_y_m`);
+  const baseBodyY = base('y_m');
+  const hubDelta = rows.map((row) => numeric(row, `${prefix}_hub_world_y_m`) - baseHubY);
+  const bodyDelta = rows.map((row) => numeric(row, 'y_m') - baseBodyY);
 
-  const responseTime = (signal: number[], threshold: number) => {
-    for (let i = onset; i < signal.length; i++) {
-      if (Math.abs(signal[i]) >= threshold) return Number(rows[i].time_s);
+  const roadOnsetSec = numeric(rows[onset] ?? {}, 'time_s');
+  const hubVelocityResponseSec = firstResponseTime(
+    rows, onset, `${prefix}_hub_velocity_ms`, base(`${prefix}_hub_velocity_ms`), 0.02
+  );
+  const hubDisplacementResponseSec = (() => {
+    for (let i = onset; i < hubDelta.length; i++) {
+      if (Math.abs(hubDelta[i]) >= 0.0005) return numeric(rows[i], 'time_s');
     }
     return null;
-  };
-  const roadOnsetSec = Number(rows[onset]?.time_s ?? 0);
-  const hubResponseSec = responseTime(hubDelta, 0.0005);
-  const bodyResponseSec = responseTime(bodyDelta, 0.0003);
+  })();
+  const suspensionResponseSec = firstResponseTime(
+    rows, onset, `${prefix}_suspension_displacement_m`, base(`${prefix}_suspension_displacement_m`), 0.0003
+  );
+  const evaluatedForceResponseSec = firstResponseTime(
+    rows, onset, `${prefix}_evaluated_chassis_force_n`, base(`${prefix}_evaluated_chassis_force_n`), 100
+  );
+  const appliedForceResponseSec = firstResponseTime(
+    rows, onset, `${prefix}_applied_chassis_force_n`, base(`${prefix}_applied_chassis_force_n`), 100
+  );
+  const chassisAccelResponseSec = firstResponseTime(
+    rows, onset, 'chassis_vertical_accel_ms2', base('chassis_vertical_accel_ms2'), 0.05
+  );
+  const bodyDisplacementResponseSec = (() => {
+    for (let i = onset; i < bodyDelta.length; i++) {
+      if (Math.abs(bodyDelta[i]) >= 0.0003) return numeric(rows[i], 'time_s');
+    }
+    return null;
+  })();
 
-  const roadEndIndex = rows.findIndex((row, i) => i > onset && Number(row.road_elevation_m) <= 0.0002);
+  let roadEndIndex = -1;
+  for (let i = onset + 1; i < rows.length; i++) {
+    if (numeric(rows[i], 'road_elevation_m') <= 0.0002) {
+      roadEndIndex = i;
+      break;
+    }
+  }
   const spectralStart = Math.min(
     Math.max(0, rows.length - 60),
     Math.max(onset + 1, (roadEndIndex > 0 ? roadEndIndex : onset) + Math.round(0.04 / DT))
   );
 
+  const wheelHopHz = dominantFrequency(hubDelta.slice(spectralStart), 5, 25);
+  const bodyHeaveHz = dominantFrequency(bodyDelta.slice(spectralStart), 0.5, 5);
+  const hubPeakM = maxAbs(hubDelta);
+  const bodyPeakM = maxAbs(bodyDelta);
+  const maxCompressionM = Math.max(...rows.map((row) => numeric(row, `${prefix}_suspension_displacement_m`)));
+  const minCompressionM = Math.min(...rows.map((row) => numeric(row, `${prefix}_suspension_displacement_m`)));
+  const maxBumpStopN = Math.max(...rows.map((row) => numeric(row, `${prefix}_bumpstop_force_n`)));
+  const maxHardStopN = Math.max(...rows.map((row) => numeric(row, `${prefix}_hardstop_force_n`)));
+  const maxUnsprungAccel = Math.max(...rows.map((row) => Math.abs(numeric(row, `${prefix}_unsprung_accel_ms2`))));
+  const accelerationClampHits = rows.filter(
+    (row) => Math.abs(numeric(row, `${prefix}_unsprung_accel_ms2`)) >= 299.5
+  ).length;
+  const airborneSamples = rows.filter((row) => row[`${prefix}_contact`] === false).length;
+  const pitchValues = rows.slice(onset).map((row) => numeric(row, 'pitch_deg') - base('pitch_deg'));
+  const rollValues = rows.slice(onset).map((row) => numeric(row, 'roll_deg') - base('roll_deg'));
+  const settleSec = settlingTime(rows, roadEndIndex, bodyDelta, bodyPeakM);
+
+  const wheelBeforeChassisDelaySec = hubVelocityResponseSec !== null && chassisAccelResponseSec !== null
+    ? chassisAccelResponseSec - hubVelocityResponseSec
+    : null;
+  const forcePathResolved = [
+    hubVelocityResponseSec,
+    suspensionResponseSec,
+    evaluatedForceResponseSec,
+    appliedForceResponseSec,
+    chassisAccelResponseSec,
+  ].every((value) => value !== null) &&
+    (suspensionResponseSec as number) >= (hubVelocityResponseSec as number) - 0.5 * DT &&
+    (evaluatedForceResponseSec as number) >= (hubVelocityResponseSec as number) - 0.5 * DT &&
+    (appliedForceResponseSec as number) >= (hubVelocityResponseSec as number) + 0.5 * DT &&
+    (chassisAccelResponseSec as number) >= (hubVelocityResponseSec as number) + 0.5 * DT;
+
   return {
+    kind,
+    axle,
+    speedKmh,
+    prefix,
     rows,
     roadOnsetSec,
-    hubResponseSec,
-    bodyResponseSec,
-    hubDelaySec: hubResponseSec === null ? null : hubResponseSec - roadOnsetSec,
-    bodyDelaySec: bodyResponseSec === null ? null : bodyResponseSec - roadOnsetSec,
-    wheelHopHz: dominantFrequency(hubDelta.slice(spectralStart), 5, 25),
-    bodyHeaveHz: dominantFrequency(bodyDelta.slice(spectralStart), 0.5, 5),
-    hubPeakM: maxAbs(hubDelta),
-    bodyPeakM: maxAbs(bodyDelta),
+    hubVelocityResponseSec,
+    hubDisplacementResponseSec,
+    suspensionResponseSec,
+    evaluatedForceResponseSec,
+    appliedForceResponseSec,
+    chassisAccelResponseSec,
+    bodyDisplacementResponseSec,
+    wheelBeforeChassisDelaySec,
+    forcePathResolved,
+    wheelHopHz,
+    bodyHeaveHz,
+    hubPeakM,
+    bodyPeakM,
+    maxCompressionM,
+    minCompressionM,
+    maxBumpStopN,
+    maxHardStopN,
+    maxUnsprungAccel,
+    accelerationClampHits,
+    airborneSamples,
+    peakPitchDeg: maxAbs(pitchValues),
+    peakRollDeg: maxAbs(rollValues),
+    settlingTimeSec: settleSec,
     hubDelta,
     bodyDelta,
   };
 }
 
-export function runBumpValidation(artifactDir: string): CorrectedValidationResult {
-  const front = runBump('bump-left', 'front');
-  const rear = runBump('bump-left', 'rear');
-  const full = runBump('bump-full', 'front');
-  const responsesExist = [front, rear].every((run) =>
-    run.hubResponseSec !== null && run.bodyResponseSec !== null
-  );
-  const temporalSeparationResolved = responsesExist && [front, rear].every((run) =>
-    (run.bodyResponseSec as number) - (run.hubResponseSec as number) >= 0.5 * DT
-  );
+function modeSeparationResolved(run: BumpRun) {
+  return run.wheelHopHz !== null && run.bodyHeaveHz !== null &&
+    run.wheelHopHz >= run.bodyHeaveHz * 2;
+}
 
-  const telemetryFile = writeTelemetry(artifactDir, 'bump-response', front.rows);
+function runSafe(run: BumpRun) {
+  return run.accelerationClampHits === 0 &&
+    run.maxHardStopN < 1 &&
+    run.maxCompressionM < 0.139 &&
+    run.minCompressionM > -0.119 &&
+    run.bodyPeakM < 0.08;
+}
+
+export function runBumpValidation(artifactDir: string): CorrectedValidationResult {
+  const singleFront20 = runBump('bump-left', 'front', 20);
+  const singleFront30 = runBump('bump-left', 'front', 30);
+  const singleFront45 = runBump('bump-left', 'front', 45);
+  const singleRear30 = runBump('bump-left', 'rear', 30);
+  const fullFront30 = runBump('bump-full', 'front', 30);
+  const fullRear30 = runBump('bump-full', 'rear', 30);
+
+  const singleRuns = [singleFront20, singleFront30, singleFront45, singleRear30];
+  const allRuns = [...singleRuns, fullFront30, fullRear30];
+  const responsesExist = singleRuns.every((run) =>
+    run.hubVelocityResponseSec !== null &&
+    run.suspensionResponseSec !== null &&
+    run.appliedForceResponseSec !== null &&
+    run.chassisAccelResponseSec !== null
+  );
+  const forcePathResolved = responsesExist && singleRuns.every((run) => run.forcePathResolved);
+  const modeSeparation = allRuns.every(modeSeparationResolved);
+  const safetyResolved = allRuns.every(runSafe);
+
+  const telemetryFile = writeTelemetry(artifactDir, 'bump-response', singleFront30.rows);
+  writeTelemetry(artifactDir, 'bump-single-front-20kmh', singleFront20.rows);
+  writeTelemetry(artifactDir, 'bump-single-front-45kmh', singleFront45.rows);
+  writeTelemetry(artifactDir, 'bump-single-rear-30kmh', singleRear30.rows);
+  writeTelemetry(artifactDir, 'bump-axle-front-30kmh', fullFront30.rows);
+  writeTelemetry(artifactDir, 'bump-axle-rear-30kmh', fullRear30.rows);
+
   const graph = `${artifactDir}/bump-response.svg`;
   writeLineChartSvg(graph, {
-    title: 'Single-front-wheel bump — unsprung hub vs chassis',
-    subtitle: 'Timing begins when the contact patch reaches the road bump',
+    title: 'Single-front-wheel bump — unsprung hub vs sprung chassis',
+    subtitle: '30 km/h; timing begins when the contact patch reaches the 25 mm road bump',
     xLabel: 'time (s)',
     yLabel: 'vertical displacement from pre-bump baseline (m)',
-    x: front.rows.map((row) => Number(row.time_s)),
+    x: singleFront30.rows.map((row) => numeric(row, 'time_s')),
     series: [
-      { name: 'FL hub', values: front.hubDelta },
-      { name: 'chassis CG', values: front.bodyDelta },
+      { name: 'FL hub', values: singleFront30.hubDelta },
+      { name: 'sprung chassis CG', values: singleFront30.bodyDelta },
     ],
-    markerX: front.roadOnsetSec,
+    markerX: singleFront30.roadOnsetSec,
     markerLabel: 'road contact',
   });
 
-  const status = !responsesExist ? 'FAIL' : temporalSeparationResolved ? 'NO REFERENCE DATA' : 'WARNING';
+  const status = !responsesExist || !safetyResolved
+    ? 'FAIL'
+    : !forcePathResolved || !modeSeparation
+    ? 'WARNING'
+    : 'NO REFERENCE DATA';
+
+  const front30 = singleFront30;
   return {
     id: 'bump-response',
-    name: 'Single-wheel/full-width bump and wheel-hop response',
+    name: 'Unsprung-mass force path, bump response and wheel-hop modes',
     status,
     validationClass: 'engineering-plausibility',
-    blocking: !responsesExist,
-    summary: `Front hub ${front.hubDelaySec?.toFixed(3) ?? 'n/a'} s after road onset; chassis ${front.bodyDelaySec?.toFixed(3) ?? 'n/a'} s. Hub frequency ${front.wheelHopHz?.toFixed(2) ?? 'n/a'} Hz.`,
+    blocking: !responsesExist || !safetyResolved,
+    summary: `30 km/h front single-wheel bump: hub ${front30.hubVelocityResponseSec === null ? 'n/a' : ((front30.hubVelocityResponseSec - front30.roadOnsetSec) * 1000).toFixed(1)} ms after road onset; sprung-chassis acceleration ${front30.chassisAccelResponseSec === null ? 'n/a' : ((front30.chassisAccelResponseSec - front30.roadOnsetSec) * 1000).toFixed(1)} ms; wheel-to-chassis separation ${front30.wheelBeforeChassisDelaySec === null ? 'n/a' : (front30.wheelBeforeChassisDelaySec * 1000).toFixed(1)} ms.`,
     metrics: {
-      frontRoadOnsetSec: front.roadOnsetSec,
-      frontHubResponseDelaySec: front.hubDelaySec,
-      frontBodyResponseDelaySec: front.bodyDelaySec,
-      frontWheelHopHz: front.wheelHopHz,
-      frontBodyHeaveHz: front.bodyHeaveHz,
-      rearHubResponseDelaySec: rear.hubDelaySec,
-      rearBodyResponseDelaySec: rear.bodyDelaySec,
-      rearWheelHopHz: rear.wheelHopHz,
-      rearBodyHeaveHz: rear.bodyHeaveHz,
-      fullWidthWheelHopHz: full.wheelHopHz,
-      frontHubPeakVerticalM: front.hubPeakM,
-      frontBodyPeakHeaveM: front.bodyPeakM,
-      wheelBeforeBodyTemporalSeparationResolved: temporalSeparationResolved ? 1 : 0,
+      frontRoadOnsetSec: front30.roadOnsetSec,
+      frontHubVelocityResponseDelaySec: front30.hubVelocityResponseSec === null ? null : front30.hubVelocityResponseSec - front30.roadOnsetSec,
+      frontHubDisplacementResponseDelaySec: front30.hubDisplacementResponseSec === null ? null : front30.hubDisplacementResponseSec - front30.roadOnsetSec,
+      frontSuspensionCompressionResponseDelaySec: front30.suspensionResponseSec === null ? null : front30.suspensionResponseSec - front30.roadOnsetSec,
+      frontEvaluatedSuspensionForceResponseDelaySec: front30.evaluatedForceResponseSec === null ? null : front30.evaluatedForceResponseSec - front30.roadOnsetSec,
+      frontAppliedSuspensionForceResponseDelaySec: front30.appliedForceResponseSec === null ? null : front30.appliedForceResponseSec - front30.roadOnsetSec,
+      frontChassisAccelerationResponseDelaySec: front30.chassisAccelResponseSec === null ? null : front30.chassisAccelResponseSec - front30.roadOnsetSec,
+      frontBodyDisplacementResponseDelaySec: front30.bodyDisplacementResponseSec === null ? null : front30.bodyDisplacementResponseSec - front30.roadOnsetSec,
+      frontWheelBeforeChassisDelaySec: front30.wheelBeforeChassisDelaySec,
+      frontWheelHopHz: front30.wheelHopHz,
+      frontBodyHeaveHz: front30.bodyHeaveHz,
+      rearWheelHopHz: singleRear30.wheelHopHz,
+      rearBodyHeaveHz: singleRear30.bodyHeaveHz,
+      frontAxleWheelHopHz: fullFront30.wheelHopHz,
+      rearAxleWheelHopHz: fullRear30.wheelHopHz,
+      frontAxleSettlingTimeSec: fullFront30.settlingTimeSec,
+      rearAxleSettlingTimeSec: fullRear30.settlingTimeSec,
+      frontAxlePeakPitchDeg: fullFront30.peakPitchDeg,
+      rearAxlePeakPitchDeg: fullRear30.peakPitchDeg,
+      frontSinglePeakRollDeg: front30.peakRollDeg,
+      frontHubPeakVerticalM: front30.hubPeakM,
+      frontBodyPeakHeaveM: front30.bodyPeakM,
+      frontMaxCompressionM: front30.maxCompressionM,
+      frontMinCompressionM: front30.minCompressionM,
+      frontMaxBumpStopForceN: front30.maxBumpStopN,
+      frontMaxHardStopForceN: front30.maxHardStopN,
+      frontMaxUnsprungAccelMps2: front30.maxUnsprungAccel,
+      frontUnsprungAccelerationClampHits: front30.accelerationClampHits,
+      frontAirborneSamples: front30.airborneSamples,
+      wheelBeforeBodyTemporalSeparationResolved: forcePathResolved ? 1 : 0,
+      wheelHopBodyModeSeparationResolved: modeSeparation ? 1 : 0,
+      bumpTravelAndStabilityResolved: safetyResolved ? 1 : 0,
+      front20WheelBeforeChassisDelaySec: singleFront20.wheelBeforeChassisDelaySec,
+      front45WheelBeforeChassisDelaySec: singleFront45.wheelBeforeChassisDelaySec,
+      rear30WheelBeforeChassisDelaySec: singleRear30.wheelBeforeChassisDelaySec,
     },
     diagnostics: [
-      ...(!responsesExist ? ['The bump test failed to produce measurable wheel/chassis response. Inspect contact and suspension state before interpreting frequencies.'] : []),
-      ...(responsesExist && !temporalSeparationResolved ? [
-        'WARNING: hub and chassis displacement cross the current response thresholds within the same 120 Hz sample. The suite cannot yet quantitatively defend the required wheel-first/chassis-second delay.',
-        'The branch is stacked on PR #27, while PR #22 (routing suspension chassis-force reaction instead of tire normal load directly into the rigid body) remains separate. Re-run this test after that force-path work is integrated.',
-        'Raw rigid-body acceleration, tire-normal force and suspension chassis-force telemetry are now recorded so the next comparison can resolve this causal path directly.',
+      ...(!responsesExist ? ['The bump matrix failed to produce measurable wheel, suspension-force and chassis responses in every required single-wheel scenario.'] : []),
+      ...(responsesExist && !forcePathResolved ? [
+        'WARNING: at least one single-wheel speed/axle scenario does not quantitatively preserve road -> unsprung hub -> suspension reaction -> sprung-chassis response at 120 Hz.',
       ] : []),
-      'REFERENCE DATA NEEDED for production G90 wheel-hop, body-heave frequency and damping ratio.',
+      ...(!modeSeparation ? [
+        'WARNING: at least one bump scenario does not show a wheel-hop mode at least twice the sprung-body heave frequency.',
+      ] : []),
+      ...(!safetyResolved ? [
+        'FAIL: the bump matrix hit a hard travel limit, the unsprung-acceleration safety bound, or an excessive chassis-heave condition. Inspect raw telemetry rather than masking the instability.',
+      ] : []),
+      ...(forcePathResolved ? [
+        'Internal causal-order check passed across 20/30/45 km/h front single-wheel bumps and the 30 km/h rear single-wheel bump: the unsprung hub reacts before the changed suspension reaction reaches the sprung chassis.',
+      ] : []),
+      'REFERENCE DATA NEEDED for production G90 wheel-hop frequency, body-heave frequency, damping ratio and axle-bump settling time.',
     ],
     telemetryFile,
     graphFiles: [graph],
