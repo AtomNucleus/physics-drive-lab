@@ -42,10 +42,12 @@ export interface SuspensionState {
   atReboundLimit: boolean;
   /** Chassis-side vertical suspension reaction retained for Vehicle compatibility. */
   forceNorm: number;
-  /** Spring/damper/ARB/hard-stop load actually transmitted into the chassis during this fixed step. */
+  /** Suspension reaction actually transmitted into the sprung chassis this fixed step. */
   chassisForceN: number;
-  /** Alias exposing the start-of-step chassis reaction explicitly for validation telemetry. */
+  /** Explicit alias for validation telemetry. */
   appliedChassisForceN: number;
+  /** Spring/damper/ARB/hard-stop reaction evaluated after the unsprung integration. */
+  evaluatedChassisForceN: number;
   /** Instantaneous vertical road load at the tire contact patch. */
   tireNormalForceN: number;
   springForceN: number;
@@ -81,6 +83,7 @@ const makeState = (): SuspensionState => ({
   forceNorm: 0,
   chassisForceN: 0,
   appliedChassisForceN: 0,
+  evaluatedChassisForceN: 0,
   tireNormalForceN: 0,
   springForceN: 0,
   damperForceN: 0,
@@ -337,6 +340,7 @@ export class SuspensionSystem {
     const currentDisplacements = [0, 0, 0, 0];
     const baseChassisForces = [0, 0, 0, 0];
     const tireForces = [0, 0, 0, 0];
+    const freshlyInitialized = [false, false, false, false];
 
     // Evaluate forces at the beginning of the fixed step.
     for (let i = 0; i < 4; i++) {
@@ -350,6 +354,7 @@ export class SuspensionSystem {
 
       let state = this.states[i];
       if (!Number.isFinite(state.hubPositionWorldY)) {
+        freshlyInitialized[i] = true;
         const hubPositionWorldY = this.initializeHubPositionY(
           hardpointWorld.y,
           surface.elevation,
@@ -471,16 +476,16 @@ export class SuspensionSystem {
       const unsprungMassKg = Math.max(5, this.unsprungMassKgByCorner[i]);
       const previous = this.states[i];
 
-      // The chassis and unsprung integrators must use forces from the same instant.
-      // Do not feed the end-of-step spring/damper force back into the rigid body in
-      // the step that produced it; doing so advances chassis response by one sample.
-      let appliedChassisForce = chassisForces[i];
+      // The wheel/hub uses the suspension force evaluated from its state at the
+      // beginning of this fixed step. This keeps the unsprung equation internally
+      // synchronous instead of feeding a later wheel state back into the same solve.
+      let currentChassisForce = chassisForces[i];
       if (currentDisplacements[i] >= maxDisplacement - 1e-6) {
-        appliedChassisForce += Math.max(0, tireForces[i] - appliedChassisForce);
+        currentChassisForce += Math.max(0, tireForces[i] - currentChassisForce);
       }
 
       let unsprungAcceleration =
-        (tireForces[i] - appliedChassisForce) / unsprungMassKg;
+        (tireForces[i] - currentChassisForce) / unsprungMassKg;
       // Safety bound prevents a malformed terrain sample from destabilizing the 120 Hz solver.
       unsprungAcceleration = PhysicsMath.clamp(unsprungAcceleration, -300, 300);
 
@@ -551,16 +556,25 @@ export class SuspensionSystem {
       // the opposite ARB forces remain equal-and-opposite instead of clipping one
       // side and creating artificial heave/jacking.
       const baseChassisForce = Math.max(0, springForce + damperForce + bumpStopForce);
-      let endChassisForce = baseChassisForce + antiRollContribution;
+      let evaluatedChassisForce = baseChassisForce + antiRollContribution;
 
       // At a hard jounce stop, any road force that the compliant spring/damper can
-      // no longer absorb is transmitted directly into the chassis constraint. This
-      // end-state value becomes the beginning-of-step reaction on the next solve.
+      // no longer absorb is transmitted directly into the chassis constraint.
       let hardStopForce = 0;
       if (hitCompressionLimit || displacement >= maxDisplacement - 1e-6) {
-        hardStopForce = Math.max(0, tireNormalForce - endChassisForce);
-        endChassisForce += hardStopForce;
+        hardStopForce = Math.max(0, tireNormalForce - evaluatedChassisForce);
+        evaluatedChassisForce += hardStopForce;
       }
+
+      // Partitioned 120 Hz coupling: the newly evaluated wheel-side suspension
+      // reaction becomes the chassis input on the following fixed step. That gives
+      // the causal road -> unsprung -> suspension -> sprung-body ordering without
+      // inventing a damping coefficient or using the end-of-step wheel state as an
+      // algebraic same-step chassis force. Freshly initialized corners use their
+      // equilibrium reaction immediately so reset does not create a fake free-fall.
+      const appliedChassisForce = freshlyInitialized[i]
+        ? currentChassisForce
+        : previous.evaluatedChassisForceN;
 
       const isAirborne = tireNormalForce < 1 && tireCompression <= 1e-5;
 
@@ -575,6 +589,7 @@ export class SuspensionSystem {
         forceNorm: appliedChassisForce,
         chassisForceN: appliedChassisForce,
         appliedChassisForceN: appliedChassisForce,
+        evaluatedChassisForceN: evaluatedChassisForce,
         tireNormalForceN: tireNormalForce,
         springForceN: springForce,
         damperForceN: damperForce,
