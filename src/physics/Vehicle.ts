@@ -595,18 +595,27 @@ export class Vehicle {
           wheelContactAuthority
         );
 
-        // RigidBody.mass is the complete vehicle mass. The external support on it
-        // is therefore the road/tire normal reaction, not the internal spring force.
-        const suspensionSupportWorld = PhysicsMath.vec3Scale(
-          roadNormal,
-          suspState.tireNormalForceN * wheelContactAuthority
+        // Tire normal load first excites the independent wheel/hub mass inside
+        // SuspensionSystem and continues to set the tire model's grip. Applying that
+        // same road-normal load directly to the rigid body would bypass the spring
+        // and damper and make the ~2.4-ton chassis react in the same instant as the
+        // contact patch. The chassis therefore receives only the suspension-side
+        // spring/damper/bump-stop/ARB/hard-stop reaction.
+        const suspensionReactionWorld = PhysicsMath.vec3(
+          0,
+          suspState.chassisForceN * wheelContactAuthority,
+          0
         );
-        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+        const suspensionHardpointWorld = PhysicsMath.vec3Add(
+          this.rigidBody.position,
+          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+        );
 
-        // Apply the complete road reaction at the actual contact patch. RigidBody's
-        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
-        // around the physical mass center with no artificial yaw/roll/pitch force.
-        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+        // Tire shear remains an external road force at the contact patch. Vertical
+        // support enters the chassis at the suspension pickup, closing the intended
+        // road -> wheel/tire -> suspension -> sprung chassis force path.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
