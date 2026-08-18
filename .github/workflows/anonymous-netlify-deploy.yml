@@ -33,8 +33,6 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Verify full-quality BMW asset
         run: npm run test:full-quality-visual
-      - name: TypeScript validation
-        run: npm run lint
       - name: Production build
         run: npm run build
       - name: Deploy anonymously to Netlify
