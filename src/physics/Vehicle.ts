@@ -583,6 +583,16 @@ export class Vehicle {
       const contactUprightness = PhysicsMath.vec3Dot(bodyUpWorld, roadNormal);
       const wheelContactAuthority = wheelContactAuthorityForUprightness(contactUprightness);
 
+      // Spring, damper, bump-stop and ARB forces are internal suspension reactions,
+      // so they remain connected to the chassis even when the tire unloads over a
+      // crest. Do not gate them with tire contact authority or an airborne flag.
+      const suspensionReactionWorld = PhysicsMath.vec3(0, suspState.chassisForceN, 0);
+      const suspensionHardpointWorld = PhysicsMath.vec3Add(
+        this.rigidBody.position,
+        PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+      );
+      this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
+
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
         const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
         const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
@@ -595,35 +605,21 @@ export class Vehicle {
           wheelContactAuthority
         );
 
-        // Tire normal load first excites the independent wheel/hub mass inside
-        // SuspensionSystem and continues to set the tire model's grip. Applying that
-        // same road-normal load directly to the rigid body would bypass the spring
-        // and damper and make the ~2.4-ton chassis react in the same instant as the
-        // contact patch. The chassis therefore receives only the suspension-side
-        // spring/damper/bump-stop/ARB/hard-stop reaction.
-        const suspensionReactionWorld = PhysicsMath.vec3(
-          0,
-          suspState.chassisForceN * wheelContactAuthority,
-          0
-        );
-        const suspensionHardpointWorld = PhysicsMath.vec3Add(
-          this.rigidBody.position,
-          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
-        );
-
-        // Tire shear remains an external road force at the contact patch. Vertical
-        // support enters the chassis at the suspension pickup, closing the intended
-        // road -> wheel/tire -> suspension -> sprung chassis force path.
+        // Tire normal load excites only the independent wheel/hub mass and remains
+        // the tire model's grip input. The sprung chassis receives road vertical load
+        // through the suspension reaction above; planar tire shear remains external
+        // at the road contact patch.
         this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
-        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
       }
     }
 
-    // 8. Apply Gravity in World Frame
-    const gravityForceWorld = PhysicsMath.vec3(0, -this.config.mass * 9.81, 0);
+    // 8. Apply gravity only to the sprung heave generalized mass. The four unsprung
+    // vertical masses receive their own gravity inside SuspensionSystem, so the full
+    // static tire load still sums to the complete vehicle curb weight.
+    const gravityForceWorld = PhysicsMath.vec3(0, -this.rigidBody.verticalMass * 9.81, 0);
     this.rigidBody.addWorldForce(gravityForceWorld);
 
     // 9. Integrate 6-DOF Rigid Body Equations of Motion
