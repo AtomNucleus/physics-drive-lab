@@ -25,8 +25,12 @@ jobs:
         run: npm run test:mobile
       - name: Digital steering shaping regression
         run: npm run test:digital-steering
+      - name: Mouse steering regression
+        run: npm run test:mouse-steering
       - name: Steering direction regression
         run: npm run test:steering-direction
+      - name: Turn-radius regression
+        run: npm run test:turn-radius
       - name: Visual scale regression
         run: npm run test:visual-scale
       - name: 6 kmh crawl-speed stability regression
@@ -41,10 +45,24 @@ jobs:
         run: npm run test:stationary
       - name: Suspension regression
         run: npm run test:suspension
+      - name: Suspension kinematics regression
+        run: npm run test:kinematics
+      - name: Suspension kinematics anti-roll integration regression
+        run: npm run test:kinematics-arb
       - name: Dynamic corner-load regression
         run: npm run test:corner-load
       - name: Tire model regression
         run: npm run test:tire
+      - name: Tire-smoke regression
+        run: npm run test:smoke
+      - name: Crash stability regression
+        run: npm run test:crash
+      - name: Crash recovery regression
+        run: npm run test:crash-recovery
+      - name: Wheel visual-pose regression
+        run: npm run test:wheel-visual
+      - name: High-speed anti-roll regression
+        run: npm run test:high-speed
       - name: M5 transient response regression
         run: npm run test:m5-transient
       - name: M5 chassis inertia and CG dynamics regression
@@ -59,10 +77,10 @@ jobs:
             artifacts/m5-chassis-steering-step.csv
             artifacts/m5-chassis-steering-step.svg
           if-no-files-found: error
-      - name: M5 quantitative validation suite
+      - name: Complete hardened M5 quantitative validation suite
         id: m5_validation
         continue-on-error: true
-        run: npm run test:m5-validation
+        run: npm run test:m5-validation:strict
       - name: Upload M5 validation report and telemetry
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,9 +96,9 @@ jobs:
         run: npm run test:automatic
       - name: Production build
         run: npm run build
-      - name: Enforce M5 validation blocking invariants
+      - name: Enforce complete hardened M5 validation
         if: always() && steps.m5_validation.outcome == 'failure'
         run: |
-          echo "M5 validation suite reported a blocking physics invariant failure."
-          echo "Download the m5-validation-suite artifact for the report, telemetry and graphs."
+          echo "The final hardened M5 validation report contains at least one FAIL."
+          echo "Download the m5-validation-suite artifact and resolve the failure before merge."
           exit 1
