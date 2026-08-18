@@ -214,6 +214,24 @@ export class WheelDynamics {
     const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
     const dynamicBlend = dynamicBlendLinear * dynamicBlendLinear * (3 - 2 * dynamicBlendLinear);
 
+    // Relaxation length is a useful distance-domain representation once the tire is
+    // rolling normally, but at parking speed a long high-speed calibration turns into
+    // an unrealistically large time delay (L / v). The M5's 0.50 m high-speed value
+    // becomes ~0.18 s at 10 km/h and forms a low-frequency scrub/load feedback loop.
+    // Blend to a short brush-like relaxation length only at low contact-patch speed;
+    // by normal road speeds the configured calibration is recovered exactly.
+    const contactRoadSpeed = Math.hypot(longitudinalVelocity, lateralVelocity);
+    const configuredLateralSigma = Math.max(0.035, this.tireConfig.relaxationLength);
+    const parkingLateralSigma = Math.min(configuredLateralSigma, 0.15);
+    const lateralRoadSpeedLinear = PhysicsMath.clamp((contactRoadSpeed - 3.5) / (7.5 - 3.5), 0, 1);
+    const lateralRoadSpeedBlend =
+      lateralRoadSpeedLinear * lateralRoadSpeedLinear * (3 - 2 * lateralRoadSpeedLinear);
+    const effectiveLateralSigma = PhysicsMath.lerp(
+      parkingLateralSigma,
+      configuredLateralSigma,
+      lateralRoadSpeedBlend
+    );
+
     const speedForSlip = Math.max(2.0, Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed) * 0.35);
     const unconstrainedSlipRatio = PhysicsMath.clamp(
       (wheelSurfaceSpeed - longitudinalVelocity) / speedForSlip,
@@ -238,7 +256,7 @@ export class WheelDynamics {
       this.lowSpeedLongDeflection *= airborneDecay;
       this.lowSpeedLatDeflection *= airborneDecay;
     } else {
-      const lateralSigma = Math.max(0.035, this.tireConfig.relaxationLength);
+      const lateralSigma = effectiveLateralSigma;
       const longitudinalSigma = Math.max(
         0.025,
         this.tireConfig.longitudinalRelaxationLength ?? this.tireConfig.relaxationLength
@@ -329,7 +347,7 @@ export class WheelDynamics {
     const blendedTargetMz = target.aligningTorque * dynamicBlend;
     const blendedFrictionLimit = PhysicsMath.lerp(lowSpeedFrictionLimit, target.frictionLimit, dynamicBlend);
 
-    const lateralForceSigma = Math.max(0.025, this.tireConfig.relaxationLength * 0.55);
+    const lateralForceSigma = Math.max(0.025, effectiveLateralSigma * 0.55);
     const longitudinalForceSigma = Math.max(
       0.018,
       this.tireConfig.longitudinalForceRelaxationLength ??
