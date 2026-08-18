@@ -36,8 +36,8 @@
     "test:m5-chassis": "tsx src/physics/tests/M5ChassisDynamicsTests.ts",
     "test:m5-oversteer": "tsx src/physics/tests/M5OversteerRecoveryDiagnostic.ts",
     "test:high-speed": "tsx src/physics/tests/HighSpeedAntiRollTests.ts",
-    "test:m5-validation": "tsx src/physics/validation/M5ValidationSuite.ts --test=determinism,static-loads,mass-properties-moments,acceleration,braking,rapid-reversal,slalom,lift-throttle --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts",
-    "test:m5-validation:strict": "tsx src/physics/validation/M5ValidationSuite.ts --test=determinism,static-loads,mass-properties-moments,acceleration,braking,rapid-reversal,slalom,lift-throttle --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts --strict",
+    "test:m5-validation": "tsx src/physics/validation/M5ValidationSuite.ts --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts",
+    "test:m5-validation:strict": "tsx src/physics/validation/M5ValidationSuite.ts --artifacts=artifacts/m5-validation/base && tsx src/physics/validation/M5ValidationRunner.ts --strict",
     "test:m5-validation:list": "tsx src/physics/validation/M5ValidationSuite.ts --list"
   },
   "dependencies": {
