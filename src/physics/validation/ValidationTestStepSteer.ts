@@ -18,7 +18,10 @@ function runStep(speedKmh: number) {
   for (let i = 0; i < Math.round(3 / DT); i++) {
     const controls = { ...NEUTRAL, steer: i * DT < 1.5 ? steer : 0 };
     sim.stepExplicit(controls as any, 1);
-    const row = basicRow(sim, i * DT, controls);
+    // This row describes the post-step state, so timestamp it at the end of the
+    // fixed step. Labeling the first post-input sample t=0 made finite steering
+    // onset appear instantaneous even though the rack had already advanced 8.33 ms.
+    const row = basicRow(sim, (i + 1) * DT, controls);
     const rack = sim.suspensionKinematics.steeringDynamics.telemetry;
     Object.assign(row, {
       steering_wheel_deg: rack.steeringWheelAngleRad * RAD_TO_DEG,
