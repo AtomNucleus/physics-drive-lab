@@ -489,18 +489,25 @@ export class Vehicle {
       const suspState = this.suspension.states[i];
       const hpBody = hardpointsBody[i];
 
-      // The simplified suspension constrains each hub's X/Z position to its chassis
-      // hardpoint while solving only an independent vertical wheel/hub DOF. Tire
-      // slip must therefore use the horizontal velocity of that constrained hub
-      // location. A virtual ground-height point is not rigidly attached to the hub;
-      // using it lets chassis pitch/roll inject or cancel longitudinal/lateral slip.
-      const vContactBody = this.rigidBody.getPointVelocityBody(hpBody);
+      const contactPointBody = PhysicsMath.vec3(
+        hpBody.x,
+        -this.config.centerOfGravityHeight,
+        hpBody.z
+      );
+      const vGroundContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
+      const vHubConstraintBody = this.rigidBody.getPointVelocityBody(hpBody);
 
       const steer = wheel.steerAngle;
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
-      const vxWheel = vContactBody.x * sinS + vContactBody.z * cosS;
-      const vyWheel = vContactBody.x * cosS - vContactBody.z * sinS;
+
+      // Rolling speed follows the suspension-constrained hub X/Z motion. This is
+      // the measured low-speed braking defect: using a fictitious rigid point at
+      // road height lets pitch rebound cancel true hub forward velocity. Preserve
+      // the existing validated lateral contact kinematics here so this vertical-
+      // suspension correction does not retune low-speed cornering behavior.
+      const vxWheel = vHubConstraintBody.x * sinS + vHubConstraintBody.z * cosS;
+      const vyWheel = vGroundContactBody.x * cosS - vGroundContactBody.z * sinS;
 
       const contactWorld = suspState.contactPointWorld;
       const surface = this.surfaceProvider.sampleSurface(contactWorld.x, contactWorld.z);
