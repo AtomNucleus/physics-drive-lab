@@ -26,6 +26,7 @@ export interface SteeringDynamicsTelemetry {
   rackCenterAngleRad: number;
   rackAngularVelocityRadS: number;
   rackAngularAccelerationRadS2: number;
+  effectiveRackDampingNmsPerRad: number;
   leftRoadWheelAngleRad: number;
   rightRoadWheelAngleRad: number;
   leftComplianceRad: number;
@@ -45,6 +46,8 @@ interface SteeringCalibration {
   overallSteeringRatio: number;
   rackEquivalentInertiaKgm2: number;
   rackDampingNmsPerRad: number;
+  rackNearTargetDampingNmsPerRad: number;
+  rackNearTargetDampingWindowRad: number;
   rackFrictionNm: number;
   maxRackAngularSpeedRadS: number;
   maxRackAngularAccelRadS2: number;
@@ -143,15 +146,25 @@ export class PhysicalSteeringSystem {
   private readCalibration(): SteeringCalibration {
     const c = this.vehicle.config as any;
     const maxRackRate = Number(c.steeringRackMaxAngularSpeedRadS ?? c.steerSpeed ?? 3.2);
+    const maxRoadWheelAngleRad = Math.max(0.15, Number(c.maxSteerAngle ?? 0.58));
     return {
       wheelbaseM: Math.max(0.5, Number(c.wheelbase ?? 3.0)),
       frontTrackM: Math.max(0.5, Number(c.steeringFrontTrackM ?? c.trackWidthFront ?? c.trackWidth ?? 1.65)),
       ackermannRatio: PhysicsMath.clamp(Number(c.ackermannRatio ?? 0.9), 0, 1.15),
-      maxRoadWheelAngleRad: Math.max(0.15, Number(c.maxSteerAngle ?? 0.58)),
+      maxRoadWheelAngleRad,
       rackHalfTravelM: Math.max(0.02, Number(c.steeringRackHalfTravelM ?? 0.070)),
       overallSteeringRatio: Math.max(5, Number(c.steeringRatioOverall ?? c.steeringRatioCenter ?? 15.0)),
       rackEquivalentInertiaKgm2: Math.max(0.2, Number(c.steeringRackEquivalentInertiaKgm2 ?? 5.8)),
       rackDampingNmsPerRad: Math.max(0, Number(c.steeringRackDampingNmsPerRad ?? 46)),
+      // EPS/column velocity feedback is strongest near the driver's commanded rack
+      // position. Keeping this separate from base rack damping prevents the rack from
+      // becoming artificially sluggish during a large steering sweep while still
+      // damping the second-order overshoot that appears as the column error closes.
+      rackNearTargetDampingNmsPerRad: Math.max(0, Number(c.steeringRackNearTargetDampingNmsPerRad ?? 420)),
+      rackNearTargetDampingWindowRad: Math.max(
+        0.01,
+        Number(c.steeringRackNearTargetDampingWindowRad ?? maxRoadWheelAngleRad * 0.16)
+      ),
       rackFrictionNm: Math.max(0, Number(c.steeringRackFrictionNm ?? 4.5)),
       maxRackAngularSpeedRadS: Math.max(0.5, maxRackRate),
       maxRackAngularAccelRadS2: Math.max(10, Number(c.steeringRackMaxAngularAccelRadS2 ?? 90)),
@@ -183,6 +196,7 @@ export class PhysicalSteeringSystem {
       rackCenterAngleRad: 0,
       rackAngularVelocityRadS: 0,
       rackAngularAccelerationRadS2: 0,
+      effectiveRackDampingNmsPerRad: this.config.rackDampingNmsPerRad,
       leftRoadWheelAngleRad: 0,
       rightRoadWheelAngleRad: 0,
       leftComplianceRad: 0,
@@ -303,6 +317,17 @@ export class PhysicalSteeringSystem {
     );
   }
 
+  private effectiveRackDamping(targetRackAngleRad: number): number {
+    const error = Math.abs(targetRackAngleRad - this.rackCenterAngleRad);
+    const normalized = PhysicsMath.clamp(
+      1 - error / this.config.rackNearTargetDampingWindowRad,
+      0,
+      1
+    );
+    const smooth = normalized * normalized * (3 - 2 * normalized);
+    return this.config.rackDampingNmsPerRad + this.config.rackNearTargetDampingNmsPerRad * smooth;
+  }
+
   public update(
     steerInput: number,
     forwardSpeedMs: number,
@@ -330,6 +355,7 @@ export class PhysicalSteeringSystem {
     const steeringWheelAngleRad = this.rackCenterAngleRad * ratio;
     const steeringWheelVelocityRadS = this.rackAngularVelocityRadS * ratio;
     const targetSteeringWheelAngleRad = input * this.maxSteeringWheelAngleRad();
+    const targetRackAngleRad = targetSteeringWheelAngleRad / ratio;
     const driverSteeringWheelNm = PhysicsMath.clamp(
       this.config.driverTorsionStiffnessNmPerRad * (targetSteeringWheelAngleRad - steeringWheelAngleRad) -
         this.config.driverTorsionDampingNmsPerRad * steeringWheelVelocityRadS,
@@ -344,7 +370,8 @@ export class PhysicalSteeringSystem {
       this.config.epsMaxAssistTorqueNm
     );
     const inputRoadNm = (driverSteeringWheelNm + epsAssistSteeringWheelNm) * ratio;
-    const steeringDampingRoadNm = -this.config.rackDampingNmsPerRad * this.rackAngularVelocityRadS;
+    const effectiveRackDampingNmsPerRad = this.effectiveRackDamping(targetRackAngleRad);
+    const steeringDampingRoadNm = -effectiveRackDampingNmsPerRad * this.rackAngularVelocityRadS;
     const steeringFrictionRoadNm = -this.config.rackFrictionNm * Math.tanh(this.rackAngularVelocityRadS / 0.08);
     const steeringStopRoadNm = this.stopTorque();
     const netRackRoadNm = inputRoadNm + roadGeneralizedTorqueNm + steeringDampingRoadNm + steeringFrictionRoadNm + steeringStopRoadNm;
@@ -392,6 +419,7 @@ export class PhysicalSteeringSystem {
       rackCenterAngleRad: this.rackCenterAngleRad,
       rackAngularVelocityRadS: this.rackAngularVelocityRadS,
       rackAngularAccelerationRadS2: this.rackAngularAccelerationRadS2,
+      effectiveRackDampingNmsPerRad,
       leftRoadWheelAngleRad: steerFL,
       rightRoadWheelAngleRad: steerFR,
       leftComplianceRad: leftCompliance,
