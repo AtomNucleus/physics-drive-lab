@@ -46,7 +46,7 @@ jobs:
       - name: Low-speed cornering regression
         run: npm run test:cornering
 
-      - name: Powered 10 kmh full-lock jiggle diagnostic
+      - name: Powered 10 kmh full-lock jiggle regression diagnostic
         run: npm run test:powered-full-lock
 
       - name: Stationary steering regression
