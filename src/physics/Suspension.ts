@@ -42,8 +42,10 @@ export interface SuspensionState {
   atReboundLimit: boolean;
   /** Chassis-side vertical suspension reaction retained for Vehicle compatibility. */
   forceNorm: number;
-  /** Spring/damper/ARB/hard-stop load actually transmitted into the chassis. */
+  /** Spring/damper/ARB/hard-stop load at the integrated end-of-step state. */
   chassisForceN: number;
+  /** Chassis reaction evaluated at the beginning of the fixed step and applied during that step. */
+  appliedChassisForceN: number;
   /** Instantaneous vertical road load at the tire contact patch. */
   tireNormalForceN: number;
   springForceN: number;
@@ -78,6 +80,7 @@ const makeState = (): SuspensionState => ({
   atReboundLimit: false,
   forceNorm: 0,
   chassisForceN: 0,
+  appliedChassisForceN: 0,
   tireNormalForceN: 0,
   springForceN: 0,
   damperForceN: 0,
@@ -468,8 +471,16 @@ export class SuspensionSystem {
       const unsprungMassKg = Math.max(5, this.unsprungMassKgByCorner[i]);
       const previous = this.states[i];
 
+      // The chassis and unsprung integrators must use forces from the same instant.
+      // Do not feed the end-of-step spring/damper force back into the rigid body in
+      // the step that produced it; doing so advances chassis response by one sample.
+      let appliedChassisForce = chassisForces[i];
+      if (currentDisplacements[i] >= maxDisplacement - 1e-6) {
+        appliedChassisForce += Math.max(0, tireForces[i] - appliedChassisForce);
+      }
+
       let unsprungAcceleration =
-        (tireForces[i] - chassisForces[i]) / unsprungMassKg;
+        (tireForces[i] - appliedChassisForce) / unsprungMassKg;
       // Safety bound prevents a malformed terrain sample from destabilizing the 120 Hz solver.
       unsprungAcceleration = PhysicsMath.clamp(unsprungAcceleration, -300, 300);
 
@@ -562,6 +573,7 @@ export class SuspensionSystem {
         atReboundLimit: hitReboundLimit || displacement <= minDisplacement + 1e-6,
         forceNorm: chassisForce,
         chassisForceN: chassisForce,
+        appliedChassisForceN: appliedChassisForce,
         tireNormalForceN: tireNormalForce,
         springForceN: springForce,
         damperForceN: damperForce,
