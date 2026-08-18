@@ -125,6 +125,11 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   // of inventing a center/lock curve for validation.
   steeringRatioOverall: 14.2,
   steeringFrontTrackM: 1.684,
+  // Internal physical-solver guardrail, not a BMW target. Keep the existing finite
+  // 4.8 rad/s rack-rate authority while allowing the new inertial rack to reach that
+  // rate promptly enough that it does not add a second unintended steering filter on
+  // top of tire relaxation. G90 response delay/gain remain NO REFERENCE DATA.
+  steeringRackMaxAngularAccelRadS2: 300,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
