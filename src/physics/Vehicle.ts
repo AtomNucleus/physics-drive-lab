@@ -501,11 +501,10 @@ export class Vehicle {
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
 
-      // Rolling speed follows the suspension-constrained hub X/Z motion. This is
-      // the measured low-speed braking defect: using a fictitious rigid point at
-      // road height lets pitch rebound cancel true hub forward velocity. Preserve
-      // the existing validated lateral contact kinematics here so this vertical-
-      // suspension correction does not retune low-speed cornering behavior.
+      // Longitudinal slip is conjugate to the hub's constrained horizontal motion;
+      // the wheel rotational equation separately receives the tire-radius Fx torque.
+      // Lateral slip keeps the road-contact kinematics because no independent lateral
+      // or wheel-roll suspension coordinate exists in this reduced model.
       const vxWheel = vHubConstraintBody.x * sinS + vHubConstraintBody.z * cosS;
       const vyWheel = vGroundContactBody.x * cosS - vGroundContactBody.z * sinS;
 
@@ -550,18 +549,44 @@ export class Vehicle {
       this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
 
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
-        const fxBody = tireOut.fy * cosS + tireOut.fx * sinS;
-        const fzBody = -tireOut.fy * sinS + tireOut.fx * cosS;
-        const rawTireShearWorld = PhysicsMath.quatRotateVec3(
-          this.rigidBody.orientation,
-          PhysicsMath.vec3(fxBody, 0, fzBody)
+        // Split tire shear by the generalized coordinates it excites. The wheel
+        // rotational solver already accounts for the longitudinal contact-offset
+        // moment Fx*r, so giving the sprung chassis the same longitudinal force at
+        // ground height would count that radius moment twice. Apply longitudinal
+        // shear at the hub center; keep lateral shear at the road contact because
+        // there is no separate lateral/roll wheel DOF to carry its contact moment.
+        const longitudinalBody = PhysicsMath.vec3(
+          tireOut.fx * sinS,
+          0,
+          tireOut.fx * cosS
         );
-        const tirePlanarWorld = PhysicsMath.vec3Scale(
-          projectTireShearOntoSurface(rawTireShearWorld, roadNormal),
+        const lateralBody = PhysicsMath.vec3(
+          tireOut.fy * cosS,
+          0,
+          -tireOut.fy * sinS
+        );
+        const longitudinalWorld = PhysicsMath.vec3Scale(
+          projectTireShearOntoSurface(
+            PhysicsMath.quatRotateVec3(this.rigidBody.orientation, longitudinalBody),
+            roadNormal
+          ),
           wheelContactAuthority
         );
+        const lateralWorld = PhysicsMath.vec3Scale(
+          projectTireShearOntoSurface(
+            PhysicsMath.quatRotateVec3(this.rigidBody.orientation, lateralBody),
+            roadNormal
+          ),
+          wheelContactAuthority
+        );
+        const hubWorld = PhysicsMath.vec3(
+          contactWorld.x,
+          suspState.hubPositionWorldY,
+          contactWorld.z
+        );
 
-        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(longitudinalWorld, hubWorld);
+        this.rigidBody.addWorldForceAtPoint(lateralWorld, contactWorld);
         this.rigidBody.addBodyTorque(
           PhysicsMath.vec3(0, tireOut.aligningTorque * wheelContactAuthority, 0)
         );
