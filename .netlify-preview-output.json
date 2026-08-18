@@ -1,0 +1,8 @@
+{
+  "site_id": "3f7612df-bfd5-4445-bcd7-c04656c14993",
+  "site_url": "http://fabulous-pasca-f0eae0.netlify.app",
+  "deploy_id": "6a83cd7390c38013fbf07273",
+  "claim_url": "https://app.netlify.com/drop/fabulous-pasca-f0eae0#drop_token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODcwMjI3MDcsImV4cCI6MTc4NzAyNjMwNywiaXNzIjoiTmV0bGlmeSIsInNlc3Npb25faWQiOiJmODRmMDFjMS0wMGQxLTRkYjQtOTA5ZC1iMmI5MTJlNDJjNDkifQ.ZStzYrDOAgChM1H9u3_WzPJTuQ67yHwEcVkyGPOMnmg",
+  "claim_command": "netlify claim --site 3f7612df-bfd5-4445-bcd7-c04656c14993 --token eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3ODcwMjI3MDcsImV4cCI6MTc4NzAyNjMwNywiaXNzIjoiTmV0bGlmeSIsInNlc3Npb25faWQiOiJmODRmMDFjMS0wMGQxLTRkYjQtOTA5ZC1iMmI5MTJlNDJjNDkifQ.ZStzYrDOAgChM1H9u3_WzPJTuQ67yHwEcVkyGPOMnmg",
+  "password": "My-Drop-Site"
+}
