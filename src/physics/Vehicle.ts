@@ -494,19 +494,17 @@ export class Vehicle {
         -this.config.centerOfGravityHeight,
         hpBody.z
       );
-      const vGroundContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
-      const vHubConstraintBody = this.rigidBody.getPointVelocityBody(hpBody);
+      const vContactBody = this.rigidBody.getPointVelocityBody(contactPointBody);
 
       const steer = wheel.steerAngle;
       const cosS = Math.cos(steer);
       const sinS = Math.sin(steer);
 
-      // Longitudinal slip is conjugate to the hub's constrained horizontal motion;
-      // the wheel rotational equation separately receives the tire-radius Fx torque.
-      // Lateral slip keeps the road-contact kinematics because no independent lateral
-      // or wheel-roll suspension coordinate exists in this reduced model.
-      const vxWheel = vHubConstraintBody.x * sinS + vHubConstraintBody.z * cosS;
-      const vyWheel = vGroundContactBody.x * cosS - vGroundContactBody.z * sinS;
+      // Preserve the established tire-slip kinematics. The force-path correction
+      // below changes where longitudinal shear enters the chassis generalized
+      // coordinates; it does not retune the tire model's validated slip input.
+      const vxWheel = vContactBody.x * sinS + vContactBody.z * cosS;
+      const vyWheel = vContactBody.x * cosS - vContactBody.z * sinS;
 
       const contactWorld = suspState.contactPointWorld;
       const surface = this.surfaceProvider.sampleSurface(contactWorld.x, contactWorld.z);
@@ -549,12 +547,11 @@ export class Vehicle {
       this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
 
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
-        // Split tire shear by the generalized coordinates it excites. The wheel
-        // rotational solver already accounts for the longitudinal contact-offset
-        // moment Fx*r, so giving the sprung chassis the same longitudinal force at
-        // ground height would count that radius moment twice. Apply longitudinal
-        // shear at the hub center; keep lateral shear at the road contact because
-        // there is no separate lateral/roll wheel DOF to carry its contact moment.
+        // The wheel rotational solver already receives the longitudinal contact
+        // torque Fx*r. Applying the same longitudinal shear to the sprung chassis
+        // at road height duplicates that tire-radius pitch moment. Route longitudinal
+        // shear through the hub center; lateral shear remains at the road contact
+        // because this reduced model has no independent lateral/roll wheel DOF.
         const longitudinalBody = PhysicsMath.vec3(
           tireOut.fx * sinS,
           0,
