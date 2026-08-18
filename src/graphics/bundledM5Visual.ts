@@ -10,20 +10,14 @@ const GLASS_SEAM_EXPANSION_RATIO = 0.04;
 const GLASS_SEAM_MIN_COMPONENT_SIZE_M = 0.08;
 
 interface FullM5Manifest {
-  format: 'kn5-gzip-base64-v1';
+  format: 'kn5-gzip-binary-v1';
   quality: 'full';
   modelFile: string;
   parts: number;
+  partBytes: number;
   kn5Bytes: number;
   gzipBytes: number;
   sha256: string;
-}
-
-function decodeBase64Part(encoded: string): Uint8Array {
-  const binary = atob(encoded.replace(/\s+/g, ''));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 async function loadFullM5Bytes(): Promise<{ manifest: FullM5Manifest; data: Uint8Array }> {
@@ -34,37 +28,46 @@ async function loadFullM5Bytes(): Promise<{ manifest: FullM5Manifest; data: Uint
 
   const manifest = (await manifestResponse.json()) as FullM5Manifest;
   if (
-    manifest.format !== 'kn5-gzip-base64-v1' ||
+    manifest.format !== 'kn5-gzip-binary-v1' ||
     manifest.quality !== 'full' ||
     !Number.isInteger(manifest.parts) ||
     manifest.parts <= 0 ||
+    !Number.isFinite(manifest.partBytes) ||
+    manifest.partBytes <= 0 ||
     !manifest.modelFile.toLowerCase().endsWith('.kn5')
   ) {
     throw new Error('Bundled BMW full-quality manifest is invalid.');
   }
 
-  const encodedParts = await Promise.all(
+  const binaryParts = await Promise.all(
     Array.from({ length: manifest.parts }, async (_, index) => {
       const part = String(index).padStart(2, '0');
-      const response = await fetch(`${FULL_M5_ASSET_DIR}/part-${part}.b64`);
+      const response = await fetch(`${FULL_M5_ASSET_DIR}/part-${part}.bin`);
       if (!response.ok) {
         throw new Error(`Full-quality BMW asset part ${part} failed to load (${response.status}).`);
       }
-      return response.text();
+      return new Uint8Array(await response.arrayBuffer());
     })
   );
 
-  const decodedParts = encodedParts.map(decodeBase64Part);
-  const compressedLength = decodedParts.reduce((sum, part) => sum + part.byteLength, 0);
+  const compressedLength = binaryParts.reduce((sum, part) => sum + part.byteLength, 0);
   if (compressedLength !== manifest.gzipBytes) {
     throw new Error(
       `Full-quality BMW asset size mismatch (${compressedLength} compressed bytes; expected ${manifest.gzipBytes}).`
     );
   }
 
+  for (let index = 0; index < binaryParts.length - 1; index += 1) {
+    if (binaryParts[index].byteLength !== manifest.partBytes) {
+      throw new Error(
+        `Full-quality BMW asset part ${String(index).padStart(2, '0')} has ${binaryParts[index].byteLength} bytes; expected ${manifest.partBytes}.`
+      );
+    }
+  }
+
   const compressed = new Uint8Array(compressedLength);
   let offset = 0;
-  for (const part of decodedParts) {
+  for (const part of binaryParts) {
     compressed.set(part, offset);
     offset += part.byteLength;
   }
