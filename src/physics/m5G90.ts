@@ -125,10 +125,19 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   // of inventing a center/lock curve for validation.
   steeringRatioOverall: 14.2,
   steeringFrontTrackM: 1.684,
-  // Internal physical-solver guardrail, not a BMW target. Keep the existing finite
-  // 4.8 rad/s rack-rate authority while allowing the new inertial rack to reach that
-  // rate promptly enough that it does not add a second unintended steering filter on
-  // top of tire relaxation. G90 response delay/gain remain NO REFERENCE DATA.
+  // Internal physical-solver guardrails, not BMW targets. The column torsion and EPS
+  // actuator must be stiff/strong enough that normal aligning torque cannot backdrive
+  // a held steering-wheel command by multiple road-wheel degrees. The previous draft
+  // allowed ~2 degrees of rack error at 80-90 km/h under lateral load, which is an
+  // implementation defect rather than a defensible steering-compliance model. These
+  // values retain finite compliant motion while restoring positional authority; all
+  // G90 response delay/gain/compliance metrics remain NO REFERENCE DATA.
+  steeringColumnTorsionStiffnessNmPerRad: 60,
+  steeringEpsHighSpeedGain: 14,
+  steeringEpsMaxAssistTorqueNm: 110,
+  // Keep the existing finite 4.8 rad/s rack-rate authority while allowing the new
+  // inertial rack to reach that rate promptly enough that it does not add a second
+  // unintended steering filter on top of tire relaxation.
   steeringRackMaxAngularAccelRadS2: 300,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
