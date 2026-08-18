@@ -1,5 +1,6 @@
 import type { Vehicle } from './Vehicle';
 import { PhysicsMath } from './math/PhysicsMath';
+import { PhysicalSteeringSystem } from './SteeringDynamics';
 import {
   createVirtualSuspensionCornerGeometry,
   normalizeHeadingDelta,
@@ -26,9 +27,11 @@ export class SuspensionKinematicsAdapter {
     SuspensionCornerGeometry,
   ];
   public poses: [WheelKinematicPose, WheelKinematicPose, WheelKinematicPose, WheelKinematicPose];
+  public steeringDynamics: PhysicalSteeringSystem;
 
   private readonly vehicle: Vehicle;
   private wheelAdaptersInstalled = false;
+  private steeringAdapterInstalled = false;
   private stateAdapterInstalled = false;
 
   constructor(vehicle: Vehicle) {
@@ -36,6 +39,9 @@ export class SuspensionKinematicsAdapter {
     this.geometries = [] as unknown as SuspensionKinematicsAdapter['geometries'];
     this.poses = [] as unknown as SuspensionKinematicsAdapter['poses'];
     this.rebuild();
+    this.steeringDynamics = new PhysicalSteeringSystem(this.vehicle, () => this.poses);
+    (this.vehicle as any).steeringSystem = this.steeringDynamics;
+    this.installSteeringAdapter();
     this.installWheelAdapters();
     this.installStateAdapter();
   }
@@ -75,6 +81,7 @@ export class SuspensionKinematicsAdapter {
     }) as SuspensionKinematicsAdapter['geometries'];
 
     this.reset();
+    if (this.steeringDynamics) this.steeringDynamics.reconfigure();
   }
 
   public reset() {
@@ -83,6 +90,33 @@ export class SuspensionKinematicsAdapter {
       const steer = this.vehicle.wheels[index]?.steerAngle ?? 0;
       return solveSuspensionKinematics(geometry, travel, steer);
     }) as SuspensionKinematicsAdapter['poses'];
+    if (this.steeringDynamics) this.steeringDynamics.reset();
+  }
+
+  /**
+   * Replace only the runtime steering-angle boundary. DriverAids continues to own
+   * ABS/TCS, while a normal Simulation routes steering input into the physical rack.
+   * The legacy Ackermann helper remains available to direct DriverAids unit tests.
+   */
+  private installSteeringAdapter() {
+    if (this.steeringAdapterInstalled) return;
+    this.steeringAdapterInstalled = true;
+
+    const legacyReset = this.vehicle.driverAids.reset.bind(this.vehicle.driverAids);
+    this.vehicle.driverAids.reset = (() => {
+      legacyReset();
+      this.steeringDynamics.reset();
+    }) as typeof this.vehicle.driverAids.reset;
+
+    this.vehicle.driverAids.updateSteering = ((
+      steerInput: number,
+      forwardSpeedMs: number,
+      dt: number
+    ) => {
+      const result = this.steeringDynamics.update(steerInput, forwardSpeedMs, dt);
+      this.vehicle.driverAids.currentCenterSteerAngle = result.centerAngle;
+      return result;
+    }) as typeof this.vehicle.driverAids.updateSteering;
   }
 
   private installWheelAdapters() {
@@ -127,7 +161,7 @@ export class SuspensionKinematicsAdapter {
 
         // WheelDynamics keeps its transient brush/relaxation state in wheel-local
         // axes. Expose the solved heading before update so stationary steering cannot
-        // rotate stored tire shear into the chassis and reintroduce PR #9's shimmy.
+        // rotate stored tire shear into the chassis and reintroduce stationary shimmy.
         wheel.steerAngle = pose.headingRad;
         if (suspensionState) suspensionState.dynamicCamberDeg = pose.camberDeg;
 
@@ -205,11 +239,23 @@ export class SuspensionKinematicsAdapter {
           casterDeg: pose.casterDeg,
           kingpinInclinationDeg: pose.kingpinInclinationDeg,
           scrubRadiusM: pose.scrubRadiusM,
+          mechanicalTrailM: index === 0
+            ? this.steeringDynamics.telemetry.leftMechanicalTrailM
+            : index === 1
+              ? this.steeringDynamics.telemetry.rightMechanicalTrailM
+              : 0,
           kinematicHubLocalPos: { ...pose.hubCenterBody },
           wheelForwardBody: { ...pose.forwardBody },
           wheelLateralBody: { ...pose.lateralBody },
           wheelUpBody: { ...pose.upBody },
         });
+      });
+
+      Object.assign(state as any, {
+        steeringDynamics: {
+          ...this.steeringDynamics.telemetry,
+          torques: { ...this.steeringDynamics.telemetry.torques },
+        },
       });
       return state;
     }) as typeof this.vehicle.getState;
