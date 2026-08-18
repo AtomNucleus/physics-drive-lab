@@ -11,7 +11,7 @@ on:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   deploy:
@@ -24,4 +24,12 @@ jobs:
       - run: npm install
       - run: npm run build
       - name: Deploy anonymously to Netlify
-        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
+        run: |
+          npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json | tee .netlify-preview-output.json
+      - name: Publish preview result to branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .netlify-preview-output.json
+          git commit -m "Record temporary Netlify preview URL" || exit 0
+          git push
