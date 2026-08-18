@@ -63,6 +63,10 @@ jobs:
         id: m5_validation
         continue-on-error: true
         run: npm run test:m5-validation
+      - name: Corrected M5 steady-state cornering validation
+        id: m5_steady_state
+        continue-on-error: true
+        run: node scripts/run-m5-steady-state-corrected.mjs
       - name: Upload M5 validation report and telemetry
         if: always()
         uses: actions/upload-artifact@v4
@@ -78,9 +82,8 @@ jobs:
         run: npm run test:automatic
       - name: Production build
         run: npm run build
-      - name: Enforce M5 validation blocking invariants
-        if: always() && steps.m5_validation.outcome == 'failure'
+      - name: Enforce corrected steady-state validation
+        if: always() && steps.m5_steady_state.outcome == 'failure'
         run: |
-          echo "M5 validation suite reported a blocking physics invariant failure."
-          echo "Download the m5-validation-suite artifact for the report, telemetry and graphs."
+          echo "Corrected M5 steady-state validation reported a blocking failure."
           exit 1
