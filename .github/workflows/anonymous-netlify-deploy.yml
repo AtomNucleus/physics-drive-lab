@@ -9,6 +9,12 @@ on:
       - agent/hold-drag-orbit-camera
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/anonymous-netlify-deploy.yml
+      - src/graphics/cameraController.ts
 
 permissions:
   contents: read
@@ -18,6 +24,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,6 +34,8 @@ jobs:
       - run: npm run build
       - name: Deploy anonymously to Netlify
         id: netlify
+        env:
+          CI: true
         run: |
           npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json > netlify-deploy.json
           cat netlify-deploy.json
@@ -34,6 +43,7 @@ jobs:
           test -n "$DEPLOY_URL"
           echo "deploy_url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
       - name: Post preview URL to PR
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOY_URL: ${{ steps.netlify.outputs.deploy_url }}
