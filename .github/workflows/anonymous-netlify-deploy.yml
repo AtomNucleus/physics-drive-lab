@@ -1,26 +1,60 @@
-name: Anonymous Netlify Deploy
-# preview: main AWD/RWD settings integration test
+name: Full Quality M5 Asset Probe
 
 on:
   push:
     branches:
-      - main
-      - agent/full-tire-combined-slip
+      - codex/full-quality-m5
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  deploy:
+  probe:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm install
-      - run: npm run build
-      - name: Deploy anonymously to Netlify
-        run: npx --yes netlify-cli@latest deploy --allow-anonymous --dir=dist --json
+          ref: codex/full-quality-m5
+      - name: Probe public source for the previously supplied BMW M5 G90 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://dlcfun.com/en/assetto-corsa/bmw-m5-g90-mod'
+          curl --fail --location --silent --show-error \
+            --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
+            "$URL" -o /tmp/m5-page.html
+          mkdir -p artifacts
+          python - <<'PY' | tee artifacts/full-quality-m5-source-probe.txt
+          import html
+          import re
+          from pathlib import Path
+
+          text = Path('/tmp/m5-page.html').read_text(errors='replace')
+          print(f'PAGE_BYTES={len(text.encode())}')
+          needles = ('bmw-m5-g90-2.zip', 'bmw_m5', 'download', '.zip')
+          for line in text.splitlines():
+              lower = line.lower()
+              if any(n in lower for n in needles):
+                  clean = re.sub(r'\s+', ' ', html.unescape(line)).strip()
+                  if clean:
+                      print(clean[:1800])
+          print('CANDIDATE_URLS')
+          seen = set()
+          for match in re.findall(r'''(?:href|src|url)\s*[=:]\s*["']([^"']+)["']''', text, flags=re.I):
+              candidate = html.unescape(match)
+              lower = candidate.lower()
+              if ('download' in lower or '.zip' in lower or 'file' in lower) and candidate not in seen:
+                  seen.add(candidate)
+                  print(candidate)
+          PY
+      - name: Persist probe result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/full-quality-m5-source-probe.txt
+          git commit -m 'Capture full-quality M5 asset source probe'
+          git push origin HEAD:codex/full-quality-m5
