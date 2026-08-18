@@ -1,11 +1,16 @@
 name: Full Quality M5 Netlify Preview
 
 on:
-  push:
+  pull_request:
     branches:
-      - codex/full-quality-m5
+      - main
     paths:
       - .github/workflows/anonymous-netlify-deploy.yml
+      - src/graphics/bundledM5Visual.ts
+      - src/graphics/kn5VisualAlignment.ts
+      - public/assets/bmw-m5-g90-full/**
+      - scripts/verifyFullQualityM5Asset.mjs
+      - package.json
 
 permissions:
   contents: write
