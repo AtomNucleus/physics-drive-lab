@@ -135,10 +135,12 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   steeringColumnTorsionStiffnessNmPerRad: 60,
   steeringEpsHighSpeedGain: 14,
   steeringEpsMaxAssistTorqueNm: 110,
-  // Keep the existing finite 4.8 rad/s rack-rate authority while allowing the new
-  // inertial rack to reach that rate promptly enough that it does not add a second
-  // unintended steering filter on top of tire relaxation.
-  steeringRackMaxAngularAccelRadS2: 300,
+  // Keep the existing finite 4.8 rad/s rack-rate authority. A finite 180 rad/s²
+  // acceleration ceiling reaches that rate in ~27 ms: fast enough not to duplicate
+  // the tire-relaxation filter, but less impulsive than the 300 rad/s² trial that
+  // briefly created longitudinal contact-patch gross-slide flags during steering-in.
+  // This is an internal solver guardrail; G90 steering response remains unscored.
+  steeringRackMaxAngularAccelRadS2: 180,
   steerSpeed: 4.8,
   steerSpeedReduction: 0.60,
   rearSteerMaxDeg: 1.5,
