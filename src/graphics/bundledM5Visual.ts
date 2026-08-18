@@ -6,8 +6,10 @@ import { fitM5VisualToRealScale } from './m5VisualScale';
 const DEFAULT_M5_ASSET_PARTS = 8;
 const DEFAULT_M5_ASSET_DIR = `${import.meta.env.BASE_URL}assets/bmw-m5-g90-default`;
 const TEXT_DECODER = new TextDecoder('utf-8');
-const WINDOW_SEAM_MAX_MARGIN_M = 0.018;
-const WINDOW_SEAM_EXPANSION_RATIO = 0.035;
+const WINDOW_SEAM_MAX_MARGIN_M = 0.04;
+const WINDOW_SEAM_EXPANSION_RATIO = 0.08;
+const WINDOW_SEAM_MIN_COMPONENT_HEIGHT_M = 0.12;
+const WINDOW_SEAM_MIN_CENTER_HEIGHT_M = 0.98;
 
 interface CompactMaterialRecord { name: string; shader: string; blendMode: number; }
 
@@ -70,42 +72,91 @@ function materialFor(record: CompactMaterialRecord): THREE.MeshStandardMaterial 
 
 function sealWindowPerimeter(geometry: THREE.BufferGeometry): void {
   const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
-  if (!position || position.count < 3) return;
+  const index = geometry.getIndex();
+  if (!position || position.count < 3 || !index) return;
 
   geometry.computeVertexNormals();
-  geometry.computeBoundingBox();
   const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
-  const bounds = geometry.boundingBox;
-  if (!normal || !bounds) return;
+  if (!normal) return;
 
-  const center = bounds.getCenter(new THREE.Vector3());
+  // The compact M5 stores multiple disconnected glass panes in the same mesh.
+  // Build vertex connectivity first so every pane expands around its own center;
+  // using one center for the full mesh can push a side window laterally instead
+  // of burying its perimeter underneath the surrounding body frame.
+  const adjacency = Array.from({ length: position.count }, () => new Set<number>());
+  const used = new Uint8Array(position.count);
+  for (let i = 0; i + 2 < index.count; i += 3) {
+    const a = index.getX(i);
+    const b = index.getX(i + 1);
+    const c = index.getX(i + 2);
+    used[a] = 1; used[b] = 1; used[c] = 1;
+    adjacency[a].add(b); adjacency[a].add(c);
+    adjacency[b].add(a); adjacency[b].add(c);
+    adjacency[c].add(a); adjacency[c].add(b);
+  }
 
-  for (let i = 0; i < position.count; i += 1) {
-    const x = position.getX(i);
-    const y = position.getY(i);
-    const z = position.getZ(i);
+  const visited = new Uint8Array(position.count);
+  for (let seed = 0; seed < position.count; seed += 1) {
+    if (!used[seed] || visited[seed]) continue;
 
-    const nx = normal.getX(i);
-    const ny = normal.getY(i);
-    const nz = normal.getZ(i);
+    const component: number[] = [];
+    const stack = [seed];
+    visited[seed] = 1;
+    while (stack.length > 0) {
+      const vertex = stack.pop()!;
+      component.push(vertex);
+      for (const neighbor of adjacency[vertex]) {
+        if (visited[neighbor]) continue;
+        visited[neighbor] = 1;
+        stack.push(neighbor);
+      }
+    }
 
-    const dx = x - center.x;
-    const dy = y - center.y;
-    const dz = z - center.z;
-    const normalProjection = dx * nx + dy * ny + dz * nz;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const vertex of component) {
+      const x = position.getX(vertex);
+      const y = position.getY(vertex);
+      const z = position.getZ(vertex);
+      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z);
+    }
 
-    // Expand only along the glass surface. Moving along the normal would make
-    // the glass float outside the body; tangent-only dilation lets it tuck
-    // underneath the surrounding window frame and closes LOD-C perimeter gaps.
-    const tx = dx - nx * normalProjection;
-    const ty = dy - ny * normalProjection;
-    const tz = dz - nz * normalProjection;
-    const tangentLength = Math.hypot(tx, ty, tz);
-    if (tangentLength < 1e-6) continue;
+    const centerX = (minX + maxX) * 0.5;
+    const centerY = (minY + maxY) * 0.5;
+    const centerZ = (minZ + maxZ) * 0.5;
 
-    const margin = Math.min(WINDOW_SEAM_MAX_MARGIN_M, tangentLength * WINDOW_SEAM_EXPANSION_RATIO);
-    const scale = margin / tangentLength;
-    position.setXYZ(i, x + tx * scale, y + ty * scale, z + tz * scale);
+    // Only enlarge actual cabin panes. The source material also contains small
+    // disconnected decorative glass pieces; touching those would distort them.
+    if (maxY - minY < WINDOW_SEAM_MIN_COMPONENT_HEIGHT_M || centerY < WINDOW_SEAM_MIN_CENTER_HEIGHT_M) continue;
+
+    for (const vertex of component) {
+      const x = position.getX(vertex);
+      const y = position.getY(vertex);
+      const z = position.getZ(vertex);
+
+      const nx = normal.getX(vertex);
+      const ny = normal.getY(vertex);
+      const nz = normal.getZ(vertex);
+
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const dz = z - centerZ;
+      const normalProjection = dx * nx + dy * ny + dz * nz;
+
+      // Expand only inside the glass surface. The larger hidden overlap is
+      // intentionally buried below the body/frame rather than floating glass
+      // outward toward the camera.
+      const tx = dx - nx * normalProjection;
+      const ty = dy - ny * normalProjection;
+      const tz = dz - nz * normalProjection;
+      const tangentLength = Math.hypot(tx, ty, tz);
+      if (tangentLength < 1e-6) continue;
+
+      const margin = Math.min(WINDOW_SEAM_MAX_MARGIN_M, tangentLength * WINDOW_SEAM_EXPANSION_RATIO);
+      const scale = margin / tangentLength;
+      position.setXYZ(vertex, x + tx * scale, y + ty * scale, z + tz * scale);
+    }
   }
 
   position.needsUpdate = true;
