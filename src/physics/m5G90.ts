@@ -135,6 +135,15 @@ export const BMW_M5_2025_OVERRIDES: Partial<VehicleConfig> & Record<string, any>
   steeringColumnTorsionStiffnessNmPerRad: 60,
   steeringEpsHighSpeedGain: 14,
   steeringEpsMaxAssistTorqueNm: 110,
+  // The steering-wheel/column/EPS loop gives roughly 181 kN·m/rad of effective rack
+  // centering stiffness with the 14.2:1 ratio. With the 5.8 kg·m² equivalent rack
+  // inertia, near-critical road-coordinate damping is ~2.0 kN·m·s/rad. Column velocity
+  // feedback already contributes roughly 0.54 kN·m·s/rad at high-speed EPS gain, so
+  // add 1.4 kN·m·s/rad only inside a narrow 0.03 rad (~1.7°) position-error window.
+  // This suppresses zero-command rack kick without making large steering sweeps slow.
+  // These are solver-stability values, not G90 measured targets.
+  steeringRackNearTargetDampingNmsPerRad: 1400,
+  steeringRackNearTargetDampingWindowRad: 0.03,
   // Keep the existing finite 4.8 rad/s rack-rate authority. A finite 180 rad/s²
   // acceleration ceiling reaches that rate in ~27 ms: fast enough not to duplicate
   // the tire-relaxation filter, but less impulsive than the 300 rad/s² trial that
