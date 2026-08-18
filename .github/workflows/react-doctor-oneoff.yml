@@ -1,0 +1,44 @@
+name: React Doctor One-Off
+
+on:
+  push:
+    branches:
+      - diagnostics/react-doctor-20260818
+
+permissions:
+  contents: read
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run React Doctor full scan
+        shell: bash
+        run: |
+          set +e
+          npx --yes react-doctor@latest . --json --no-telemetry > react-doctor.json 2> react-doctor.stderr
+          status=$?
+          echo "React Doctor exit code: $status"
+          echo "--- stderr ---"
+          cat react-doctor.stderr || true
+          echo "--- report ---"
+          cat react-doctor.json || true
+          exit 0
+
+      - name: Upload React Doctor report
+        uses: actions/upload-artifact@v4
+        with:
+          name: react-doctor-report
+          path: |
+            react-doctor.json
+            react-doctor.stderr
+          if-no-files-found: error
+          retention-days: 1
