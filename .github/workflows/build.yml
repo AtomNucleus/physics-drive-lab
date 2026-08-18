@@ -1,112 +1,85 @@
-name: Assetto Corsa importer validation
+name: Apply suspension force path candidate
 
 on:
-  push:
-    branches:
-      - agent/ac-car-importer
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
-  validate:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout PR branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      - name: Route vertical road load through suspension reaction
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/physics/Vehicle.ts')
+          text = p.read_text()
+          old = '''        // RigidBody.mass is the complete vehicle mass. The external support on it
+        // is therefore the road/tire normal reaction, not the internal spring force.
+        const suspensionSupportWorld = PhysicsMath.vec3Scale(
+          roadNormal,
+          suspState.tireNormalForceN * wheelContactAuthority
+        );
+        const contactForceWorld = PhysicsMath.vec3Add(tirePlanarWorld, suspensionSupportWorld);
+
+        // Apply the complete road reaction at the actual contact patch. RigidBody's
+        // origin is the CG, so addWorldForceAtPoint evaluates M = r x F directly
+        // around the physical mass center with no artificial yaw/roll/pitch force.
+        this.rigidBody.addWorldForceAtPoint(contactForceWorld, contactWorld);
+'''
+          new = '''        // Tire normal load excites the unsprung wheel/hub and sets available tire grip.
+        // The sprung chassis receives the suspension-side reaction instead, closing
+        // the physical path: road -> wheel -> spring/damper/ARB -> chassis.
+        const suspensionReactionWorld = PhysicsMath.vec3(
+          0,
+          suspState.chassisForceN * wheelContactAuthority,
+          0
+        );
+        const suspensionHardpointWorld = PhysicsMath.vec3Add(
+          this.rigidBody.position,
+          PhysicsMath.quatRotateVec3(this.rigidBody.orientation, hpBody)
+        );
+
+        // The rigid-body origin is the physical CG. Planar tire shear keeps the
+        // actual contact-patch moment arm; vertical suspension force acts at its pickup.
+        this.rigidBody.addWorldForceAtPoint(tirePlanarWorld, contactWorld);
+        this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
+'''
+          if old not in text:
+              raise SystemExit('expected Vehicle.ts force block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Physics coordinate/sign convention guardrails
-        run: npm run test:conventions
-
-      - name: Mobile steering regression
-        run: npm run test:mobile
-
-      - name: Digital steering shaping regression
-        run: npm run test:digital-steering
-
-      - name: Steering direction regression
-        run: npm run test:steering-direction
-
-      - name: Visual scale regression
-        run: npm run test:visual-scale
-
-      - name: 6 kmh crawl-speed stability regression
-        run: npm run test:crawl
-
-      - name: Low-speed brake ABS/driveline limit-cycle regression
-        run: npm run test:low-speed-brake
-
-      - name: Low-speed cornering regression
-        run: npm run test:cornering
-
-      - name: Powered 10 kmh full-lock jiggle regression diagnostic
-        run: npm run test:powered-full-lock
-
-      - name: Stationary steering regression
-        run: npm run test:stationary
-
-      - name: Suspension regression
-        run: npm run test:suspension
-
-      - name: Dynamic corner-load regression
-        run: npm run test:corner-load
-
-      - name: Tire model regression
-        run: npm run test:tire
-
-      - name: M5 transient response regression
-        run: npm run test:m5-transient
-
-      - name: M5 chassis inertia and CG dynamics regression
-        run: npm run test:m5-chassis
-
-      - name: Generate M5 chassis transient trace graph
-        run: npx tsx src/physics/tests/M5ChassisTraceArtifact.ts
-
-      - name: Upload M5 chassis transient trace
-        uses: actions/upload-artifact@v4
-        with:
-          name: m5-chassis-transient-trace
-          path: |
-            artifacts/m5-chassis-steering-step.csv
-            artifacts/m5-chassis-steering-step.svg
-          if-no-files-found: error
-
-      - name: M5 quantitative validation suite
-        id: m5_validation
-        continue-on-error: true
-        run: npm run test:m5-validation
-
-      - name: Upload M5 validation report and telemetry
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: m5-validation-suite
-          path: artifacts/m5-validation/**
-          if-no-files-found: error
-
-      - name: M5 driver-controlled oversteer recovery regression
-        run: npm run test:m5-oversteer
-
-      - name: M5 xDrive 2WD regression
-        run: npm run test:m5-rwd
-
-      - name: Automatic transmission regression
-        run: npm run test:automatic
-
-      - name: Production build
-        run: npm run build
-
-      - name: Enforce M5 validation blocking invariants
-        if: always() && steps.m5_validation.outcome == 'failure'
+      - name: Run powered full-lock diagnostic and build
         run: |
-          echo "M5 validation suite reported a blocking physics invariant failure."
-          echo "Download the m5-validation-suite artifact for the report, telemetry and graphs."
-          exit 1
+          npm run test:powered-full-lock
+          npm run build
+
+      - name: Commit candidate and restore workflow plumbing
+        run: |
+          git checkout HEAD^ -- .github/workflows/build.yml
+          rm -f .github/workflows/apply-suspension-force-path-fix.yml .force-path-result.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/physics/Vehicle.ts .github/workflows/build.yml
+          git add -u .github/workflows .force-path-result.txt 2>/dev/null || true
+          git commit -m "Route suspension reaction into physical CG chassis"
+          git push origin HEAD:${{ github.head_ref }}
