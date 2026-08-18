@@ -162,8 +162,9 @@ export function enhanceHeroCarGeometry(
   root: THREE.Object3D,
   options: HeroCarTessellationOptions = {},
 ): HeroCarTessellationReport {
-  const targetTriangles = Math.max(0, options.targetTriangles ?? HERO_CAR_TARGET_TRIANGLES);
-  const triangleBudget = Math.max(targetTriangles, options.triangleBudget ?? HERO_CAR_TRIANGLE_BUDGET);
+  const triangleBudget = Math.max(0, options.triangleBudget ?? HERO_CAR_TRIANGLE_BUDGET);
+  const requestedTargetTriangles = Math.max(0, options.targetTriangles ?? HERO_CAR_TARGET_TRIANGLES);
+  const targetTriangles = Math.min(requestedTargetTriangles, triangleBudget);
   const maxPassesPerMesh = Math.max(0, Math.floor(options.maxPassesPerMesh ?? 2));
   const minTrianglesPerMesh = Math.max(1, Math.floor(options.minTrianglesPerMesh ?? 24));
   const maxNormalOffsetRatio = Math.max(0, options.maxNormalOffsetRatio ?? 0.035);
