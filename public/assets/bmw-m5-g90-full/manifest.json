@@ -1,5 +1,5 @@
 {
-  "format": "kn5-gzip-base64-v1",
+  "format": "kn5-gzip-binary-v1",
   "quality": "full",
   "sourceArchive": "bmw-m5-g90-2.zip",
   "sourcePage": "https://dlcfun.com/en/assetto-corsa/bmw-m5-g90-mod",
@@ -8,5 +8,6 @@
   "archiveBytes": 93762773,
   "gzipBytes": 29680297,
   "kn5Bytes": 83282778,
-  "sha256": "e6687b549de6cfb73191ded60cfb4debf362cf12048f42f7b617ed49f28d6e48"
+  "sha256": "e6687b549de6cfb73191ded60cfb4debf362cf12048f42f7b617ed49f28d6e48",
+  "partBytes": 4000000
 }
