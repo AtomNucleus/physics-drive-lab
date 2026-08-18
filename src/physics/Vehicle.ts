@@ -508,15 +508,20 @@ export class Vehicle {
 
       const contactWorld = suspState.contactPointWorld;
       const surface = this.surfaceProvider.sampleSurface(contactWorld.x, contactWorld.z);
+      const driveTorque = diffOut.wheelTorques[i];
+      const hydraulicBrakeTorque = brakeTorques.hydraulicTorques[i];
+      const handbrakeTorque = brakeTorques.handbrakeTorques[i];
+      const brakeRequest = Math.max(0, hydraulicBrakeTorque) + Math.max(0, handbrakeTorque);
+      const omegaBefore = wheel.angularVelocity;
 
       const tireOut = wheel.update(
         vxWheel,
         vyWheel,
         suspState.tireNormalForceN,
         suspState.dynamicCamberDeg,
-        diffOut.wheelTorques[i],
-        brakeTorques.hydraulicTorques[i],
-        brakeTorques.handbrakeTorques[i],
+        driveTorque,
+        hydraulicBrakeTorque,
+        handbrakeTorque,
         surface.friction * this.config.ambientSurfaceFrictionMultiplier,
         surface.rollingResistance,
         dt,
@@ -546,12 +551,36 @@ export class Vehicle {
       );
       this.rigidBody.addWorldForceAtPoint(suspensionReactionWorld, suspensionHardpointWorld);
 
+      // Longitudinal road shear acts on the wheel at the contact patch while the
+      // wheel's rotational equation receives the corresponding Fx*r tire torque.
+      // Once the shear force is routed to the chassis through the hub, the axle's
+      // drive/brake torque reaction must also be transmitted to the chassis or the
+      // reduced model loses the pitch moment carried through the hub/bearing/brake
+      // assembly. Use the same signed brake-hold logic as WheelDynamics so a held
+      // wheel transmits only the torque physically required for equilibrium rather
+      // than the driver's full available brake capacity.
+      const fz = Math.max(0, suspState.tireNormalForceN);
+      const rrForce = -Math.tanh(vxWheel / 0.08) * Math.max(0, surface.rollingResistance) * fz;
+      const tireReactionTorque = (tireOut.fx - rrForce) * wheel.radius;
+      const nonBrakeTorque = driveTorque - tireReactionTorque;
+      const spinReference = Math.abs(omegaBefore) > 0.35 ? omegaBefore : vxWheel / wheel.radius;
+      const brakeSign = Math.sign(spinReference);
+      const brakeCanHold = brakeRequest > Math.abs(nonBrakeTorque) + 2.0;
+      const staticBrakeHold =
+        brakeCanHold && Math.abs(vxWheel) < 1.20 && Math.abs(omegaBefore) < 4.5;
+      const appliedBrakeTorque = staticBrakeHold ? nonBrakeTorque : brakeRequest * brakeSign;
+      const chassisAxleReactionTorque = appliedBrakeTorque - driveTorque;
+      const axleDirectionBody = PhysicsMath.vec3(cosS, 0, -sinS);
+      this.rigidBody.addBodyTorque(
+        PhysicsMath.vec3Scale(axleDirectionBody, chassisAxleReactionTorque)
+      );
+
       if (!suspState.isAirborne && suspState.tireNormalForceN > 0 && wheelContactAuthority > 0.001) {
-        // The wheel rotational solver already receives the longitudinal contact
-        // torque Fx*r. Applying the same longitudinal shear to the sprung chassis
-        // at road height duplicates that tire-radius pitch moment. Route longitudinal
-        // shear through the hub center; lateral shear remains at the road contact
-        // because this reduced model has no independent lateral/roll wheel DOF.
+        // In the reduced suspension model the hub owns the wheel's constrained
+        // horizontal translation. Route longitudinal shear through that hub while
+        // the equal-and-opposite axle reaction above carries the wheel torque into
+        // the sprung chassis. Lateral shear remains at the road contact because no
+        // independent lateral/roll wheel coordinate is modeled.
         const longitudinalBody = PhysicsMath.vec3(
           tireOut.fx * sinS,
           0,
