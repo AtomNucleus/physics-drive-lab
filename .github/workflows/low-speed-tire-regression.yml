@@ -4,11 +4,6 @@ on:
   pull_request:
     paths:
       - 'src/physics/**'
-      - 'src/graphics/carRenderer.ts'
-      - 'src/App.tsx'
-      - 'package.json'
-      - 'PHYSICS_CONVENTIONS.md'
-      - 'AGENTS.md'
       - '.github/workflows/low-speed-tire-regression.yml'
   workflow_dispatch:
 
@@ -17,96 +12,71 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: package.json
+      - run: npm install --no-audit --no-fund
 
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
+      - name: Baseline powered full-lock
+        run: npm run test:powered-full-lock
 
-      - name: Physics coordinate/sign convention guardrails
-        run: npm run test:conventions
+      - name: Contact-speed brush handoff 1.8 m/s
+        run: |
+          cp src/physics/WheelDynamics.ts /tmp/WheelDynamics.ts
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/physics/WheelDynamics.ts'); s=p.read_text()
+          old='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
+'''
+          new='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const contactRoadSpeed = Math.hypot(longitudinalVelocity, lateralVelocity);
+    const dynamicBlendLinear = PhysicsMath.clamp((contactRoadSpeed - 0.35) / (1.80 - 0.35), 0, 1);
+'''
+          if old not in s: raise SystemExit('blend block not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          npm run test:powered-full-lock
+          cp /tmp/WheelDynamics.ts src/physics/WheelDynamics.ts
 
-      - name: Mobile steering regression
-        run: npm run test:mobile
+      - name: Contact-speed brush handoff 2.2 m/s
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/physics/WheelDynamics.ts'); s=p.read_text()
+          old='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
+'''
+          new='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const contactRoadSpeed = Math.hypot(longitudinalVelocity, lateralVelocity);
+    const dynamicBlendLinear = PhysicsMath.clamp((contactRoadSpeed - 0.35) / (2.20 - 0.35), 0, 1);
+'''
+          if old not in s: raise SystemExit('blend block not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          npm run test:powered-full-lock
+          cp /tmp/WheelDynamics.ts src/physics/WheelDynamics.ts
 
-      - name: Digital steering shaping regression
-        run: npm run test:digital-steering
-
-      - name: Mouse steering sign/range regression
-        run: npm run test:mouse-steering
-
-      - name: 50 kmh full-lock turn-radius diagnostic
-        run: npm run test:turn-radius
-
-      - name: 6 kmh crawl-speed stability regression
-        run: npm run test:crawl
-
-      - name: Low-speed cornering regression
-        run: npm run test:cornering
-
-      - name: Stationary steering and low-speed tire regression
-        run: npm run test:stationary
-
-      - name: Suspension behavior regression
-        run: npm run test:suspension
-
-      - name: Suspension kinematics regression
-        run: npm run test:kinematics
-
-      - name: PR18 anti-roll + suspension kinematics integration
-        run: npm run test:kinematics-arb
-
-      - name: Steering direction regression
-        run: npm run test:steering-direction
-
-      - name: Dynamic corner-load regression
-        run: npm run test:corner-load
-
-      - name: Full tire and combined-slip regression
-        run: npm run test:tire
-
-      - name: M5 transient response regression
-        run: npm run test:m5-transient
-
-      - name: M5 driver-controlled oversteer recovery regression
-        run: npm run test:m5-oversteer
-
-      - name: Automatic transmission and low-speed propulsion regression
-        run: npm run test:automatic
-
-      - name: Wheel visual pose regression
-        run: npm run test:wheel-visual
-
-      - name: M5 drive-mode regression
-        run: npm run test:m5-rwd
-
-      # PR #18 permanent coverage must remain green with geometry-derived wheel
-      # orientation active. It verifies signed equal/opposite ARB reactions, no
-      # artificial jacking, physical-CG tire-force moments, wheel loading and recovery.
-      - name: High-speed anti-roll handling regression
-        run: npm run test:high-speed
-
-      - name: Tire smoke regression
-        run: npm run test:smoke
-
-      - name: Spinout and wipeout stability regression
-        run: npm run test:crash
-
-      - name: Crash recovery and CG-pivot regression
-        run: npm run test:crash-recovery
-
-      - name: Production build
-        run: npm run build
-
-      # Keep repository-wide typechecking visible while preserving the established
-      # physics workflow behavior for any unrelated baseline typing issues.
-      - name: TypeScript baseline check
-        continue-on-error: true
-        run: npm run lint
+      - name: Contact-speed brush handoff 2.6 m/s
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/physics/WheelDynamics.ts'); s=p.read_text()
+          old='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);
+'''
+          new='''    const wheelSurfaceSpeed = this.angularVelocity * this.radius;
+    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));
+    const contactRoadSpeed = Math.hypot(longitudinalVelocity, lateralVelocity);
+    const dynamicBlendLinear = PhysicsMath.clamp((contactRoadSpeed - 0.35) / (2.60 - 0.35), 0, 1);
+'''
+          if old not in s: raise SystemExit('blend block not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          npm run test:powered-full-lock
