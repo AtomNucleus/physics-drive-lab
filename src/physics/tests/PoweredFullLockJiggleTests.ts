@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import type { ControlInputs, VehicleConfig } from '../../types';
 import { Simulation } from '../Simulation';
 import { ProvingGroundSurfaceProvider } from '../SurfaceProvider';
@@ -9,10 +6,10 @@ import { DEFAULT_VEHICLE_CONFIG } from '../vehiclePresets';
 import { BMW_M5_2025_OVERRIDES } from '../m5G90';
 import { PhysicsMath } from '../math/PhysicsMath';
 
-const DT = 1 / 120;
+const HZ = 120;
 const TARGET_SPEED_MS = 10 / 3.6;
 const DEG = 180 / Math.PI;
-const baseConfig = {
+const config = {
   ...DEFAULT_VEHICLE_CONFIG,
   ...BMW_M5_2025_OVERRIDES,
 } as VehicleConfig;
@@ -26,38 +23,12 @@ const baseInputs: ControlInputs = {
   shiftDown: false,
 };
 
-function makeAtTenKmh(automaticDrive: boolean, overrides: Partial<VehicleConfig> = {}) {
-  const cfg = { ...baseConfig, ...overrides } as VehicleConfig;
-  const sim = new Simulation(cfg, new ProvingGroundSurfaceProvider());
-  sim.reset(0, 0, 0);
-
-  sim.vehicle.powertrain.isAutomatic = false;
-  sim.vehicle.powertrain.gear = 0;
-  for (let i = 0; i < 360; i++) sim.stepExplicit({ ...baseInputs, steer: 0 }, 1);
-
-  sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, TARGET_SPEED_MS);
-  for (const wheel of sim.vehicle.wheels) wheel.reset(TARGET_SPEED_MS);
-
-  sim.vehicle.powertrain.isAutomatic = automaticDrive;
-  sim.vehicle.powertrain.gear = automaticDrive ? 1 : 0;
-  sim.vehicle.powertrain.engineRpm = cfg.idleRpm;
-  sim.vehicle.powertrain.flywheelRpm = cfg.idleRpm;
-  return sim;
-}
-
 const range = (values: number[]) => Math.max(...values) - Math.min(...values);
 const rms = (values: number[]) =>
   Math.sqrt(values.reduce((sum, value) => sum + value * value, 0) / Math.max(1, values.length));
 
-function secondDifferenceRms(values: number[]) {
-  if (values.length < 3) return 0;
-  const diffs: number[] = [];
-  for (let i = 2; i < values.length; i++) diffs.push(values[i] - 2 * values[i - 1] + values[i - 2]);
-  return rms(diffs);
-}
-
-function highPassRms(values: number[], halfWindow = 8) {
-  if (values.length < halfWindow * 2 + 1) return 0;
+function detrendedRms(values: number[], halfWindow: number) {
+  if (values.length <= halfWindow * 2 + 1) return 0;
   const residuals: number[] = [];
   for (let i = halfWindow; i < values.length - halfWindow; i++) {
     let sum = 0;
@@ -67,45 +38,49 @@ function highPassRms(values: number[], halfWindow = 8) {
   return rms(residuals);
 }
 
+function makeAtTenKmh(automaticDrive: boolean) {
+  const sim = new Simulation(config, new ProvingGroundSurfaceProvider());
+  sim.reset(0, 0, 0);
+
+  sim.vehicle.powertrain.isAutomatic = false;
+  sim.vehicle.powertrain.gear = 0;
+  for (let i = 0; i < HZ * 3; i++) sim.stepExplicit({ ...baseInputs, steer: 0 }, 1);
+
+  sim.vehicle.rigidBody.velocity = PhysicsMath.vec3(0, 0, TARGET_SPEED_MS);
+  for (const wheel of sim.vehicle.wheels) wheel.reset(TARGET_SPEED_MS);
+
+  sim.vehicle.powertrain.isAutomatic = automaticDrive;
+  sim.vehicle.powertrain.gear = automaticDrive ? 1 : 0;
+  sim.vehicle.powertrain.engineRpm = config.idleRpm;
+  sim.vehicle.powertrain.flywheelRpm = config.idleRpm;
+  return sim;
+}
+
 type ScenarioMode = 'neutral-coast' | 'automatic-creep' | 'automatic-speed-hold';
-type ScenarioOptions = { tcsOff?: boolean; openDifferential?: boolean };
 
-function runScenario(
-  mode: ScenarioMode,
-  options: ScenarioOptions = {},
-  configOverrides: Partial<VehicleConfig> = {}
-) {
-  const automaticDrive = mode !== 'neutral-coast';
-  const sim = makeAtTenKmh(automaticDrive, configOverrides);
-  if (options.tcsOff) sim.vehicle.driverAids.config.tcsMode = 'OFF';
-  if (options.openDifferential) sim.vehicle.differential.config.type = 'OPEN';
+function runScenario(mode: ScenarioMode) {
+  const sim = makeAtTenKmh(mode !== 'neutral-coast');
+  const totalSteps = HZ * 6;
+  const steadyStart = HZ * 2;
 
-  const totalSteps = 120 * 6;
-  const steadyStart = 120 * 2;
   const speed: number[] = [];
   const roll: number[] = [];
   const heave: number[] = [];
   const lateralG: number[] = [];
   const yawRate: number[] = [];
-  const actualSteer: number[] = [];
   const wheelTravel = [[], [], [], []] as number[][];
-  const hubY = [[], [], [], []] as number[][];
   const tireLoad = [[], [], [], []] as number[][];
-  const slipRatio = [[], [], [], []] as number[][];
-  const omega = [[], [], [], []] as number[][];
-  const lateralForce = [[], [], [], []] as number[][];
-  const longForceSignFlips = [0, 0, 0, 0];
-  const previousLongForceSign = [0, 0, 0, 0];
   const airborneToggles = [0, 0, 0, 0];
   const previousAirborne = [false, false, false, false];
   let throttleMin = Infinity;
   let throttleMax = -Infinity;
-  let tcsSamples = 0;
 
   for (let step = 0; step < totalSteps; step++) {
     const currentSpeedMs = Math.abs(sim.vehicle.rigidBody.getLocalVelocity().z);
     let throttle = 0;
     if (mode === 'automatic-speed-hold') {
+      // A deliberately soft driver-like correction keeps the maneuver centered
+      // around 10 km/h without injecting a sharp closed-loop throttle oscillation.
       const error = TARGET_SPEED_MS - currentSpeedMs;
       throttle = PhysicsMath.clamp(0.055 + error * 0.055, 0, 0.18);
     }
@@ -113,13 +88,7 @@ function runScenario(
     throttleMax = Math.max(throttleMax, throttle);
 
     const state = sim.stepExplicit({ ...baseInputs, throttle }, 1);
-    if (state.tcsActive) tcsSamples++;
-
     for (let i = 0; i < 4; i++) {
-      const force = state.wheels[i].forceVectorLong;
-      const sign = Math.abs(force) > 80 ? Math.sign(force) : 0;
-      if (sign !== 0 && previousLongForceSign[i] !== 0 && sign !== previousLongForceSign[i]) longForceSignFlips[i]++;
-      if (sign !== 0) previousLongForceSign[i] = sign;
       const airborne = state.wheels[i].isAirborne;
       if (step > 0 && airborne !== previousAirborne[i]) airborneToggles[i]++;
       previousAirborne[i] = airborne;
@@ -131,109 +100,83 @@ function runScenario(
     heave.push(state.heave * 1000);
     lateralG.push(state.lateralG);
     yawRate.push(state.yawRate * DEG);
-    actualSteer.push(state.actualSteerAngle * DEG);
     for (let i = 0; i < 4; i++) {
       wheelTravel[i].push(state.wheels[i].verticalTravelM * 1000);
-      hubY[i].push(state.wheels[i].hubWorldPos.y * 1000);
       tireLoad[i].push(state.wheels[i].forceVectorNorm);
-      slipRatio[i].push(state.wheels[i].slipRatio);
-      omega[i].push(state.wheels[i].angularVelocity);
-      lateralForce[i].push(state.wheels[i].forceVectorLat);
     }
   }
 
+  const oneSecondHalfWindow = Math.floor(HZ * 0.5);
+  const fastHalfWindow = 8;
   const result = {
     mode,
-    options,
-    configOverrides,
-    gear: sim.vehicle.powertrain.gear,
-    differentialType: sim.vehicle.differential.config.type,
-    tcsMode: sim.vehicle.driverAids.config.tcsMode,
-    tcsSamples,
     throttleRange: [throttleMin, throttleMax],
-    speedKmh: { min: Math.min(...speed), max: Math.max(...speed), p2p: range(speed) },
-    roll: { p2pDeg: range(roll), highPassRmsDeg: highPassRms(roll), secondDiffRmsDeg: secondDifferenceRms(roll) },
-    heave: { p2pMm: range(heave), highPassRmsMm: highPassRms(heave), secondDiffRmsMm: secondDifferenceRms(heave) },
-    lateralG: { p2p: range(lateralG), highPassRms: highPassRms(lateralG) },
-    yawRate: { p2pDegS: range(yawRate), highPassRmsDegS: highPassRms(yawRate) },
-    actualSteerP2pDeg: range(actualSteer),
+    speedKmh: {
+      min: Math.min(...speed),
+      max: Math.max(...speed),
+      p2p: range(speed),
+    },
+    roll: {
+      p2pDeg: range(roll),
+      detrendedRmsDeg: detrendedRms(roll, oneSecondHalfWindow),
+      fastRmsDeg: detrendedRms(roll, fastHalfWindow),
+    },
+    heave: {
+      p2pMm: range(heave),
+      detrendedRmsMm: detrendedRms(heave, oneSecondHalfWindow),
+    },
+    lateralG: {
+      p2p: range(lateralG),
+      detrendedRms: detrendedRms(lateralG, oneSecondHalfWindow),
+    },
+    yawRate: {
+      p2pDegS: range(yawRate),
+      detrendedRmsDegS: detrendedRms(yawRate, oneSecondHalfWindow),
+    },
     wheelTravelP2pMm: wheelTravel.map(range),
-    wheelTravelHighPassRmsMm: wheelTravel.map((v) => highPassRms(v)),
-    hubYHighPassRmsMm: hubY.map((v) => highPassRms(v)),
+    wheelTravelDetrendedRmsMm: wheelTravel.map((values) =>
+      detrendedRms(values, oneSecondHalfWindow)
+    ),
     tireLoadP2pN: tireLoad.map(range),
-    tireLoadHighPassRmsN: tireLoad.map((v) => highPassRms(v)),
-    slipRatioP2p: slipRatio.map(range),
-    omegaSecondDiffRms: omega.map((v) => secondDifferenceRms(v)),
-    lateralForceP2pN: lateralForce.map(range),
-    longForceSignFlips,
+    tireLoadDetrendedRmsN: tireLoad.map((values) =>
+      detrendedRms(values, oneSecondHalfWindow)
+    ),
     airborneToggles,
   };
 
   assert(speed.every(Number.isFinite), `${mode}: non-finite speed`);
   assert(roll.every(Number.isFinite), `${mode}: non-finite roll`);
-  assert(airborneToggles.every((count) => count === 0), `${mode}: wheel contact toggled ${airborneToggles.join(',')}`);
+  assert(
+    airborneToggles.every((count) => count === 0),
+    `${mode}: wheel contact toggled ${airborneToggles.join(',')}`
+  );
   return result;
-}
-
-if (process.env.POWERED_BLEND_CHILD === '1') {
-  const powered = runScenario('automatic-speed-hold');
-  console.log(JSON.stringify({ childVariant: process.env.POWERED_BLEND_LABEL, powered }, null, 2));
-  process.exit(0);
 }
 
 const neutral = runScenario('neutral-coast');
 const creep = runScenario('automatic-creep');
 const powered = runScenario('automatic-speed-hold');
-const poweredTcsOff = runScenario('automatic-speed-hold', { tcsOff: true });
-const poweredOpenDiff = runScenario('automatic-speed-hold', { openDifferential: true });
-const poweredNoCrossCoupling = runScenario('automatic-speed-hold', {}, { antiRollCrossCoupling: 0 } as Partial<VehicleConfig>);
-const poweredNoArb = runScenario('automatic-speed-hold', {}, {
-  rollStiffnessFront: 0,
-  rollStiffnessRear: 0,
-  antiRollCrossCoupling: 0,
-} as Partial<VehicleConfig>);
-const poweredNoRearSteer = runScenario('automatic-speed-hold', {}, { rearSteerMaxDeg: 0 } as Partial<VehicleConfig>);
-const poweredHighDamping = runScenario('automatic-speed-hold', {}, {
-  suspensionDampingLowSpeed: Number((baseConfig as any).suspensionDampingLowSpeed) * 1.5,
-  suspensionReboundDamping: Number((baseConfig as any).suspensionReboundDamping) * 1.5,
-} as Partial<VehicleConfig>);
+
+// Neutral/coast should settle almost completely once the steering transient has passed.
+assert(neutral.roll.detrendedRmsDeg < 0.03, `neutral roll residual ${neutral.roll.detrendedRmsDeg.toFixed(3)} deg RMS`);
+assert(Math.max(...neutral.wheelTravelDetrendedRmsMm) < 0.5, 'neutral suspension remains visibly active');
+
+// The live-drivetrain full-lock case is the user-visible regression. Allow the body
+// to take a physical cornering set, but reject continuing jelly-like pumping around
+// that moving mean. These limits are intentionally above the validated production
+// trace while remaining far below the old 3+ degree / 30+ mm failure signature.
+assert(powered.speedKmh.min > 8.5 && powered.speedKmh.max < 13.0, `powered speed escaped 10 km/h band: ${powered.speedKmh.min.toFixed(2)}-${powered.speedKmh.max.toFixed(2)}`);
+assert(powered.roll.detrendedRmsDeg < 0.30, `powered roll jiggle ${powered.roll.detrendedRmsDeg.toFixed(3)} deg RMS`);
+assert(powered.roll.p2pDeg < 1.0, `powered roll swing ${powered.roll.p2pDeg.toFixed(3)} deg p2p`);
+assert(Math.max(...powered.wheelTravelDetrendedRmsMm) < 3.0, `powered suspension jiggle ${Math.max(...powered.wheelTravelDetrendedRmsMm).toFixed(2)} mm RMS`);
+assert(Math.max(...powered.wheelTravelP2pMm) < 10.0, `powered suspension swing ${Math.max(...powered.wheelTravelP2pMm).toFixed(2)} mm p2p`);
+assert(Math.max(...powered.tireLoadDetrendedRmsN) < 700, `powered tire-load pumping ${Math.max(...powered.tireLoadDetrendedRmsN).toFixed(0)} N RMS`);
+assert(powered.yawRate.detrendedRmsDegS < 5.0, `powered yaw-rate pumping ${powered.yawRate.detrendedRmsDegS.toFixed(2)} deg/s RMS`);
 
 console.log(JSON.stringify({
-  scenario: '2025 M5 10 km/h full-lock live-drivetrain jiggle isolation diagnostic',
+  scenario: '2025 M5 10 km/h full-lock powered stability regression',
   neutral,
   creep,
   powered,
-  poweredTcsOff,
-  poweredOpenDiff,
-  poweredNoCrossCoupling,
-  poweredNoArb,
-  poweredNoRearSteer,
-  poweredHighDamping,
 }, null, 2));
-
-const wheelDynamicsPath = fileURLToPath(new URL('../WheelDynamics.ts', import.meta.url));
-const testPath = fileURLToPath(import.meta.url);
-const originalWheelDynamics = readFileSync(wheelDynamicsPath, 'utf8');
-const oldBlend = `    const wheelSurfaceSpeed = this.angularVelocity * this.radius;\n    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));\n    const dynamicBlendLinear = PhysicsMath.clamp((rollingSpeed - 0.35) / (3.00 - 0.35), 0, 1);\n`;
-assert(originalWheelDynamics.includes(oldBlend), 'expected low-speed tire blend block not found');
-
-try {
-  for (const endSpeed of [1.8, 2.2, 2.6]) {
-    const newBlend = `    const wheelSurfaceSpeed = this.angularVelocity * this.radius;\n    const rollingSpeed = Math.max(Math.abs(longitudinalVelocity), Math.abs(wheelSurfaceSpeed));\n    const contactRoadSpeed = Math.hypot(longitudinalVelocity, lateralVelocity);\n    const dynamicBlendLinear = PhysicsMath.clamp((contactRoadSpeed - 0.35) / (${endSpeed.toFixed(2)} - 0.35), 0, 1);\n`;
-    writeFileSync(wheelDynamicsPath, originalWheelDynamics.replace(oldBlend, newBlend));
-    console.log(`TIRE_BLEND_AB_BEGIN endSpeed=${endSpeed.toFixed(2)}mps`);
-    execFileSync('npx', ['tsx', testPath], {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        POWERED_BLEND_CHILD: '1',
-        POWERED_BLEND_LABEL: `contact-road-speed-${endSpeed.toFixed(2)}mps`,
-      },
-    });
-    console.log(`TIRE_BLEND_AB_END endSpeed=${endSpeed.toFixed(2)}mps`);
-  }
-} finally {
-  writeFileSync(wheelDynamicsPath, originalWheelDynamics);
-}
-
-console.log('PoweredFullLockJiggleTests: ISOLATION DIAGNOSTIC PASS');
+console.log('PoweredFullLockJiggleTests: PASS');
